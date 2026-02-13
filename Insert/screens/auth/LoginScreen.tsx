@@ -5,6 +5,7 @@
 
 import { useState } from 'react';
 import { View, TextInput, Button, Text, TouchableOpacity } from 'react-native';
+import styles from './styles/LoginScreenStyles';
 
 // import firebase sign in
 // import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
@@ -32,5 +33,7 @@ export default function LoginScreen() {
     };
   };
 
-  return null;
+  return <View style={styles.container}> 
+      
+  </View>;
 }
