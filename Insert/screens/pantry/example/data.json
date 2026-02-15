@@ -1,0 +1,304 @@
+{
+    "pantryItems": [
+        {
+            "id": 1,
+            "name": "Milk",
+            "quantity": 1,
+            "unit": "L",
+            "location": "Fridge",
+            "expirationDays": 14,
+            "dateAdded": "2025-01-07",
+            "expirationDate": "2025-01-21"
+        },
+        {
+            "id": 2,
+            "name": "Yogurt",
+            "quantity": 500,
+            "unit": "g",
+            "location": "Fridge",
+            "expirationDays": 13,
+            "dateAdded": "2025-01-08",
+            "expirationDate": "2025-01-21"
+        },
+        {
+            "id": 3,
+            "name": "Cheddar Cheese",
+            "quantity": 400,
+            "unit": "g",
+            "location": "Fridge",
+            "expirationDays": 14,
+            "dateAdded": "2025-01-06",
+            "expirationDate": "2025-01-20"
+        },
+        {
+            "id": 4,
+            "name": "Baked Beans",
+            "quantity": 420,
+            "unit": "g",
+            "location": "Pantry",
+            "expirationDays": 729,
+            "dateAdded": "2025-01-07",
+            "expirationDate": "2026-12-21"
+        },
+        {
+            "id": 5,
+            "name": "Tomato Sauce",
+            "quantity": 500,
+            "unit": "g",
+            "location": "Pantry",
+            "expirationDays": 731,
+            "dateAdded": "2025-01-09",
+            "expirationDate": "2026-12-25"
+        },
+        {
+            "id": 6,
+            "name": "Tuna",
+            "quantity": 200,
+            "unit": "g",
+            "location": "Pantry",
+            "expirationDays": 730,
+            "dateAdded": "2025-01-08",
+            "expirationDate": "2026-12-23"
+        },
+        {
+            "id": 7,
+            "name": "Carrots",
+            "quantity": 500,
+            "unit": "g",
+            "location": "Fridge",
+            "expirationDays": 21,
+            "dateAdded": "2025-01-06",
+            "expirationDate": "2025-01-27"
+        },
+        {
+            "id": 8,
+            "name": "Broccoli",
+            "quantity": 400,
+            "unit": "g",
+            "location": "Fridge",
+            "expirationDays": 9,
+            "dateAdded": "2025-01-09",
+            "expirationDate": "2025-01-18"
+        },
+        {
+            "id": 9,
+            "name": "Spinach",
+            "quantity": 200,
+            "unit": "g",
+            "location": "Fridge",
+            "expirationDays": 10,
+            "dateAdded": "2025-01-07",
+            "expirationDate": "2025-01-17"
+        },
+        {
+            "id": 10,
+            "name": "Potatoes",
+            "quantity": 2,
+            "unit": "kg",
+            "location": "Pantry",
+            "expirationDays": 28,
+            "dateAdded": "2025-01-08",
+            "expirationDate": "2025-02-05"
+        },
+        {
+            "id": 11,
+            "name": "Onions",
+            "quantity": 1,
+            "unit": "kg",
+            "location": "Pantry",
+            "expirationDays": 28,
+            "dateAdded": "2025-01-06",
+            "expirationDate": "2025-02-03"
+        },
+        {
+            "id": 12,
+            "name": "Butter",
+            "quantity": 250,
+            "unit": "g",
+            "location": "Fridge",
+            "expirationDays": 14,
+            "dateAdded": "2025-01-09",
+            "expirationDate": "2025-01-23"
+        },
+        {
+            "id": 13,
+            "name": "Bread",
+            "quantity": 700,
+            "unit": "g",
+            "location": "Pantry",
+            "expirationDays": 7,
+            "dateAdded": "2025-01-07",
+            "expirationDate": "2025-01-14"
+        },
+        {
+            "id": 14,
+            "name": "Pasta",
+            "quantity": 500,
+            "unit": "g",
+            "location": "Pantry",
+            "expirationDays": 729,
+            "dateAdded": "2025-01-08",
+            "expirationDate": "2026-12-22"
+        },
+        {
+            "id": 15,
+            "name": "Rice",
+            "quantity": 1,
+            "unit": "kg",
+            "location": "Pantry",
+            "expirationDays": 1095,
+            "dateAdded": "2025-01-06",
+            "expirationDate": "2028-01-06"
+        },
+        {
+            "id": 16,
+            "name": "Chicken Breast",
+            "quantity": 600,
+            "unit": "g",
+            "location": "Fridge",
+            "expirationDays": 7,
+            "dateAdded": "2025-01-09",
+            "expirationDate": "2025-01-16"
+        },
+        {
+            "id": 17,
+            "name": "Ground Beef",
+            "quantity": 500,
+            "unit": "g",
+            "location": "Fridge",
+            "expirationDays": 7,
+            "dateAdded": "2025-01-07",
+            "expirationDate": "2025-01-14"
+        },
+        {
+            "id": 18,
+            "name": "Eggs",
+            "quantity": 720,
+            "unit": "g",
+            "location": "Fridge",
+            "expirationDays": 14,
+            "dateAdded": "2025-01-08",
+            "expirationDate": "2025-01-22"
+        },
+        {
+            "id": 19,
+            "name": "Bell Peppers",
+            "quantity": 400,
+            "unit": "g",
+            "location": "Fridge",
+            "expirationDays": 16,
+            "dateAdded": "2025-01-06",
+            "expirationDate": "2025-01-22"
+        },
+        {
+            "id": 20,
+            "name": "Lettuce",
+            "quantity": 300,
+            "unit": "g",
+            "location": "Fridge",
+            "expirationDays": 10,
+            "dateAdded": "2025-01-09",
+            "expirationDate": "2025-01-19"
+        },
+        {
+            "id": 21,
+            "name": "Chicken Soup",
+            "quantity": 400,
+            "unit": "g",
+            "location": "Pantry",
+            "expirationDays": 729,
+            "dateAdded": "2025-01-07",
+            "expirationDate": "2026-12-21"
+        },
+        {
+            "id": 22,
+            "name": "Olive Oil",
+            "quantity": 500,
+            "unit": "ml",
+            "location": "Pantry",
+            "expirationDays": 730,
+            "dateAdded": "2025-01-08",
+            "expirationDate": "2026-12-23"
+        },
+        {
+            "id": 23,
+            "name": "Apples",
+            "quantity": 1,
+            "unit": "kg",
+            "location": "Fridge",
+            "expirationDays": 21,
+            "dateAdded": "2025-01-06",
+            "expirationDate": "2025-01-27"
+        },
+        {
+            "id": 24,
+            "name": "Bananas",
+            "quantity": 600,
+            "unit": "g",
+            "location": "Pantry",
+            "expirationDays": 5,
+            "dateAdded": "2025-01-09",
+            "expirationDate": "2025-01-14"
+        },
+        {
+            "id": 25,
+            "name": "Orange Juice",
+            "quantity": 1,
+            "unit": "L",
+            "location": "Fridge",
+            "expirationDays": 14,
+            "dateAdded": "2025-01-07",
+            "expirationDate": "2025-01-21"
+        },
+        {
+            "id": 26,
+            "name": "Flour",
+            "quantity": 1,
+            "unit": "kg",
+            "location": "Pantry",
+            "expirationDays": 730,
+            "dateAdded": "2025-01-08",
+            "expirationDate": "2026-12-23"
+        },
+        {
+            "id": 27,
+            "name": "Sugar",
+            "quantity": 1,
+            "unit": "kg",
+            "location": "Pantry",
+            "expirationDays": 1095,
+            "dateAdded": "2025-01-06",
+            "expirationDate": "2028-01-06"
+        },
+        {
+            "id": 28,
+            "name": "Hummus",
+            "quantity": 300,
+            "unit": "g",
+            "location": "Fridge",
+            "expirationDays": 14,
+            "dateAdded": "2025-01-09",
+            "expirationDate": "2025-01-23"
+        },
+        {
+            "id": 29,
+            "name": "Greek Yogurt",
+            "quantity": 400,
+            "unit": "g",
+            "location": "Fridge",
+            "expirationDays": 13,
+            "dateAdded": "2025-01-07",
+            "expirationDate": "2025-01-20"
+        },
+        {
+            "id": 30,
+            "name": "Salmon",
+            "quantity": 400,
+            "unit": "g",
+            "location": "Fridge",
+            "expirationDays": 7,
+            "dateAdded": "2025-01-08",
+            "expirationDate": "2025-01-15"
+        }
+    ]
+}
