@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { View, Text, Button, Alert, ScrollView, TextInput } from "react-native";
-import styles from "./Styling/PantryItemDetaulScreen.css";
+import styles from './PantryItemDetaulScreen.styles';
 
 const data = require("./example/data.json");
 const pantryItems = data.pantryItems;
@@ -25,7 +25,7 @@ export default function PantryItemDetailScreen() {
       <View style={styles.header}>
         <TextInput placeholder="Search pantry items..." />
         {/* Eventually add a notification that will notify if something is close to expiring */}
-        <View style={styles.titleAndFilter}>
+        <View style={[styles.titleAndFilter, styles.row]}>
           <Text style={styles.title}>Pantry</Text>
           {/* Eventually turn filter into a image */}
           <Text style={styles.filter}>=</Text>
@@ -37,13 +37,13 @@ export default function PantryItemDetailScreen() {
   const ItemDetails = ({ item }: ItemDetailsProps) => {
     return (
       <View style={styles.itemDetails}>
-        <View style={styles.nameQuantity}>
+        <View style={[styles.nameQuantity, styles.row]}>
           <Text style={styles.itemName}>{item.name}</Text>
           <Text style={styles.itemQuantity}>
             Quantity: {item.quantity} {item.unit}
           </Text>
         </View>
-        <View style={styles.expirationLocation}>
+        <View style={[styles.expirationLocation, styles.row]}>
           <Text style={styles.itemExpiration}>
             Expires in {item.expirationDays} days
           </Text>
