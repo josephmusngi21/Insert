@@ -1,6 +1,6 @@
 import { Text, View } from "react-native";
 import PantryItemDetailScreen from "@/screens/pantry/PantryItemDetailScreen";
-
+import MainLogin from '../screens/firebaseAuthLoginRegister/MainLogin';
 export default function Index() {
   return (
     <View
@@ -10,7 +10,9 @@ export default function Index() {
         alignItems: "center",
       }}
     >
-      <PantryItemDetailScreen />
+      {/* <PantryItemDetailScreen /> */}
+      {/* <Login /> */}
+      <MainLogin />
     </View>
   );
 }
