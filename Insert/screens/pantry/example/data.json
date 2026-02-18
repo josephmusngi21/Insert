@@ -6,7 +6,7 @@
             "quantity": 1,
             "unit": "L",
             "location": "Fridge",
-            "expirationDays": 14,
+            "expirationDays": 0,
             "dateAdded": "2025-01-07",
             "expirationDate": "2025-01-21"
         },
