@@ -44,7 +44,7 @@ export default function PantryItemDetailScreen() {
         <View style={[styles.nameQuantity, styles.row]}>
           <Text style={styles.itemName}>{item.name}</Text>
           <Text style={styles.itemQuantity}>
-            Quantity: {item.quantity} {item.unit}
+            {item.quantity} {item.unit}
           </Text>
         </View>
 
