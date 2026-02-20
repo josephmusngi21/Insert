@@ -1,6 +1,23 @@
 import { StyleSheet } from "react-native";
 
 const styles = StyleSheet.create({
+    searchContainer: {
+        marginTop: 40,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        backgroundColor: "#ffffff",
+        borderBottomWidth: 1,
+        borderBottomColor: "#e0e0e0",
+    },
+    search: {
+        marginTop: 8,
+        paddingHorizontal: 16,
+        paddingBottom: 12,
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "center",
+    },
+
     row: {
         display: "flex",
         flexDirection: "row",
@@ -8,64 +25,98 @@ const styles = StyleSheet.create({
     container: {
         display: "flex",
         flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
+        flex: 1,
+        backgroundColor: "#f8f9fa",
         width: "100%",
-        height: "100%",
     },
-    header: {},
-    titleAndFilter: {},
-    title: {},
-    filter: {},
-    itemDetails: {
+    header: {
+        backgroundColor: "#ffffff",
+        paddingHorizontal: 16,
+        paddingTop: 16,
+        paddingBottom: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: "#e0e0e0",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    titleAndFilter: {
         justifyContent: "space-between",
         alignItems: "center",
-        width: "97%",
-        height: 60,
-        paddingHorizontal: 10,
-        paddingVertical: 10,
-        borderColor: "black",
-        borderWidth: 1,
-        borderRadius: 13,
+        marginTop: 12,
+    },
+    title: {
+        fontSize: 28,
+        fontWeight: "700",
+        color: "#1a1a1a",
+    },
+    filter: {
+        fontSize: 20,
+        fontWeight: "600",
+        color: "#666",
+    },
+    itemDetails: {
+        backgroundColor: "#ffffff",
+        marginHorizontal: 12,
         marginVertical: 8,
-        marginHorizontal: 7,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: "#e0e0e0",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 3,
+        elevation: 2,
     },
     nameQuantity: {
-        display: "flex",
-        flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-        width: "100%",
+        marginBottom: 10,
     },
     itemName: {
-        fontSize: 14,
+        fontSize: 16,
+        fontWeight: "600",
+        color: "#1a1a1a",
         flex: 1,
     },
     itemQuantity: {
         fontSize: 14,
+        fontWeight: "500",
+        color: "#555",
+        marginLeft: 12,
     },
-    expirationLocation: {},
+    expirationLocation: {
+        justifyContent: "space-between",
+        alignItems: "center",
+    },
     itemExpiration1: {
-        // Expiration more than 4 days away
-        color: 'grey',
-        fontSize: 14,
-        fontWeight: '400',
+        color: "#888",
+        fontSize: 13,
+        fontWeight: "400",
     },
     itemExpiration2: {
-        // Expiring today
-        color: "red",
-        fontSize: 12,
-        fontWeight: '700',
-
+        color: "#dc3545",
+        fontSize: 13,
+        fontWeight: "700",
     },
     itemExpiration3: {
-        // Expiring in less than 4 days
-        fontWeight: '500',
-        fontSize: 14,
-        color: "orange",
+        color: "#ff9800",
+        fontSize: 13,
+        fontWeight: "600",
     },
-    itemLocation: {},
-    mainContainer: {},
+    itemLocation: {
+        fontSize: 13,
+        fontWeight: "500",
+        color: "#666",
+        marginLeft: 12,
+    },
+    mainContainer: {
+        paddingVertical: 12,
+    },
 });
 
 export default styles;
