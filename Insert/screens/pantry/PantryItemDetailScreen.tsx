@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { View, Text, Button, Alert, ScrollView, TextInput } from "react-native";
-import styles from './PantryItemDetaulScreen.styles';
+import styles from "./PantryItemDetaulScreen.styles";
 
 const data = require("./example/data.json");
 const pantryItems = data.pantryItems;
@@ -21,14 +21,19 @@ type PantryItem = {
 type ItemDetailsProps = { item: PantryItem };
 
 export default function PantryItemDetailScreen() {
-
   const Header = () => {
     //TODO: Have the search to look for specific items in the pantry or type of item (e.g. dairy, meat, etc.)
 
     return (
       <View style={styles.header}>
-        <TextInput placeholder="Search pantry items..." />
-        {/* Eventually add a notification that will notify if something is close to expiring */}
+        <View style={styles.searchContainer}>
+          <TextInput
+            style={styles.search}
+            placeholder="Search pantry items..."
+          />
+          {/* Eventually add a notification that will notify if something is close to expiring */}
+        </View>
+
         <View style={[styles.titleAndFilter, styles.row]}>
           <Text style={styles.title}>Pantry</Text>
           {/* Eventually turn filter into a image */}
@@ -44,12 +49,11 @@ export default function PantryItemDetailScreen() {
         <View style={[styles.nameQuantity, styles.row]}>
           <Text style={styles.itemName}>{item.name}</Text>
           <Text style={styles.itemQuantity}>
-            {item.quantity} {item.unit}
+            Quantity: {item.quantity} {item.unit}
           </Text>
         </View>
 
         <View style={[styles.expirationLocation, styles.row]}>
-
           {/* Make conditional, if close make it say Expiring in X days!
               else x days in location */}
 
@@ -72,8 +76,8 @@ export default function PantryItemDetailScreen() {
   };
 
   const MainContainer = () => {
-    //TODO: Will include the itemDetails and action, swipe left or right to edit or delete the item, 
-    // if deleted it will ask for confirmation before deleting the item, 
+    //TODO: Will include the itemDetails and action, swipe left or right to edit or delete the item,
+    // if deleted it will ask for confirmation before deleting the item,
     // if edited it will navigate to the edit screen with the item details pre-filled
 
     return (
