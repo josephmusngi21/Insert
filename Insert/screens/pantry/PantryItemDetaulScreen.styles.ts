@@ -52,10 +52,11 @@ const styles = StyleSheet.create({
         fontWeight: "700",
         color: "#1a1a1a",
     },
-    menu: {
+    menuContainer: {
         fontSize: 20,
         fontWeight: "600",
         color: "#666",
+        padding: 8,
     },
     itemDetails: {
         backgroundColor: "#ffffff",
