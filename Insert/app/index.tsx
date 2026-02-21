@@ -10,9 +10,8 @@ export default function Index() {
         alignItems: "center",
       }}
     >
-      {/* <PantryItemDetailScreen /> */}
-      {/* <Login /> */}
-      <MainLogin />
+      <PantryItemDetailScreen />
+      {/* <MainLogin /> */}
     </View>
   );
 }
