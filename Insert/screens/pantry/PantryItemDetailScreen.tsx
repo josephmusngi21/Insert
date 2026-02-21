@@ -72,13 +72,13 @@ export default function PantryItemDetailScreen() {
             {isEditing ? (
               <>
                 <TextInput
-                  style={{ fontSize: 16, fontWeight: "600", color: "#1a1a1a", marginBottom: 8 }}
+                  style={styles.editItemNameInput}
                   placeholder={item.name}
                   value={currentForm.name}
                   onChangeText={(text) => setEditForm({ ...editForm, [item.id]: { ...currentForm, name: text } })}
                 />
                 <TextInput
-                  style={{ fontSize: 13, fontWeight: "500", color: "#666" }}
+                  style={styles.editItemLocationInput}
                   placeholder={item.location}
                   value={currentForm.location}
                   onChangeText={(text) => setEditForm({ ...editForm, [item.id]: { ...currentForm, location: text } })}
@@ -90,7 +90,7 @@ export default function PantryItemDetailScreen() {
           </View>
           {isEditing ? (
             <TextInput
-              style={{ fontSize: 14, fontWeight: "500", color: "#555", marginLeft: 12, width: 50 }}
+              style={styles.editItemQuantityInput}
               placeholder={item.quantity.toString()}
               value={currentForm.quantity}
               keyboardType="numeric"
