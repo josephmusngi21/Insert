@@ -42,7 +42,7 @@ const styles = StyleSheet.create({
         shadowRadius: 4,
         elevation: 2,
     },
-    titleAndFilter: {
+    titleAndMenu: {
         justifyContent: "space-between",
         alignItems: "center",
         marginTop: 12,
@@ -52,7 +52,7 @@ const styles = StyleSheet.create({
         fontWeight: "700",
         color: "#1a1a1a",
     },
-    filter: {
+    menu: {
         fontSize: 20,
         fontWeight: "600",
         color: "#666",
@@ -76,6 +76,12 @@ const styles = StyleSheet.create({
         justifyContent: "space-between",
         alignItems: "center",
         marginBottom: 10,
+    },
+    itemType: {
+        fontSize: 12,
+        fontWeight: "500",
+        color: "#888",
+        marginBottom: 4,
     },
     itemName: {
         fontSize: 16,
