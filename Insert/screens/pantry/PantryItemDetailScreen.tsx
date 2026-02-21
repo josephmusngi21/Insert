@@ -46,23 +46,33 @@ export default function PantryItemDetailScreen() {
   const Header = () => {
     return (
       <View style={styles.header}>
-        <View style={styles.searchContainer}>
+        {/* <View style={styles.searchContainer}>
           <TextInput style={styles.search} placeholder="Search pantry items..." />
-        </View>
+        </View> */}
 
         <View style={[styles.titleAndMenu, styles.row]}>
           <Text style={styles.title}>Pantry</Text>
-          <Button 
-            title={editingMode ? "Done" : "+"} 
-            onPress={handleToggleEdit} 
-          />
+            <View style={styles.menuContainer}>
+            <Button
+              title={editingMode ? "Done" : "+"} 
+              onPress={handleToggleEdit}
+              accessibilityLabel={editingMode ? "Done editing" : "Add item"}
+            />
+            </View>
         </View>
       </View>
     );
   };
 
   const ItemDetails = ({ item, isEditing }: ItemDetailsProps) => {
-    const currentForm = editForm[item.id] || { name: item.name, quantity: item.quantity.toString(), location: item.location };
+    const currentForm = editForm[item.id] ?? { name: item.name, quantity: item.quantity.toString(), location: item.location };
+    
+    const handleEditChange = (field: string, value: string) => {
+      setEditForm({
+        ...editForm,
+        [item.id]: { ...currentForm, [field]: value }
+      });
+    };
 
     return (
       <View style={styles.itemDetails}>
@@ -70,20 +80,22 @@ export default function PantryItemDetailScreen() {
           <View>
             <Text style={styles.itemType}>{item.type}</Text>
             {isEditing ? (
-              <>
+                <>
                 <TextInput
                   style={styles.editItemNameInput}
                   placeholder={item.name}
                   value={currentForm.name}
-                  onChangeText={(text) => setEditForm({ ...editForm, [item.id]: { ...currentForm, name: text } })}
+                  onChangeText={(text) => handleEditChange("name", text)}
+                  submitBehavior="blurAndSubmit"
                 />
                 <TextInput
                   style={styles.editItemLocationInput}
                   placeholder={item.location}
                   value={currentForm.location}
-                  onChangeText={(text) => setEditForm({ ...editForm, [item.id]: { ...currentForm, location: text } })}
+                  onChangeText={(text) => handleEditChange("location", text)}
+                  submitBehavior="blurAndSubmit"
                 />
-              </>
+                </>
             ) : (
               <Text style={styles.itemName}>{item.name}</Text>
             )}
@@ -94,7 +106,7 @@ export default function PantryItemDetailScreen() {
               placeholder={item.quantity.toString()}
               value={currentForm.quantity}
               keyboardType="numeric"
-              onChangeText={(text) => setEditForm({ ...editForm, [item.id]: { ...currentForm, quantity: text } })}
+              onChangeText={(text) => handleEditChange("quantity", text)}
             />
           ) : (
             <Text style={styles.itemQuantity}>
