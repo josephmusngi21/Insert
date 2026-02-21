@@ -8,6 +8,7 @@ const pantryItems = data.pantryItems;
 // 1. Define the type for a pantry item
 type PantryItem = {
   id: number;
+  type: string;
   name: string;
   quantity: number;
   unit: string;
@@ -22,8 +23,6 @@ type ItemDetailsProps = { item: PantryItem };
 
 export default function PantryItemDetailScreen() {
   const Header = () => {
-    //TODO: Have the search to look for specific items in the pantry or type of item (e.g. dairy, meat, etc.)
-
     return (
       <View style={styles.header}>
         <View style={styles.searchContainer}>
@@ -31,13 +30,11 @@ export default function PantryItemDetailScreen() {
             style={styles.search}
             placeholder="Search pantry items..."
           />
-          {/* Eventually add a notification that will notify if something is close to expiring */}
         </View>
 
-        <View style={[styles.titleAndFilter, styles.row]}>
+        <View style={[styles.titleAndMenu, styles.row]}>
           <Text style={styles.title}>Pantry</Text>
-          {/* Eventually turn filter into a image */}
-          <Text style={styles.filter}>=</Text>
+          <Text style={styles.menu}>=</Text>
         </View>
       </View>
     );
@@ -47,16 +44,16 @@ export default function PantryItemDetailScreen() {
     return (
       <View style={styles.itemDetails}>
         <View style={[styles.nameQuantity, styles.row]}>
-          <Text style={styles.itemName}>{item.name}</Text>
+          <View>
+            <Text style={styles.itemType}>{item.type}</Text>
+            <Text style={styles.itemName}>{item.name}</Text>
+          </View>
           <Text style={styles.itemQuantity}>
-            Quantity: {item.quantity} {item.unit}
+            {item.quantity} {item.unit}
           </Text>
         </View>
 
         <View style={[styles.expirationLocation, styles.row]}>
-          {/* Make conditional, if close make it say Expiring in X days!
-              else x days in location */}
-
           {item.expirationDays >= 4 ? (
             <Text style={styles.itemExpiration1}>
               {item.expirationDays} days in
@@ -76,10 +73,6 @@ export default function PantryItemDetailScreen() {
   };
 
   const MainContainer = () => {
-    //TODO: Will include the itemDetails and action, swipe left or right to edit or delete the item,
-    // if deleted it will ask for confirmation before deleting the item,
-    // if edited it will navigate to the edit screen with the item details pre-filled
-
     return (
       <ScrollView contentContainerStyle={styles.mainContainer}>
         {pantryItems.map((item: PantryItem) => (
