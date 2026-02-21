@@ -123,6 +123,24 @@ const styles = StyleSheet.create({
     mainContainer: {
         paddingVertical: 12,
     },
+    editItemNameInput: {
+        fontSize: 16,
+        fontWeight: "600",
+        color: "#1a1a1a",
+        marginBottom: 8,
+    },
+    editItemLocationInput: {
+        fontSize: 13,
+        fontWeight: "500",
+        color: "#666",
+    },
+    editItemQuantityInput: {
+        fontSize: 14,
+        fontWeight: "500",
+        color: "#555",
+        marginLeft: 12,
+        width: 50,
+    },
 });
 
 export default styles;
