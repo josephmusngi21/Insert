@@ -142,6 +142,32 @@ const styles = StyleSheet.create({
         marginLeft: 12,
         width: 50,
     },
+    modal: {
+        backgroundColor: "#ffffff",
+        marginHorizontal: 12,
+        marginVertical: 8,
+        paddingHorizontal: 16,
+        paddingVertical: 16,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: "#e0e0e0",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 4,
+        gap: 12,
+    },
+    input: {
+        borderWidth: 1,
+        borderColor: "#e0e0e0",
+        borderRadius: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        fontSize: 14,
+        color: "#1a1a1a",
+        marginBottom: 8,
+    },
 });
 
 export default styles;
