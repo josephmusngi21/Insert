@@ -64,6 +64,55 @@ export default function PantryItemDetailScreen() {
     );
   };
 
+  const AddItemModal = () => {
+    const [showModal, setShowModal] = useState(false);
+    const [newItem, setNewItem] = useState({ name: "", type: "", location: "", quantity: "" });
+
+    const itemTypes = [
+      { label: "Produce", value: "produce", expirationDays: 7 },
+      { label: "Dairy", value: "dairy", expirationDays: 14 },
+      { label: "Meat", value: "meat", expirationDays: 3 },
+      { label: "Pantry", value: "pantry", expirationDays: 30 },
+    ];
+
+    const handleAddItem = () => {
+      if (!newItem.name || !newItem.type || !newItem.location || !newItem.quantity) {
+        alert("Please fill all fields");
+        return;
+      }
+
+      const selectedType = itemTypes.find((t) => t.value === newItem.type);
+      const newPantryItem: PantryItem = {
+        id: Math.max(...items.map((i) => i.id), 0) + 1,
+        type: newItem.type,
+        name: newItem.name,
+        quantity: parseInt(newItem.quantity),
+        unit: "pcs",
+        location: newItem.location,
+        expirationDays: selectedType?.expirationDays || 0,
+        dateAdded: new Date().toISOString(),
+        expirationDate: new Date(Date.now() + (selectedType?.expirationDays || 0) * 86400000).toISOString(),
+      };
+
+      setItems([...items, newPantryItem]);
+      setNewItem({ name: "", type: "", location: "", quantity: "" });
+      setShowModal(false);
+    };
+
+    return !showModal ? (
+      <Button title="Add New Item" onPress={() => setShowModal(true)} />
+    ) : (
+      <View style={styles.modal}>
+        <TextInput style={styles.input} placeholder="Item Name" value={newItem.name} onChangeText={(text) => setNewItem({ ...newItem, name: text })} />
+        <TextInput style={styles.input} placeholder="Type" value={newItem.type} onChangeText={(text) => setNewItem({ ...newItem, type: text })} />
+        <TextInput style={styles.input} placeholder="Location" value={newItem.location} onChangeText={(text) => setNewItem({ ...newItem, location: text })} />
+        <TextInput style={styles.input} placeholder="Quantity" keyboardType="numeric" value={newItem.quantity} onChangeText={(text) => setNewItem({ ...newItem, quantity: text })} />
+        <Button title="Add Item" onPress={handleAddItem} />
+        <Button title="Cancel" onPress={() => setShowModal(false)} />
+      </View>
+    );
+  };
+
   const ItemDetails = ({ item, isEditing }: ItemDetailsProps) => {
     const currentForm = editForm[item.id] ?? { name: item.name, quantity: item.quantity.toString(), location: item.location };
     
@@ -147,6 +196,7 @@ export default function PantryItemDetailScreen() {
   return (
     <View style={styles.container}>
       <Header />
+      <AddItemModal />
       <MainContainer />
     </View>
   );
