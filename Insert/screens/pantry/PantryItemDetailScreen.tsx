@@ -75,9 +75,6 @@ export default function PantryItemDetailScreen() {
       { label: "Pantry", value: "pantry", expirationDays: 30 },
     ];
 
-    const locations = ["Fridge", "Freezer", "Pantry", "Counter"];
-    const quantities = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
-
     const handleAddItem = () => {
       if (!newItem.name || !newItem.type || !newItem.location || !newItem.quantity) {
         alert("Please fill all fields");
@@ -107,28 +104,9 @@ export default function PantryItemDetailScreen() {
     ) : (
       <View style={styles.modal}>
         <TextInput style={styles.input} placeholder="Item Name" value={newItem.name} onChangeText={(text) => setNewItem({ ...newItem, name: text })} />
-        
-        <select value={newItem.type} onChange={(e) => setNewItem({ ...newItem, type: e.target.value })} style={styles.input}>
-          <option value="">Select Type</option>
-          {itemTypes.map((type) => (
-            <option key={type.value} value={type.value}>{type.label}</option>
-          ))}
-        </select>
-
-        <select value={newItem.location} onChange={(e) => setNewItem({ ...newItem, location: e.target.value })} style={styles.input}>
-          <option value="">Select Location</option>
-          {locations.map((loc) => (
-            <option key={loc} value={loc}>{loc}</option>
-          ))}
-        </select>
-
-        <select value={newItem.quantity} onChange={(e) => setNewItem({ ...newItem, quantity: e.target.value })} style={styles.input}>
-          <option value="">Select Quantity</option>
-          {quantities.map((qty) => (
-            <option key={qty} value={qty}>{qty}</option>
-          ))}
-        </select>
-
+        <TextInput style={styles.input} placeholder="Type" value={newItem.type} onChangeText={(text) => setNewItem({ ...newItem, type: text })} />
+        <TextInput style={styles.input} placeholder="Location" value={newItem.location} onChangeText={(text) => setNewItem({ ...newItem, location: text })} />
+        <TextInput style={styles.input} placeholder="Quantity" keyboardType="numeric" value={newItem.quantity} onChangeText={(text) => setNewItem({ ...newItem, quantity: text })} />
         <Button title="Add Item" onPress={handleAddItem} />
         <Button title="Cancel" onPress={() => setShowModal(false)} />
       </View>
