@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { View, Text, Button, ScrollView, TextInput } from "react-native";
-import styles from "./PantryItemDetaulScreen.styles";
+import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity } from "react-native";
+import styles from "./PantryItemDetailScreen.styles";
 import data from "./example/data.json";
 
 const pantryItems = data.pantryItems;
@@ -12,9 +12,19 @@ type PantryItem = {
   quantity: number;
   unit: string;
   location: string;
-  expirationDays: number;
   dateAdded: string;
   expirationDate: string;
+};
+
+// Helper function to calculate days until expiration
+const calculateExpirationDays = (expirationDate: string): number => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const expDate = new Date(expirationDate);
+  expDate.setHours(0, 0, 0, 0);
+  const diffTime = expDate.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays;
 };
 
 type ItemDetailsProps = { item: PantryItem; isEditing: boolean };
@@ -28,7 +38,9 @@ export default function PantryItemDetailScreen({ onLogout }: PantryItemDetailScr
   const [editingMode, setEditingMode] = useState(false);
   const [editForm, setEditForm] = useState<{ [key: number]: { name: string; quantity: string; location: string } }>({});
 
-  const handleToggleEdit = () => {
+
+
+  const handleToggleEdit = async () => {
     if (editingMode) {
       // Save all changes when exiting edit mode
       const updatedItems = items.map((item) => {
@@ -45,6 +57,24 @@ export default function PantryItemDetailScreen({ onLogout }: PantryItemDetailScr
       setEditForm({});
     }
     setEditingMode(!editingMode);
+  };
+
+  const handleDeleteItem = (itemId: number, itemName: string) => {
+    Alert.alert(
+      "Delete Item",
+      `Are you sure you want to remove "${itemName}"?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            const updatedItems = items.filter(item => item.id !== itemId);
+            setItems(updatedItems);
+          }
+        }
+      ]
+    );
   };
 
   const Header = () => {
@@ -86,7 +116,7 @@ export default function PantryItemDetailScreen({ onLogout }: PantryItemDetailScr
       { label: "Pantry", value: "pantry", expirationDays: 30 },
     ];
 
-    const handleAddItem = () => {
+    const handleAddItem = async () => {
       if (!newItem.name || !newItem.type || !newItem.location || !newItem.quantity) {
         alert("Please fill all fields");
         return;
@@ -100,12 +130,12 @@ export default function PantryItemDetailScreen({ onLogout }: PantryItemDetailScr
         quantity: parseInt(newItem.quantity),
         unit: "pcs",
         location: newItem.location,
-        expirationDays: selectedType?.expirationDays || 0,
         dateAdded: new Date().toISOString(),
         expirationDate: new Date(Date.now() + (selectedType?.expirationDays || 0) * 86400000).toISOString(),
       };
 
-      setItems([...items, newPantryItem]);
+      const updatedItems = [...items, newPantryItem];
+      setItems(updatedItems);
       setNewItem({ name: "", type: "", location: "", quantity: "" });
       setShowModal(false);
     };
@@ -135,7 +165,11 @@ export default function PantryItemDetailScreen({ onLogout }: PantryItemDetailScr
     };
 
     return (
-      <View style={styles.itemDetails}>
+      <TouchableOpacity 
+        style={styles.itemDetails}
+        onLongPress={() => !isEditing && handleDeleteItem(item.id, item.name)}
+        delayLongPress={500}
+      >
         <View style={[styles.nameQuantity, styles.row]}>
           <View>
             <Text style={styles.itemType}>{item.type}</Text>
@@ -176,17 +210,27 @@ export default function PantryItemDetailScreen({ onLogout }: PantryItemDetailScr
         </View>
 
         <View style={[styles.expirationLocation, styles.row]}>
-          {item.expirationDays >= 4 ? (
-            <Text style={styles.itemExpiration1}>{item.expirationDays} days in</Text>
-          ) : item.expirationDays === 0 ? (
-            <Text style={styles.itemExpiration2}>Expires Today!</Text>
-          ) : (
-            <Text style={styles.itemExpiration3}>Expiring in {item.expirationDays} days!</Text>
-          )}
+          {(() => {
+            const expirationDays = calculateExpirationDays(item.expirationDate);
+            if (expirationDays >= 4) {
+              return <Text style={styles.itemExpiration1}>{expirationDays} days left</Text>;
+            } else if (expirationDays === 0) {
+              return <Text style={styles.itemExpiration2}>Expires Today!</Text>;
+            } else if (expirationDays < 0) {
+              const daysExpired = Math.abs(expirationDays);
+              return <Text style={styles.itemExpiration2}>Expired {daysExpired} day{daysExpired !== 1 ? 's' : ''} ago</Text>;
+            } else {
+              return <Text style={styles.itemExpiration3}>Expiring in {expirationDays} day{expirationDays !== 1 ? 's' : ''}!</Text>;
+            }
+          })()}
 
           <Text style={styles.itemLocation}>{item.location}</Text>
         </View>
-      </View>
+
+        {!isEditing && (
+          <Text style={styles.deleteHint}>Long press to delete</Text>
+        )}
+      </TouchableOpacity>
     );
   };
 

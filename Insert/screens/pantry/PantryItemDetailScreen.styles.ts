@@ -168,6 +168,13 @@ const styles = StyleSheet.create({
         color: "#1a1a1a",
         marginBottom: 8,
     },
+    deleteHint: {
+        fontSize: 12,
+        color: "#999",
+        fontStyle: "italic",
+        marginTop: 8,
+        textAlign: "center",
+    },
 });
 
 export default styles;
