@@ -1,0 +1,156 @@
+{
+  "recipes": [
+    {
+      "id": 1,
+      "name": "Spaghetti Carbonara",
+      "description": "Classic Italian pasta with creamy egg sauce",
+      "servings": 4,
+      "cookTime": 20,
+      "ingredients": [
+        "pasta",
+        "eggs",
+        "bacon",
+        "parmesan cheese",
+        "black pepper",
+        "salt"
+      ],
+      "instructions": [
+        "Cook pasta according to package directions",
+        "Fry bacon until crispy",
+        "Mix eggs with grated cheese",
+        "Combine pasta with bacon and egg mixture",
+        "Season with pepper and serve"
+      ],
+      "difficulty": "easy",
+      "cuisine": "italian"
+    },
+    {
+      "id": 2,
+      "name": "Chicken Stir Fry",
+      "description": "Quick and healthy Asian-inspired dish",
+      "servings": 3,
+      "cookTime": 25,
+      "ingredients": [
+        "chicken breast",
+        "bell pepper",
+        "onion",
+        "garlic",
+        "soy sauce",
+        "oil",
+        "rice"
+      ],
+      "instructions": [
+        "Cut chicken into bite-sized pieces",
+        "Heat oil in a wok or large pan",
+        "Stir fry chicken until cooked through",
+        "Add vegetables and garlic",
+        "Add soy sauce and serve over rice"
+      ],
+      "difficulty": "easy",
+      "cuisine": "asian"
+    },
+    {
+      "id": 3,
+      "name": "Tomato Pasta",
+      "description": "Simple and delicious tomato-based pasta",
+      "servings": 2,
+      "cookTime": 20,
+      "ingredients": [
+        "pasta",
+        "canned tomato",
+        "garlic",
+        "olive oil",
+        "basil",
+        "parmesan cheese",
+        "salt",
+        "black pepper"
+      ],
+      "instructions": [
+        "Cook pasta until al dente",
+        "Sauté garlic in olive oil",
+        "Add canned tomatoes and simmer",
+        "Drain pasta and combine with sauce",
+        "Top with cheese and fresh basil"
+      ],
+      "difficulty": "easy",
+      "cuisine": "italian"
+    },
+    {
+      "id": 4,
+      "name": "Grilled Salmon",
+      "description": "Healthy protein-rich salmon dish",
+      "servings": 2,
+      "cookTime": 15,
+      "ingredients": [
+        "salmon",
+        "lemon",
+        "olive oil",
+        "salt",
+        "black pepper",
+        "garlic"
+      ],
+      "instructions": [
+        "Preheat grill to medium-high heat",
+        "Season salmon with salt, pepper, and garlic",
+        "Grill for 12-15 minutes until cooked",
+        "Serve with lemon slices"
+      ],
+      "difficulty": "easy",
+      "cuisine": "seafood"
+    },
+    {
+      "id": 5,
+      "name": "Chocolate Chip Cookies",
+      "description": "Classic homemade cookies",
+      "servings": 24,
+      "cookTime": 30,
+      "ingredients": [
+        "flour",
+        "butter",
+        "sugar",
+        "brown sugar",
+        "eggs",
+        "vanilla",
+        "baking soda",
+        "salt"
+      ],
+      "instructions": [
+        "Preheat oven to 375°F",
+        "Mix butter and sugars until creamy",
+        "Add eggs and vanilla",
+        "Mix in flour, baking soda, and salt",
+        "Drop spoonfuls onto baking sheet",
+        "Bake for 9-11 minutes"
+      ],
+      "difficulty": "easy",
+      "cuisine": "dessert"
+    },
+    {
+      "id": 6,
+      "name": "Beef Tacos",
+      "description": "Delicious ground beef tacos",
+      "servings": 4,
+      "cookTime": 20,
+      "ingredients": [
+        "ground beef",
+        "onion",
+        "garlic",
+        "tomato",
+        "cheese",
+        "lettuce",
+        "salt",
+        "black pepper"
+      ],
+      "instructions": [
+        "Brown ground beef in a skillet",
+        "Add diced onion and garlic",
+        "Season with salt and pepper",
+        "Warm tortillas",
+        "Fill with beef and toppings",
+        "Serve with cheese and lettuce"
+      ],
+      "difficulty": "easy",
+      "cuisine": "mexican"
+    }
+  ]
+}
