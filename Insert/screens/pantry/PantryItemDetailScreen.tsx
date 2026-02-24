@@ -19,7 +19,11 @@ type PantryItem = {
 
 type ItemDetailsProps = { item: PantryItem; isEditing: boolean };
 
-export default function PantryItemDetailScreen() {
+interface PantryItemDetailScreenProps {
+  onLogout?: () => void;
+}
+
+export default function PantryItemDetailScreen({ onLogout }: PantryItemDetailScreenProps) {
   const [items, setItems] = useState<PantryItem[]>(pantryItems);
   const [editingMode, setEditingMode] = useState(false);
   const [editForm, setEditForm] = useState<{ [key: number]: { name: string; quantity: string; location: string } }>({});
@@ -58,6 +62,13 @@ export default function PantryItemDetailScreen() {
               onPress={handleToggleEdit}
               accessibilityLabel={editingMode ? "Done editing" : "Add item"}
             />
+            {onLogout && (
+              <Button
+                title="Logout"
+                onPress={onLogout}
+                accessibilityLabel="Logout"
+              />
+            )}
             </View>
         </View>
       </View>
