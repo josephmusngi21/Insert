@@ -2,17 +2,24 @@ import { useState } from "react";
 import { Text, View, Button } from "react-native";
 import PantryItemDetailScreen from "@/screens/pantry/PantryItemDetailScreen";
 import RecipeListScreen from "@/screens/recipes/RecipeListScreen";
+import RecipeDetailScreen from "@/screens/recipes/RecipeDetailScreen";
 import MainLogin from '../screens/firebaseAuthLoginRegister/MainLogin';
 
-type Screen = 'login' | 'pantry' | 'recipes';
+type Screen = 'login' | 'pantry' | 'recipes' | 'recipeDetail';
 
 export default function Index() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentScreen, setCurrentScreen] = useState<Screen>('pantry');
+  const [selectedRecipeId, setSelectedRecipeId] = useState<number>(1);
 
   const handleLogout = () => {
     setIsLoggedIn(false);
     setCurrentScreen('pantry');
+  };
+
+  const handleRecipeSelect = (recipeId: number) => {
+    setSelectedRecipeId(recipeId);
+    setCurrentScreen('recipeDetail');
   };
 
   if (!isLoggedIn) {
@@ -28,7 +35,7 @@ export default function Index() {
       )}
       {currentScreen === 'recipes' && (
         <View style={{ flex: 1 }}>
-          <RecipeListScreen />
+          <RecipeListScreen onRecipeSelect={handleRecipeSelect} />
           <View style={{ padding: 10 }}>
             <Button
               title="Go to Pantry"
@@ -40,6 +47,14 @@ export default function Index() {
               color="red"
             />
           </View>
+        </View>
+      )}
+      {currentScreen === 'recipeDetail' && (
+        <View style={{ flex: 1 }}>
+          <RecipeDetailScreen 
+            recipeId={selectedRecipeId}
+            onBack={() => setCurrentScreen('recipes')}
+          />
         </View>
       )}
       {currentScreen === 'pantry' && (
