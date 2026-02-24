@@ -205,7 +205,7 @@ export default function PantryItemDetailScreen({ onLogout }: PantryItemDetailScr
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { marginTop: 50 }]}>
       <Header />
       <AddItemModal />
       <MainContainer />
