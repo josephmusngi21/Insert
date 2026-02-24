@@ -7,12 +7,12 @@
       "servings": 4,
       "cookTime": 20,
       "ingredients": [
-        "pasta",
-        "eggs",
-        "bacon",
-        "parmesan cheese",
-        "black pepper",
-        "salt"
+        { "name": "pasta", "quantity": 1, "unit": "lb" },
+        { "name": "eggs", "quantity": 4, "unit": "whole" },
+        { "name": "bacon", "quantity": 200, "unit": "g" },
+        { "name": "parmesan cheese", "quantity": 100, "unit": "g" },
+        { "name": "black pepper", "quantity": 1, "unit": "tsp" },
+        { "name": "salt", "quantity": 1, "unit": "tsp" }
       ],
       "instructions": [
         "Cook pasta according to package directions",
@@ -31,13 +31,13 @@
       "servings": 3,
       "cookTime": 25,
       "ingredients": [
-        "chicken breast",
-        "bell pepper",
-        "onion",
-        "garlic",
-        "soy sauce",
-        "oil",
-        "rice"
+        { "name": "chicken breast", "quantity": 500, "unit": "g" },
+        { "name": "bell pepper", "quantity": 2, "unit": "whole" },
+        { "name": "onion", "quantity": 1, "unit": "whole" },
+        { "name": "garlic", "quantity": 3, "unit": "cloves" },
+        { "name": "soy sauce", "quantity": 3, "unit": "tbsp" },
+        { "name": "oil", "quantity": 2, "unit": "tbsp" },
+        { "name": "rice", "quantity": 2, "unit": "cups" }
       ],
       "instructions": [
         "Cut chicken into bite-sized pieces",
@@ -56,14 +56,14 @@
       "servings": 2,
       "cookTime": 20,
       "ingredients": [
-        "pasta",
-        "canned tomato",
-        "garlic",
-        "olive oil",
-        "basil",
-        "parmesan cheese",
-        "salt",
-        "black pepper"
+        { "name": "pasta", "quantity": 400, "unit": "g" },
+        { "name": "canned tomato", "quantity": 1, "unit": "can (400g)" },
+        { "name": "garlic", "quantity": 2, "unit": "cloves" },
+        { "name": "olive oil", "quantity": 3, "unit": "tbsp" },
+        { "name": "basil", "quantity": 10, "unit": "leaves" },
+        { "name": "parmesan cheese", "quantity": 50, "unit": "g" },
+        { "name": "salt", "quantity": 1, "unit": "tsp" },
+        { "name": "black pepper", "quantity": 0.5, "unit": "tsp" }
       ],
       "instructions": [
         "Cook pasta until al dente",
@@ -82,12 +82,12 @@
       "servings": 2,
       "cookTime": 15,
       "ingredients": [
-        "salmon",
-        "lemon",
-        "olive oil",
-        "salt",
-        "black pepper",
-        "garlic"
+        { "name": "salmon", "quantity": 400, "unit": "g" },
+        { "name": "lemon", "quantity": 1, "unit": "whole" },
+        { "name": "olive oil", "quantity": 2, "unit": "tbsp" },
+        { "name": "salt", "quantity": 0.5, "unit": "tsp" },
+        { "name": "black pepper", "quantity": 0.5, "unit": "tsp" },
+        { "name": "garlic", "quantity": 2, "unit": "cloves" }
       ],
       "instructions": [
         "Preheat grill to medium-high heat",
@@ -105,14 +105,14 @@
       "servings": 24,
       "cookTime": 30,
       "ingredients": [
-        "flour",
-        "butter",
-        "sugar",
-        "brown sugar",
-        "eggs",
-        "vanilla",
-        "baking soda",
-        "salt"
+        { "name": "flour", "quantity": 2.25, "unit": "cups" },
+        { "name": "butter", "quantity": 1, "unit": "cup" },
+        { "name": "sugar", "quantity": 0.75, "unit": "cup" },
+        { "name": "brown sugar", "quantity": 0.75, "unit": "cup" },
+        { "name": "eggs", "quantity": 2, "unit": "whole" },
+        { "name": "vanilla", "quantity": 1, "unit": "tsp" },
+        { "name": "baking soda", "quantity": 1, "unit": "tsp" },
+        { "name": "salt", "quantity": 1, "unit": "tsp" }
       ],
       "instructions": [
         "Preheat oven to 375°F",
@@ -132,14 +132,14 @@
       "servings": 4,
       "cookTime": 20,
       "ingredients": [
-        "ground beef",
-        "onion",
-        "garlic",
-        "tomato",
-        "cheese",
-        "lettuce",
-        "salt",
-        "black pepper"
+        { "name": "ground beef", "quantity": 500, "unit": "g" },
+        { "name": "onion", "quantity": 1, "unit": "whole" },
+        { "name": "garlic", "quantity": 2, "unit": "cloves" },
+        { "name": "tomato", "quantity": 2, "unit": "whole" },
+        { "name": "cheese", "quantity": 100, "unit": "g" },
+        { "name": "lettuce", "quantity": 4, "unit": "leaves" },
+        { "name": "salt", "quantity": 1, "unit": "tsp" },
+        { "name": "black pepper", "quantity": 0.5, "unit": "tsp" }
       ],
       "instructions": [
         "Brown ground beef in a skillet",
