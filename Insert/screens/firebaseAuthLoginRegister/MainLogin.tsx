@@ -8,12 +8,17 @@ import Login from '../firebaseAuthLoginRegister/login/Login';
 import Register from '../firebaseAuthLoginRegister/register/Register';
 import styles from './MainLogin.styles';
 
-export default function Index() {
+interface MainLoginProps {
+  onLoginSuccess?: () => void;
+}
+
+export default function MainLogin({ onLoginSuccess }: MainLoginProps) {
   const [showLogin, setShowLogin] = useState(true);
   const [loggedIn, setLoggedIn] = useState(false);
 
   const handleLoginSuccess = () => {
     setLoggedIn(true);
+    onLoginSuccess?.();
   };
 
   // If user is logged in, show the main app (HomeScreen with tabs)
