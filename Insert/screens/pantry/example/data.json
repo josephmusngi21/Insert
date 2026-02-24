@@ -7,7 +7,6 @@
             "quantity": 1,
             "unit": "L",
             "location": "Fridge",
-            "expirationDays": 0,
             "dateAdded": "2025-01-07",
             "expirationDate": "2025-01-21"
         },
@@ -18,7 +17,6 @@
             "quantity": 500,
             "unit": "g",
             "location": "Fridge",
-            "expirationDays": 13,
             "dateAdded": "2025-01-08",
             "expirationDate": "2025-01-21"
         },
@@ -29,7 +27,6 @@
             "quantity": 400,
             "unit": "g",
             "location": "Fridge",
-            "expirationDays": 14,
             "dateAdded": "2025-01-06",
             "expirationDate": "2025-01-20"
         },
@@ -40,7 +37,6 @@
             "quantity": 420,
             "unit": "g",
             "location": "Pantry",
-            "expirationDays": 729,
             "dateAdded": "2025-01-07",
             "expirationDate": "2026-12-21"
         },
@@ -51,7 +47,6 @@
             "quantity": 500,
             "unit": "g",
             "location": "Pantry",
-            "expirationDays": 731,
             "dateAdded": "2025-01-09",
             "expirationDate": "2026-12-25"
         },
@@ -62,7 +57,6 @@
             "quantity": 200,
             "unit": "g",
             "location": "Pantry",
-            "expirationDays": 730,
             "dateAdded": "2025-01-08",
             "expirationDate": "2026-12-23"
         },
@@ -73,7 +67,6 @@
             "quantity": 500,
             "unit": "g",
             "location": "Fridge",
-            "expirationDays": 21,
             "dateAdded": "2025-01-06",
             "expirationDate": "2025-01-27"
         },
@@ -84,7 +77,6 @@
             "quantity": 400,
             "unit": "g",
             "location": "Fridge",
-            "expirationDays": 9,
             "dateAdded": "2025-01-09",
             "expirationDate": "2025-01-18"
         },
@@ -95,7 +87,6 @@
             "quantity": 200,
             "unit": "g",
             "location": "Fridge",
-            "expirationDays": 10,
             "dateAdded": "2025-01-07",
             "expirationDate": "2025-01-17"
         },
@@ -106,7 +97,6 @@
             "quantity": 2,
             "unit": "kg",
             "location": "Pantry",
-            "expirationDays": 28,
             "dateAdded": "2025-01-08",
             "expirationDate": "2025-02-05"
         },
@@ -117,7 +107,6 @@
             "quantity": 1,
             "unit": "kg",
             "location": "Pantry",
-            "expirationDays": 28,
             "dateAdded": "2025-01-06",
             "expirationDate": "2025-02-03"
         },
@@ -128,7 +117,6 @@
             "quantity": 250,
             "unit": "g",
             "location": "Fridge",
-            "expirationDays": 14,
             "dateAdded": "2025-01-09",
             "expirationDate": "2025-01-23"
         },
@@ -139,7 +127,6 @@
             "quantity": 700,
             "unit": "g",
             "location": "Pantry",
-            "expirationDays": 7,
             "dateAdded": "2025-01-07",
             "expirationDate": "2025-01-14"
         },
@@ -150,7 +137,6 @@
             "quantity": 500,
             "unit": "g",
             "location": "Pantry",
-            "expirationDays": 729,
             "dateAdded": "2025-01-08",
             "expirationDate": "2026-12-22"
         },
@@ -161,7 +147,6 @@
             "quantity": 1,
             "unit": "kg",
             "location": "Pantry",
-            "expirationDays": 1095,
             "dateAdded": "2025-01-06",
             "expirationDate": "2028-01-06"
         },
@@ -172,7 +157,6 @@
             "quantity": 600,
             "unit": "g",
             "location": "Fridge",
-            "expirationDays": 7,
             "dateAdded": "2025-01-09",
             "expirationDate": "2025-01-16"
         },
@@ -183,7 +167,6 @@
             "quantity": 500,
             "unit": "g",
             "location": "Fridge",
-            "expirationDays": 7,
             "dateAdded": "2025-01-07",
             "expirationDate": "2025-01-14"
         },
@@ -194,7 +177,6 @@
             "quantity": 720,
             "unit": "g",
             "location": "Fridge",
-            "expirationDays": 14,
             "dateAdded": "2025-01-08",
             "expirationDate": "2025-01-22"
         },
@@ -205,7 +187,6 @@
             "quantity": 400,
             "unit": "g",
             "location": "Fridge",
-            "expirationDays": 16,
             "dateAdded": "2025-01-06",
             "expirationDate": "2025-01-22"
         },
@@ -216,7 +197,6 @@
             "quantity": 300,
             "unit": "g",
             "location": "Fridge",
-            "expirationDays": 10,
             "dateAdded": "2025-01-09",
             "expirationDate": "2025-01-19"
         },
@@ -227,7 +207,6 @@
             "quantity": 400,
             "unit": "g",
             "location": "Pantry",
-            "expirationDays": 729,
             "dateAdded": "2025-01-07",
             "expirationDate": "2026-12-21"
         },
@@ -238,7 +217,6 @@
             "quantity": 500,
             "unit": "ml",
             "location": "Pantry",
-            "expirationDays": 730,
             "dateAdded": "2025-01-08",
             "expirationDate": "2026-12-23"
         },
@@ -249,7 +227,6 @@
             "quantity": 1,
             "unit": "kg",
             "location": "Fridge",
-            "expirationDays": 21,
             "dateAdded": "2025-01-06",
             "expirationDate": "2025-01-27"
         },
@@ -260,7 +237,6 @@
             "quantity": 600,
             "unit": "g",
             "location": "Pantry",
-            "expirationDays": 5,
             "dateAdded": "2025-01-09",
             "expirationDate": "2025-01-14"
         },
@@ -271,7 +247,6 @@
             "quantity": 1,
             "unit": "L",
             "location": "Fridge",
-            "expirationDays": 14,
             "dateAdded": "2025-01-07",
             "expirationDate": "2025-01-21"
         },
@@ -282,7 +257,6 @@
             "quantity": 1,
             "unit": "kg",
             "location": "Pantry",
-            "expirationDays": 730,
             "dateAdded": "2025-01-08",
             "expirationDate": "2026-12-23"
         },
@@ -293,7 +267,6 @@
             "quantity": 1,
             "unit": "kg",
             "location": "Pantry",
-            "expirationDays": 1095,
             "dateAdded": "2025-01-06",
             "expirationDate": "2028-01-06"
         },
@@ -304,7 +277,6 @@
             "quantity": 300,
             "unit": "g",
             "location": "Fridge",
-            "expirationDays": 14,
             "dateAdded": "2025-01-09",
             "expirationDate": "2025-01-23"
         },
@@ -315,7 +287,6 @@
             "quantity": 400,
             "unit": "g",
             "location": "Fridge",
-            "expirationDays": 13,
             "dateAdded": "2025-01-07",
             "expirationDate": "2025-01-20"
         },
@@ -326,7 +297,6 @@
             "quantity": 400,
             "unit": "g",
             "location": "Fridge",
-            "expirationDays": 7,
             "dateAdded": "2025-01-08",
             "expirationDate": "2025-01-15"
         }
