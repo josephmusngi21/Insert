@@ -7,24 +7,31 @@ import { useState } from "react";
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from "react-native";
 import recipes from "./example/recipes.json";
 
-export default function RecipeListScreen() {
+interface RecipeListScreenProps {
+  onRecipeSelect?: (recipeId: number) => void;
+}
+
+export default function RecipeListScreen({ onRecipeSelect }: RecipeListScreenProps) {
   const [recipeList] = useState(recipes.recipes);
 
   return (
     <ScrollView style={styles.container}>
       <Text style={styles.title}>Recipes</Text>
       {recipeList.map((recipe) => (
-        <TouchableOpacity key={recipe.id} style={styles.recipeCard}>
+        <TouchableOpacity 
+          key={recipe.id} 
+          style={styles.recipeCard}
+          onPress={() => onRecipeSelect?.(recipe.id)}
+        >
           <Text style={styles.recipeName}>{recipe.name}</Text>
           <Text style={styles.recipeDescription}>{recipe.description}</Text>
           <View style={styles.recipeInfo}>
-            <Text style={styles.infoText}>⏱️ {recipe.cookTime} min</Text>
-            <Text style={styles.infoText}>👥 {recipe.servings} servings</Text>
-            <Text style={styles.infoText}>📊 {recipe.difficulty}</Text>
+            <Text style={styles.infoText}>Cook: {recipe.cookTime} min</Text>
+            <Text style={styles.infoText}>Servings: {recipe.servings}</Text>
+            <Text style={styles.infoText}>Difficulty: {recipe.difficulty}</Text>
           </View>
           <Text style={styles.ingredients}>
-            Ingredients: {recipe.ingredients.slice(0, 3).join(", ")}
-            {recipe.ingredients.length > 3 ? "..." : ""}
+            Ingredients: {recipe.ingredients.length} items
           </Text>
         </TouchableOpacity>
       ))}
@@ -37,6 +44,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
     backgroundColor: "#f5f5f5",
+    marginTop: 50,
   },
   title: {
     fontSize: 28,
