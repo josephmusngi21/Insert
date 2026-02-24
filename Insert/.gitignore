@@ -44,3 +44,6 @@ app-example
 
 #.env
 .env
+
+#api keys
+screens/firebaseAuthLoginRegister/firebase/config.ts
