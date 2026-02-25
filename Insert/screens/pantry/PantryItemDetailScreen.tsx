@@ -29,11 +29,25 @@ const calculateExpirationDays = (expirationDate: string): number => {
 
 type ItemDetailsProps = { item: PantryItem; isEditing: boolean };
 
-interface PantryItemDetailScreenProps {
-  onLogout?: () => void;
+interface ThemeColors {
+  mode: "light" | "dark" | "custom";
+  textColor: string;
+  accentColor: string;
+  backgroundColor: string;
 }
 
-export default function PantryItemDetailScreen({ onLogout }: PantryItemDetailScreenProps) {
+interface PantryItemDetailScreenProps {
+  onLogout?: () => void;
+  theme?: ThemeColors;
+}
+
+export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDetailScreenProps) {
+  const themeColors = theme || {
+    mode: "light",
+    textColor: "#333",
+    accentColor: "#4CAF50",
+    backgroundColor: "#f5f5f5",
+  };
   const [items, setItems] = useState<PantryItem[]>(pantryItems);
   const [editingMode, setEditingMode] = useState(false);
   const [editForm, setEditForm] = useState<{ [key: number]: { name: string; quantity: string; location: string } }>({});
@@ -79,23 +93,25 @@ export default function PantryItemDetailScreen({ onLogout }: PantryItemDetailScr
 
   const Header = () => {
     return (
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: themeColors.backgroundColor }]}>
         {/* <View style={styles.searchContainer}>
           <TextInput style={styles.search} placeholder="Search pantry items..." />
         </View> */}
 
         <View style={[styles.titleAndMenu, styles.row]}>
-          <Text style={styles.title}>Pantry</Text>
+          <Text style={[styles.title, { color: themeColors.textColor }]}>Pantry</Text>
             <View style={styles.menuContainer}>
             <Button
               title={editingMode ? "Done" : "+"} 
               onPress={handleToggleEdit}
+              color={themeColors.accentColor}
               accessibilityLabel={editingMode ? "Done editing" : "Add item"}
             />
             {onLogout && (
               <Button
                 title="Logout"
                 onPress={onLogout}
+                color={themeColors.accentColor}
                 accessibilityLabel="Logout"
               />
             )}
@@ -166,44 +182,47 @@ export default function PantryItemDetailScreen({ onLogout }: PantryItemDetailScr
 
     return (
       <TouchableOpacity 
-        style={styles.itemDetails}
+        style={[styles.itemDetails, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff", borderBottomColor: themeColors.accentColor, borderLeftColor: themeColors.accentColor }]}
         onLongPress={() => !isEditing && handleDeleteItem(item.id, item.name)}
         delayLongPress={500}
       >
         <View style={[styles.nameQuantity, styles.row]}>
           <View>
-            <Text style={styles.itemType}>{item.type}</Text>
+            <Text style={[styles.itemType, { color: themeColors.accentColor }]}>{item.type}</Text>
             {isEditing ? (
                 <>
                 <TextInput
-                  style={styles.editItemNameInput}
+                  style={[styles.editItemNameInput, { color: themeColors.textColor, borderColor: themeColors.accentColor }]}
                   placeholder={item.name}
+                  placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
                   value={currentForm.name}
                   onChangeText={(text) => handleEditChange("name", text)}
                   submitBehavior="blurAndSubmit"
                 />
                 <TextInput
-                  style={styles.editItemLocationInput}
+                  style={[styles.editItemLocationInput, { color: themeColors.textColor, borderColor: themeColors.accentColor }]}
                   placeholder={item.location}
+                  placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
                   value={currentForm.location}
                   onChangeText={(text) => handleEditChange("location", text)}
                   submitBehavior="blurAndSubmit"
                 />
                 </>
             ) : (
-              <Text style={styles.itemName}>{item.name}</Text>
+              <Text style={[styles.itemName, { color: themeColors.textColor }]}>{item.name}</Text>
             )}
           </View>
           {isEditing ? (
             <TextInput
-              style={styles.editItemQuantityInput}
+              style={[styles.editItemQuantityInput, { color: themeColors.textColor, borderColor: themeColors.accentColor }]}
               placeholder={item.quantity.toString()}
+              placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
               value={currentForm.quantity}
               keyboardType="numeric"
               onChangeText={(text) => handleEditChange("quantity", text)}
             />
           ) : (
-            <Text style={styles.itemQuantity}>
+            <Text style={[styles.itemQuantity, { color: themeColors.textColor }]}>
               {item.quantity} {item.unit}
             </Text>
           )}
@@ -213,22 +232,22 @@ export default function PantryItemDetailScreen({ onLogout }: PantryItemDetailScr
           {(() => {
             const expirationDays = calculateExpirationDays(item.expirationDate);
             if (expirationDays >= 4) {
-              return <Text style={styles.itemExpiration1}>{expirationDays} days left</Text>;
+              return <Text style={[styles.itemExpiration1, { color: "#4CAF50" }]}>{expirationDays} days left</Text>;
             } else if (expirationDays === 0) {
-              return <Text style={styles.itemExpiration2}>Expires Today!</Text>;
+              return <Text style={[styles.itemExpiration2, { color: "#FF9800" }]}>Expires Today!</Text>;
             } else if (expirationDays < 0) {
               const daysExpired = Math.abs(expirationDays);
-              return <Text style={styles.itemExpiration2}>Expired {daysExpired} day{daysExpired !== 1 ? 's' : ''} ago</Text>;
+              return <Text style={[styles.itemExpiration2, { color: "#F44336" }]}>Expired {daysExpired} day{daysExpired !== 1 ? 's' : ''} ago</Text>;
             } else {
-              return <Text style={styles.itemExpiration3}>Expiring in {expirationDays} day{expirationDays !== 1 ? 's' : ''}!</Text>;
+              return <Text style={[styles.itemExpiration3, { color: "#FF9800" }]}>Expiring in {expirationDays} day{expirationDays !== 1 ? 's' : ''}!</Text>;
             }
           })()}
 
-          <Text style={styles.itemLocation}>{item.location}</Text>
+          <Text style={[styles.itemLocation, { color: themeColors.textColor }]}>{item.location}</Text>
         </View>
 
         {!isEditing && (
-          <Text style={styles.deleteHint}>Long press to delete</Text>
+          <Text style={[styles.deleteHint, { color: themeColors.mode === "dark" ? "#999" : "#999" }]}>Long press to delete</Text>
         )}
       </TouchableOpacity>
     );
@@ -236,7 +255,7 @@ export default function PantryItemDetailScreen({ onLogout }: PantryItemDetailScr
 
   const MainContainer = () => {
     return (
-      <ScrollView contentContainerStyle={styles.mainContainer}>
+      <ScrollView contentContainerStyle={[styles.mainContainer, { backgroundColor: themeColors.backgroundColor }]}>
         {items.map((item) => (
           <ItemDetails 
             key={item.id} 
@@ -249,7 +268,7 @@ export default function PantryItemDetailScreen({ onLogout }: PantryItemDetailScr
   };
 
   return (
-    <View style={[styles.container, { marginTop: 50 }]}>
+    <View style={[styles.container, { backgroundColor: themeColors.backgroundColor, paddingTop: 50 }]}>
       <Header />
       <AddItemModal />
       <MainContainer />
