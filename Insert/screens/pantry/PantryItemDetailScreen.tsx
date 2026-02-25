@@ -1,5 +1,8 @@
-import { useState } from "react";
-import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity } from "react-native";
+import { useState, useEffect } from "react";
+import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity, FlatList, StyleSheet } from "react-native";
+import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
+import { collection, onSnapshot, query, where, addDoc, deleteDoc, doc, writeBatch } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 import styles from "./PantryItemDetailScreen.styles";
 import data from "./example/data.json";
 
@@ -14,6 +17,16 @@ type PantryItem = {
   location: string;
   dateAdded: string;
   expirationDate: string;
+};
+
+type PendingItem = {
+  id: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  location: string;
+  expirationDate: string;
+  userId: string;
 };
 
 // Helper function to calculate days until expiration
@@ -51,8 +64,171 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
   const [items, setItems] = useState<PantryItem[]>(pantryItems);
   const [editingMode, setEditingMode] = useState(false);
   const [editForm, setEditForm] = useState<{ [key: number]: { name: string; quantity: string; location: string } }>({});
+  const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
+  const [editingPending, setEditingPending] = useState<{ [key: string]: { quantity: string; name: string; unit: string; location: string } }>({});
+  const auth = getAuth();
+  const userId = auth.currentUser?.uid || "";
 
+  // Load both pending items and pantry items from Firestore
+  useEffect(() => {
+    if (!userId) return;
+    
+    // Load pending items
+    const pendingQuery = query(collection(db, "pendingPantry"), where("userId", "==", userId));
+    const pendingUnsubscribe = onSnapshot(pendingQuery, (snapshot) => {
+      const items = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as PendingItem));
+      console.log("Pending items updated:", items.length);
+      setPendingItems(items);
+    });
 
+    // Load pantry items from Firestore
+    const pantryQuery = query(collection(db, "pantry"), where("userId", "==", userId));
+    const pantryUnsubscribe = onSnapshot(pantryQuery, (snapshot) => {
+      const firestoreItems = snapshot.docs.map(doc => ({
+        id: `fs_${doc.id}`,
+        ...doc.data()
+      })) as unknown as PantryItem[];
+      console.log("Pantry items from Firestore:", firestoreItems.length);
+      // Combine Firestore items with local items
+      const combinedItems = [...pantryItems, ...firestoreItems];
+      // Remove duplicates by name
+      const uniqueItems = Array.from(new Map(combinedItems.map(item => [item.name, item])).values());
+      setItems(uniqueItems);
+    });
+
+    return () => {
+      pendingUnsubscribe();
+      pantryUnsubscribe();
+    };
+  }, [userId]);
+
+  // Function to convert units to most useful format
+  const convertToUsefulUnit = (quantity: number, unit: string): { quantity: number; unit: string } => {
+    const lowerUnit = unit.toLowerCase();
+    
+    // Volume conversions (ml to L)
+    if ((lowerUnit === 'ml' || lowerUnit === 'milliliter') && quantity >= 1000) {
+      return { quantity: quantity / 1000, unit: 'L' };
+    }
+    
+    // Weight conversions (g to kg)
+    if ((lowerUnit === 'g' || lowerUnit === 'gram') && quantity >= 1000) {
+      return { quantity: quantity / 1000, unit: 'kg' };
+    }
+    
+    // Ounces to pounds
+    if ((lowerUnit === 'oz' || lowerUnit === 'ounce') && quantity >= 16) {
+      return { quantity: quantity / 16, unit: 'lb' };
+    }
+    
+    return { quantity, unit };
+  };
+
+  const confirmPendingItem = async (item: PendingItem) => {
+    const editedQuantity = editingPending[item.id]?.quantity || item.quantity.toString();
+    const editedName = editingPending[item.id]?.name || item.name;
+    const editedUnit = editingPending[item.id]?.unit || item.unit;
+    const editedLocation = editingPending[item.id]?.location || item.location;
+    
+    Alert.alert(
+      "Confirm Item",
+      `Add "${editedName}" (${editedQuantity} ${editedUnit}) to ${editedLocation}?`,
+      [
+        {
+          text: "Cancel",
+          onPress: () => {},
+          style: "cancel",
+        },
+        {
+          text: "Confirm",
+          onPress: async () => {
+            try {
+              console.log("Starting item confirmation for:", item.id);
+              
+              // Convert to useful unit
+              const parsedQuantity = parseFloat(editedQuantity);
+              const converted = convertToUsefulUnit(parsedQuantity, editedUnit);
+              
+              console.log("Creating batch write...");
+              const batch = writeBatch(db);
+              
+              // Add to pantry
+              const pantryRef = doc(collection(db, "pantry"));
+              batch.set(pantryRef, {
+                name: editedName,
+                type: item.name,
+                quantity: converted.quantity,
+                unit: converted.unit,
+                location: editedLocation,
+                dateAdded: new Date().toISOString().split('T')[0],
+                expirationDate: item.expirationDate,
+                userId,
+                createdAt: Date.now(),
+              });
+              
+              console.log("Adding delete from pending to batch...");
+              // Delete from pending
+              const pendingRef = doc(db, "pendingPantry", item.id);
+              batch.delete(pendingRef);
+              
+              console.log("Committing batch write...");
+              // Commit both operations
+              await batch.commit();
+              
+              console.log("Batch committed successfully");
+              
+              // Clear the editing state for this item
+              setEditingPending(prev => {
+                const newState = { ...prev };
+                delete newState[item.id];
+                return newState;
+              });
+              
+              Alert.alert("Success", `${editedName} added to ${editedLocation}`);
+            } catch (error) {
+              console.error("Error confirming item:", error);
+              Alert.alert("Error", "Failed to confirm item: " + (error instanceof Error ? error.message : String(error)));
+            }
+          },
+          style: "default",
+        },
+      ]
+    );
+  };
+
+  const rejectPendingItem = async (itemId: string, itemName: string) => {
+    Alert.alert(
+      "Reject Item",
+      `Remove "${itemName}" from pending? This cannot be undone.`,
+      [
+        {
+          text: "Cancel",
+          onPress: () => {},
+          style: "cancel",
+        },
+        {
+          text: "Reject",
+          onPress: async () => {
+            try {
+              await deleteDoc(doc(db, "pendingPantry", itemId));
+              setEditingPending(prev => {
+                const newState = { ...prev };
+                delete newState[itemId];
+                return newState;
+              });
+              Alert.alert("Success", `${itemName} removed from pending`);
+            } catch (error) {
+              Alert.alert("Error", "Failed to remove item");
+            }
+          },
+          style: "destructive",
+        },
+      ]
+    );
+  };
 
   const handleToggleEdit = async () => {
     if (editingMode) {
@@ -256,6 +432,103 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
   const MainContainer = () => {
     return (
       <ScrollView contentContainerStyle={[styles.mainContainer, { backgroundColor: themeColors.backgroundColor }]}>
+        {/* Pending Items Section */}
+        {pendingItems.length > 0 && (
+          <View>
+            <Text style={[{ fontSize: 18, fontWeight: "bold", color: themeColors.accentColor, marginHorizontal: 16, marginTop: 16, marginBottom: 8 }]}>
+              Pending Confirmation
+            </Text>
+            {pendingItems.map((item) => {
+              const currentQuantity = editingPending[item.id]?.quantity || item.quantity.toString();
+              const currentName = editingPending[item.id]?.name || item.name;
+              const currentUnit = editingPending[item.id]?.unit || item.unit;
+              const currentLocation = editingPending[item.id]?.location || item.location;
+              
+              return (
+                <View key={item.id} style={[{ backgroundColor: themeColors.mode === "dark" ? "#444" : "#FFF9E6", borderLeftColor: "#FFC107", borderLeftWidth: 4, borderRadius: 8, marginHorizontal: 16, marginBottom: 12, padding: 12 }]}>
+                  <TextInput
+                    style={[{ color: themeColors.textColor, borderColor: themeColors.accentColor, borderWidth: 1, borderRadius: 6, padding: 8, marginBottom: 8, fontSize: 16, fontWeight: "500" }]}
+                    placeholder="Item name"
+                    placeholderTextColor={themeColors.mode === "dark" ? "#888" : "#ccc"}
+                    value={currentName}
+                    onChangeText={(text) => setEditingPending(prev => ({...prev, [item.id]: {...(prev[item.id] || {}), name: text}}))}
+                  />
+                  <View style={{ flexDirection: "row", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                    <TextInput
+                      style={[{ flex: 1, color: themeColors.textColor, borderColor: themeColors.accentColor, borderWidth: 1, borderRadius: 6, padding: 8, fontSize: 14 }]}
+                      placeholder="Quantity"
+                      placeholderTextColor={themeColors.mode === "dark" ? "#888" : "#ccc"}
+                      value={currentQuantity}
+                      onChangeText={(text) => setEditingPending(prev => ({...prev, [item.id]: {...(prev[item.id] || {}), quantity: text}}))}
+                      keyboardType="decimal-pad"
+                    />
+                    <TextInput
+                      style={[{ flex: 0.5, color: themeColors.textColor, borderColor: themeColors.accentColor, borderWidth: 1, borderRadius: 6, padding: 8, fontSize: 14 }]}
+                      placeholder="Unit"
+                      placeholderTextColor={themeColors.mode === "dark" ? "#888" : "#ccc"}
+                      value={currentUnit}
+                      onChangeText={(text) => setEditingPending(prev => ({...prev, [item.id]: {...(prev[item.id] || {}), unit: text}}))}
+                    />
+                  </View>
+                  <TextInput
+                    style={[{ color: themeColors.textColor, borderColor: themeColors.accentColor, borderWidth: 1, borderRadius: 6, padding: 8, marginBottom: 8, fontSize: 14 }]}
+                    placeholder="Location"
+                    placeholderTextColor={themeColors.mode === "dark" ? "#888" : "#ccc"}
+                    value={currentLocation}
+                    onChangeText={(text) => setEditingPending(prev => ({...prev, [item.id]: {...(prev[item.id] || {}), location: text}}))}
+                  />
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={[{ color: themeColors.mode === "dark" ? "#aaa" : "#666", fontSize: 12, marginBottom: 6 }]}>
+                      Quick locations:
+                    </Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                      {["Pantry", "Fridge", "Freezer", "Cupboard", "Counter", "Cabinet"].map(loc => (
+                        <TouchableOpacity
+                          key={loc}
+                          onPress={() => setEditingPending(prev => ({...prev, [item.id]: {...(prev[item.id] || {}), location: loc}}))}
+                          style={[{ 
+                            paddingHorizontal: 10, 
+                            paddingVertical: 6, 
+                            borderRadius: 6, 
+                            backgroundColor: currentLocation === loc ? themeColors.accentColor : (themeColors.mode === "dark" ? "#555" : "#ddd")
+                          }]}
+                        >
+                          <Text style={[{ color: currentLocation === loc ? "#fff" : themeColors.textColor, fontSize: 12, fontWeight: "500" }]}>
+                            {loc}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                  <Text style={[{ color: themeColors.mode === "dark" ? "#aaa" : "#666", fontSize: 12, marginBottom: 12 }]}>
+                    Expires: {new Date(item.expirationDate).toLocaleDateString()}
+                  </Text>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TouchableOpacity
+                      onPress={() => confirmPendingItem(item)}
+                      style={[{ flex: 1, backgroundColor: themeColors.accentColor, borderRadius: 6, padding: 10, alignItems: "center" }]}
+                    >
+                      <Text style={[{ color: "#fff", fontWeight: "600", fontSize: 14 }]}>Confirm</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => rejectPendingItem(item.id, item.name)}
+                      style={[{ flex: 1, backgroundColor: "#e74c3c", borderRadius: 6, padding: 10, alignItems: "center" }]}
+                    >
+                      <Text style={[{ color: "#fff", fontWeight: "600", fontSize: 14 }]}>Reject</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+        
+        {/* Regular Items Section */}
+        {items.length > 0 && (
+          <Text style={[{ fontSize: 18, fontWeight: "bold", color: themeColors.accentColor, marginHorizontal: 16, marginTop: 16, marginBottom: 8 }]}>
+            Pantry Items
+          </Text>
+        )}
         {items.map((item) => (
           <ItemDetails 
             key={item.id} 
