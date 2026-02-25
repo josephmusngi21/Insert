@@ -22,12 +22,26 @@ type RecipeFormData = {
   instructions: string[];
 };
 
+interface ThemeColors {
+  mode: "light" | "dark" | "custom";
+  textColor: string;
+  accentColor: string;
+  backgroundColor: string;
+}
+
 interface RecipeFormScreenProps {
   onRecipeSaved?: (recipe: RecipeFormData) => void;
   onCancel?: () => void;
+  theme?: ThemeColors;
 }
 
-export default function RecipeFormScreen({ onRecipeSaved, onCancel }: RecipeFormScreenProps) {
+export default function RecipeFormScreen({ onRecipeSaved, onCancel, theme }: RecipeFormScreenProps) {
+  const themeColors = theme || {
+    mode: "light",
+    textColor: "#333",
+    accentColor: "#4CAF50",
+    backgroundColor: "#f5f5f5",
+  };
   const [step, setStep] = useState<"name" | "servings" | "cookTime" | "difficulty" | "ingredients" | "instructions" | "review">("name");
   const [formData, setFormData] = useState<RecipeFormData>({
     name: "",
@@ -189,7 +203,7 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel }: RecipeForm
             key={i}
             style={[
               styles.stepDot,
-              i <= currentIndex ? styles.stepDotActive : styles.stepDotInactive,
+              i <= currentIndex ? { backgroundColor: themeColors.accentColor } : styles.stepDotInactive,
             ]}
           >
             <Text style={styles.stepDotText}>{i + 1}</Text>
@@ -200,16 +214,17 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel }: RecipeForm
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-      <Text style={styles.header}>Add New Recipe</Text>
+    <ScrollView style={[styles.container, { backgroundColor: themeColors.backgroundColor }]} contentContainerStyle={styles.contentContainer}>
+      <Text style={[styles.header, { color: themeColors.textColor }]}>Add New Recipe</Text>
       <StepIndicator />
 
       {step === "name" && (
-        <View style={styles.stepContainer}>
-          <Text style={styles.label}>Recipe Name</Text>
+        <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
+          <Text style={[styles.label, { color: themeColors.textColor }]}>Recipe Name</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
             placeholder="Enter recipe name (e.g., Spaghetti Carbonara)"
+            placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
             value={formData.name}
             onChangeText={handleNameChange}
           />
@@ -217,11 +232,12 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel }: RecipeForm
       )}
 
       {step === "servings" && (
-        <View style={styles.stepContainer}>
-          <Text style={styles.label}>Servings</Text>
+        <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
+          <Text style={[styles.label, { color: themeColors.textColor }]}>Servings</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
             placeholder="Number of servings"
+            placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
             keyboardType="numeric"
             value={formData.servings}
             onChangeText={handleServingsChange}
@@ -230,11 +246,12 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel }: RecipeForm
       )}
 
       {step === "cookTime" && (
-        <View style={styles.stepContainer}>
-          <Text style={styles.label}>Cook Time (minutes)</Text>
+        <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
+          <Text style={[styles.label, { color: themeColors.textColor }]}>Cook Time (minutes)</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
             placeholder="Enter cook time in minutes"
+            placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
             keyboardType="numeric"
             value={formData.cookTime}
             onChangeText={handleCookTimeChange}
@@ -243,19 +260,20 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel }: RecipeForm
       )}
 
       {step === "difficulty" && (
-        <View style={styles.stepContainer}>
-          <Text style={styles.label}>Difficulty Level</Text>
+        <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
+          <Text style={[styles.label, { color: themeColors.textColor }]}>Difficulty Level</Text>
           <View style={styles.difficultyButtons}>
             {["easy", "medium", "hard"].map((level) => (
               <TouchableOpacity
                 key={level}
                 style={[
                   styles.difficultyButton,
-                  formData.difficulty === level && styles.difficultyButtonActive,
+                  formData.difficulty === level && { backgroundColor: themeColors.accentColor },
+                  formData.difficulty !== level && { borderColor: themeColors.mode === "dark" ? "#666" : "#ddd" },
                 ]}
                 onPress={() => setFormData({ ...formData, difficulty: level })}
               >
-                <Text style={styles.difficultyButtonText}>{level.charAt(0).toUpperCase() + level.slice(1)}</Text>
+                <Text style={[styles.difficultyButtonText, { color: formData.difficulty === level ? "#fff" : themeColors.textColor }]}>{level.charAt(0).toUpperCase() + level.slice(1)}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -263,32 +281,35 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel }: RecipeForm
       )}
 
       {step === "ingredients" && (
-        <View style={styles.stepContainer}>
-          <Text style={styles.label}>Ingredients</Text>
+        <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
+          <Text style={[styles.label, { color: themeColors.textColor }]}>Ingredients</Text>
           {formData.ingredients.map((ingredient, index) => (
             <View key={ingredient.id} style={styles.ingredientRow}>
               <TextInput
-                style={[styles.input, styles.ingredientInput]}
+                style={[styles.input, styles.ingredientInput, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
                 placeholder="Ingredient name"
+                placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
                 value={ingredient.name}
                 onChangeText={(text) => handleIngredientChange(ingredient.id, "name", text)}
               />
               <TextInput
-                style={[styles.input, styles.quantityInput]}
+                style={[styles.input, styles.quantityInput, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
                 placeholder="Qty"
+                placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
                 keyboardType="decimal-pad"
                 value={ingredient.quantity}
                 onChangeText={(text) => handleIngredientChange(ingredient.id, "quantity", text)}
               />
               <TextInput
-                style={[styles.input, styles.unitInput]}
+                style={[styles.input, styles.unitInput, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
                 placeholder="Unit"
+                placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
                 value={ingredient.unit}
                 onChangeText={(text) => handleIngredientChange(ingredient.id, "unit", text)}
               />
               {formData.ingredients.length > 1 && (
                 <TouchableOpacity
-                  style={styles.deleteButton}
+                  style={[styles.deleteButton, { backgroundColor: "#f44336" }]}
                   onPress={() => handleRemoveIngredient(ingredient.id)}
                 >
                   <Text style={styles.deleteButtonText}>✕</Text>
@@ -296,26 +317,27 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel }: RecipeForm
               )}
             </View>
           ))}
-          <Button title="Add Ingredient" onPress={handleAddIngredient} />
+          <Button title="Add Ingredient" color={themeColors.accentColor} onPress={handleAddIngredient} />
         </View>
       )}
 
       {step === "instructions" && (
-        <View style={styles.stepContainer}>
-          <Text style={styles.label}>Instructions</Text>
+        <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
+          <Text style={[styles.label, { color: themeColors.textColor }]}>Instructions</Text>
           {formData.instructions.map((instruction, index) => (
             <View key={index} style={styles.instructionRow}>
-              <Text style={styles.instructionNumber}>{index + 1}</Text>
+              <Text style={[styles.instructionNumber, { color: themeColors.accentColor }]}>{index + 1}</Text>
               <TextInput
-                style={[styles.input, styles.instructionInput]}
+                style={[styles.input, styles.instructionInput, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
                 placeholder={`Step ${index + 1}`}
+                placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
                 multiline
                 value={instruction}
                 onChangeText={(text) => handleInstructionChange(index, text)}
               />
               {formData.instructions.length > 1 && (
                 <TouchableOpacity
-                  style={styles.deleteButton}
+                  style={[styles.deleteButton, { backgroundColor: "#f44336" }]}
                   onPress={() => handleRemoveInstruction(index)}
                 >
                   <Text style={styles.deleteButtonText}>✕</Text>
@@ -323,29 +345,29 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel }: RecipeForm
               )}
             </View>
           ))}
-          <Button title="Add Step" onPress={handleAddInstruction} />
+          <Button title="Add Step" color={themeColors.accentColor} onPress={handleAddInstruction} />
         </View>
       )}
 
       {step === "review" && (
-        <View style={styles.stepContainer}>
-          <Text style={styles.label}>Review Recipe</Text>
-          <View style={styles.reviewCard}>
-            <Text style={styles.reviewTitle}>{formData.name}</Text>
-            <Text style={styles.reviewInfo}>Servings: {formData.servings}</Text>
-            <Text style={styles.reviewInfo}>Cook Time: {formData.cookTime} min</Text>
-            <Text style={styles.reviewInfo}>Difficulty: {formData.difficulty}</Text>
+        <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
+          <Text style={[styles.label, { color: themeColors.textColor }]}>Review Recipe</Text>
+          <View style={[styles.reviewCard, { backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}>
+            <Text style={[styles.reviewTitle, { color: themeColors.textColor }]}>{formData.name}</Text>
+            <Text style={[styles.reviewInfo, { color: themeColors.textColor }]}>Servings: {formData.servings}</Text>
+            <Text style={[styles.reviewInfo, { color: themeColors.textColor }]}>Cook Time: {formData.cookTime} min</Text>
+            <Text style={[styles.reviewInfo, { color: themeColors.textColor }]}>Difficulty: {formData.difficulty}</Text>
 
-            <Text style={styles.reviewSubtitle}>Ingredients:</Text>
+            <Text style={[styles.reviewSubtitle, { color: themeColors.textColor }]}>Ingredients:</Text>
             {formData.ingredients.map((ing) => (
-              <Text key={ing.id} style={styles.reviewText}>
+              <Text key={ing.id} style={[styles.reviewText, { color: themeColors.mode === "dark" ? "#ddd" : "#666" }]}>
                 • {ing.name} - {ing.quantity} {ing.unit}
               </Text>
             ))}
 
-            <Text style={styles.reviewSubtitle}>Instructions:</Text>
+            <Text style={[styles.reviewSubtitle, { color: themeColors.textColor }]}>Instructions:</Text>
             {formData.instructions.map((inst, index) => (
-              <Text key={index} style={styles.reviewText}>
+              <Text key={index} style={[styles.reviewText, { color: themeColors.mode === "dark" ? "#ddd" : "#666" }]}>
                 {index + 1}. {inst}
               </Text>
             ))}
@@ -355,13 +377,13 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel }: RecipeForm
 
       <View style={styles.navigationButtons}>
         {step !== "name" && (
-          <Button title="← Back" onPress={prevStep} />
+          <Button title="← Back" color={themeColors.accentColor} onPress={prevStep} />
         )}
         {step !== "review" && (
-          <Button title="Next →" onPress={nextStep} />
+          <Button title="Next →" color={themeColors.accentColor} onPress={nextStep} />
         )}
         {step === "review" && (
-          <Button title="Save Recipe" onPress={handleSaveRecipe} color="#4CAF50" />
+          <Button title="Save Recipe" onPress={handleSaveRecipe} color={themeColors.accentColor} />
         )}
       </View>
 
@@ -376,7 +398,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f5f5f5",
-    marginTop: 50,
+    paddingTop: 50,
   },
   contentContainer: {
     padding: 16,
