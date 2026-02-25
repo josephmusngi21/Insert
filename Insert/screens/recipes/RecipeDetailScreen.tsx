@@ -51,7 +51,8 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: Reci
   };
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [addingIngredient, setAddingIngredient] = useState<string | null>(null);
-  const [shoppingListItems, setShoppingListItems] = useState<string[]>([]);
+  const [shoppingListItems, setShoppingListItems] = useState<{ name: string; completed: boolean }[]>([]);
+  const [pantryItems, setPantryItems] = useState<any[]>(pantryData.pantryItems);
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
 
@@ -71,7 +72,10 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: Reci
     );
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const items = snapshot.docs.map(doc => doc.data().name.toLowerCase());
+      const items = snapshot.docs.map(doc => ({
+        name: doc.data().name.toLowerCase(),
+        completed: doc.data().completed || false
+      }));
       setShoppingListItems(items);
     }, (error) => {
       console.error("Error loading shopping list:", error);
@@ -80,38 +84,85 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: Reci
     return () => unsubscribe();
   }, [userId]);
 
+  // Load pantry items from Firestore with real-time listener
+  useEffect(() => {
+    if (!userId) return;
+    
+    const q = query(
+      collection(db, "pantry"),
+      where("userId", "==", userId)
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const items = snapshot.docs.map(doc => ({
+        id: `fs_${doc.id}`,
+        name: doc.data().name || "",
+        type: doc.data().type || "",
+        quantity: doc.data().quantity || 0,
+        unit: doc.data().unit || "",
+        location: doc.data().location || "",
+        expirationDate: doc.data().expirationDate || "",
+      }));
+      // Combine Firestore items with local pantry data
+      const combinedItems = [...pantryData.pantryItems, ...items];
+      setPantryItems(combinedItems);
+    }, (error) => {
+      console.error("Error loading pantry items:", error);
+      // Fallback to local data if there's an error
+      setPantryItems(pantryData.pantryItems);
+    });
+    
+    return () => unsubscribe();
+  }, [userId]);
+
   // Check ingredient availability in pantry and shopping list
-  const getIngredientStatus = (ingredient: Ingredient): { status: 'available' | 'partial' | 'missing' | 'shopping'; inShoppingList: boolean } => {
-    const pantryItems = pantryData.pantryItems as any[];
+  const getIngredientStatus = (ingredient: Ingredient): { status: 'available' | 'partial' | 'missing' | 'shopping' | 'completed' | 'expired'; inShoppingList: boolean; isCompleted: boolean } => {
     const ingredientNameLower = ingredient.name.toLowerCase();
     
     // Check if already in shopping list
-    const inShoppingList = shoppingListItems.some(item => 
-      item.includes(ingredientNameLower) || ingredientNameLower.includes(item)
+    const shoppingItem = shoppingListItems.find(item => 
+      item.name.includes(ingredientNameLower) || ingredientNameLower.includes(item.name)
     );
 
-    if (inShoppingList) {
-      return { status: 'shopping', inShoppingList: true };
+    if (shoppingItem) {
+      if (shoppingItem.completed) {
+        return { status: 'completed', inShoppingList: true, isCompleted: true };
+      }
+      return { status: 'shopping', inShoppingList: true, isCompleted: false };
     }
     
     // Try to find matching item in pantry (case-insensitive, partial match)
-    const matchedItem = pantryItems.find(item => 
-      item.name.toLowerCase().includes(ingredientNameLower) ||
-      ingredientNameLower.includes(item.name.toLowerCase()) ||
-      item.type.toLowerCase().includes(ingredientNameLower) ||
-      ingredientNameLower.includes(item.type.toLowerCase())
-    );
+    // Check both name and type fields
+    const matchedItem = pantryItems.find(item => {
+      const itemName = (item.name || "").toLowerCase();
+      const itemType = (item.type || "").toLowerCase();
+      return itemName.includes(ingredientNameLower) ||
+             ingredientNameLower.includes(itemName) ||
+             itemType.includes(ingredientNameLower) ||
+             ingredientNameLower.includes(itemType);
+    });
 
     if (!matchedItem) {
-      return { status: 'missing', inShoppingList: false };
+      return { status: 'missing', inShoppingList: false, isCompleted: false };
+    }
+
+    // Check if item is expired
+    if (matchedItem.expirationDate) {
+      const expirationDate = new Date(matchedItem.expirationDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      expirationDate.setHours(0, 0, 0, 0);
+      if (expirationDate < today) {
+        return { status: 'expired', inShoppingList: false, isCompleted: false };
+      }
     }
 
     // Check if quantity is sufficient
     if (matchedItem.quantity >= ingredient.quantity) {
-      return { status: 'available', inShoppingList: false };
+      return { status: 'available', inShoppingList: false, isCompleted: false };
     }
 
-    return { status: 'partial', inShoppingList: false };
+    return { status: 'partial', inShoppingList: false, isCompleted: false };
   };
 
   const addSingleIngredientToShoppingList = (ingredient: Ingredient) => {
@@ -121,13 +172,13 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: Reci
     }
 
     // Check if already in shopping list
-    if (shoppingListItems.some(item => item === ingredient.name.toLowerCase())) {
+    if (shoppingListItems.some(item => item.name === ingredient.name.toLowerCase())) {
       Alert.alert("Info", `${ingredient.name} is already in your shopping list`);
       return;
     }
 
     // Update UI immediately
-    setShoppingListItems([...shoppingListItems, ingredient.name.toLowerCase()]);
+    setShoppingListItems([...shoppingListItems, { name: ingredient.name.toLowerCase(), completed: false }]);
 
     // Add to Firestore (fire and forget)
     addDoc(collection(db, "shoppingList"), {
@@ -141,7 +192,7 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: Reci
     }).catch(error => {
       console.error("Error adding ingredient:", error);
       setShoppingListItems(prev => 
-        prev.filter(item => item !== ingredient.name.toLowerCase())
+        prev.filter(item => item.name !== ingredient.name.toLowerCase())
       );
       Alert.alert("Error", "Failed to add ingredient to shopping list");
     });
@@ -189,7 +240,7 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: Reci
         <View style={[styles.section, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
           <Text style={[styles.sectionTitle, { color: themeColors.textColor }]}>Ingredients</Text>
           {recipe.ingredients.map((ingredient, index) => {
-            const { status, inShoppingList } = getIngredientStatus(ingredient);
+            const { status, isCompleted } = getIngredientStatus(ingredient);
             return (
               <View 
                 key={`ingredient-${index}`} 
@@ -199,19 +250,23 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: Reci
                   status === 'partial' && styles.ingredientPartial,
                   status === 'missing' && styles.ingredientMissing,
                   status === 'shopping' && styles.ingredientShopping,
+                  status === 'completed' && styles.ingredientCompleted,
+                  status === 'expired' && { backgroundColor: '#fccccb', borderLeftColor: '#d32f2f' },
                   themeColors.mode === "dark" && { backgroundColor: "#444" }
                 ]}
               >
-                <Text style={[styles.ingredientBullet, { color: status === 'shopping' ? '#fff' : themeColors.accentColor }]}>-</Text>
+                <Text style={[styles.ingredientBullet, { color: status === 'shopping' || status === 'completed' ? '#fff' : status === 'expired' ? '#d32f2f' : themeColors.accentColor }]}>
+                  {status === 'completed' ? '✓' : status === 'expired' ? '✕' : '-'}
+                </Text>
                 <View style={styles.ingredientContent}>
-                  <Text style={[styles.ingredientName, { color: status === 'shopping' ? '#fff' : themeColors.textColor }]}>
+                  <Text style={[styles.ingredientName, { color: status === 'shopping' || status === 'completed' ? '#fff' : status === 'expired' ? '#d32f2f' : themeColors.textColor, textDecorationLine: status === 'completed' || status === 'expired' ? 'line-through' : 'none' }]}>
                     {ingredient.quantity} {ingredient.unit} {ingredient.name}
                   </Text>
-                  <Text style={[styles.ingredientStatus, { color: status === 'shopping' ? '#e8f0ff' : themeColors.mode === "dark" ? "#aaa" : "#666" }]}>
-                    {status === 'available' ? '(In Stock)' : status === 'partial' ? '(Not Enough)' : status === 'shopping' ? '(On Shopping List)' : '(Missing)'}
+                  <Text style={[styles.ingredientStatus, { color: status === 'shopping' || status === 'completed' ? '#e8f0ff' : status === 'expired' ? '#b71c1c' : themeColors.mode === "dark" ? "#aaa" : "#666" }]}>
+                    {status === 'available' ? '(In Stock)' : status === 'partial' ? '(Not Enough)' : status === 'shopping' ? '(On Shopping List)' : status === 'completed' ? '(Purchased)' : status === 'expired' ? '(Expired)' : '(Missing)'}
                   </Text>
                 </View>
-                {(status === 'missing' || status === 'partial') && (
+                {(status === 'missing' || status === 'partial' || status === 'expired') && (
                   <TouchableOpacity 
                     onPress={() => addSingleIngredientToShoppingList(ingredient)}
                     style={[styles.addIngredientButton, { backgroundColor: themeColors.accentColor }]}
@@ -353,6 +408,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#4A90E2",
     borderLeftWidth: 4,
     borderLeftColor: "#2E5C8A",
+  },
+  ingredientCompleted: {
+    backgroundColor: "#28a745",
+    borderLeftWidth: 4,
+    borderLeftColor: "#1e7e34",
   },
   ingredientBullet: {
     fontSize: 16,
