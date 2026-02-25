@@ -13,6 +13,7 @@ interface ShoppingItem {
   completed: boolean;
   userId: string;
   createdAt: number;
+  source?: string; // 'manual' or 'recipe'
 }
 
 interface ShoppingListScreenProps {
@@ -85,6 +86,32 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
     }
   };
 
+  const addToPantry = async (item: ShoppingItem) => {
+    try {
+      // Add to pantry collection
+      const today = new Date().toISOString().split('T')[0];
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + 30); // Default 30 days expiry
+      
+      await addDoc(collection(db, "pantry"), {
+        name: item.name,
+        quantity: parseFloat(item.quantity),
+        unit: item.unit,
+        location: "Pantry",
+        dateAdded: today,
+        expirationDate: expiryDate.toISOString().split('T')[0],
+        userId,
+        createdAt: Date.now(),
+      });
+
+      // Delete from shopping list
+      await deleteDoc(doc(db, "shoppingList", item.id));
+      Alert.alert("Success", `${item.name} added to pantry`);
+    } catch (error) {
+      Alert.alert("Error", "Failed to add to pantry");
+    }
+  };
+
   const renderItem = ({ item }: { item: ShoppingItem }) => (
     <View style={[styles.itemContainer, { backgroundColor: theme.mode === "dark" ? "#333" : "#fff", borderColor: theme.accentColor }]}>
       <TouchableOpacity
@@ -92,7 +119,7 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
         onPress={() => toggleItem(item.id, item.completed)}
       >
         <View style={[styles.checkbox, item.completed && { backgroundColor: theme.accentColor, borderColor: theme.accentColor }]}>
-          {item.completed && <Text style={styles.checkmark}>-</Text>}
+          {item.completed && <Text style={styles.checkmark}>+</Text>}
         </View>
       </TouchableOpacity>
 
@@ -105,9 +132,19 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
         </Text>
       </View>
 
-      <TouchableOpacity onPress={() => deleteItem(item.id)}>
-        <Text style={[styles.deleteButton, { color: "#e74c3c" }]}>X</Text>
-      </TouchableOpacity>
+      <View style={styles.actionButtons}>
+        {item.completed && (
+          <TouchableOpacity 
+            onPress={() => addToPantry(item)}
+            style={[styles.pantryButton, { backgroundColor: theme.accentColor }]}
+          >
+            <Text style={styles.pantryButtonText}>Pantry</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity onPress={() => deleteItem(item.id)}>
+          <Text style={[styles.deleteButton, { color: "#e74c3c" }]}>X</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -254,6 +291,21 @@ const styles = StyleSheet.create({
   },
   itemQuantity: {
     fontSize: 12,
+  },
+  actionButtons: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+  },
+  pantryButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  pantryButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
   },
   deleteButton: {
     fontSize: 18,
