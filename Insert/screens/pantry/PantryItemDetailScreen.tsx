@@ -9,7 +9,7 @@ import data from "./example/data.json";
 const pantryItems = data.pantryItems;
 
 type PantryItem = {
-  id: number;
+  id: number | string;
   type: string;
   name: string;
   quantity: number;
@@ -17,6 +17,7 @@ type PantryItem = {
   location: string;
   dateAdded: string;
   expirationDate: string;
+  _firestoreId?: string;
 };
 
 type PendingItem = {
@@ -88,10 +89,14 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
     // Load pantry items from Firestore
     const pantryQuery = query(collection(db, "pantry"), where("userId", "==", userId));
     const pantryUnsubscribe = onSnapshot(pantryQuery, (snapshot) => {
-      const firestoreItems = snapshot.docs.map(doc => ({
-        id: `fs_${doc.id}`,
-        ...doc.data()
-      })) as unknown as PantryItem[];
+      const firestoreItems = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: Math.random(), // Use random ID for local state
+          _firestoreId: doc.id, // Store actual Firestore doc ID
+          ...data
+        };
+      }) as unknown as PantryItem[];
       console.log("Pantry items from Firestore:", firestoreItems.length);
       // Combine Firestore items with local items
       const combinedItems = [...pantryItems, ...firestoreItems];
@@ -259,9 +264,25 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => {
-            const updatedItems = items.filter(item => item.id !== itemId);
-            setItems(updatedItems);
+          onPress: async () => {
+            try {
+              // Update local state immediately for UI feedback
+              const updatedItems = items.filter(item => item.id !== itemId);
+              setItems(updatedItems);
+
+              // If it's a Firestore item (id starts with 'fs_'), delete from Firestore
+              const itemIndex = items.findIndex(item => item.id === itemId);
+              if (itemIndex !== -1 && items[itemIndex].id.toString().startsWith('fs_')) {
+                const firestoreId = items[itemIndex].id.toString().replace('fs_', '');
+                await deleteDoc(doc(db, "pantry", firestoreId));
+                console.log("Item deleted from Firestore:", firestoreId);
+              }
+            } catch (error) {
+              console.error("Error deleting item:", error);
+              Alert.alert("Error", "Failed to delete item");
+              // Revert state if deletion fails
+              setItems([...items]);
+            }
           }
         }
       ]
