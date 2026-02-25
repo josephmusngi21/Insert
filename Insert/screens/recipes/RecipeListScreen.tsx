@@ -7,6 +7,7 @@ import { useState } from "react";
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Button } from "react-native";
 import recipes from "./example/recipes.json";
 import RecipeFormScreen from "./RecipeFormScreen";
+import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 
 type Recipe = {
   id: number;
@@ -21,11 +22,19 @@ type Recipe = {
 
 interface RecipeListScreenProps {
   onRecipeSelect?: (recipeId: number) => void;
+  theme?: ThemeColors;
 }
 
-export default function RecipeListScreen({ onRecipeSelect }: RecipeListScreenProps) {
+export default function RecipeListScreen({ onRecipeSelect, theme }: RecipeListScreenProps) {
   const [recipeList, setRecipeList] = useState<Recipe[]>(recipes.recipes);
   const [showAddForm, setShowAddForm] = useState(false);
+
+  const themeColors = theme || {
+    mode: "light",
+    textColor: "#333",
+    accentColor: "#4CAF50",
+    backgroundColor: "#f5f5f5",
+  };
 
   const handleRecipeSaved = (newRecipe: any) => {
     const recipe: Recipe = {
@@ -47,39 +56,40 @@ export default function RecipeListScreen({ onRecipeSelect }: RecipeListScreenPro
       <RecipeFormScreen
         onRecipeSaved={handleRecipeSaved}
         onCancel={() => setShowAddForm(false)}
+        theme={themeColors}
       />
     );
   }
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={[styles.container, { backgroundColor: themeColors.backgroundColor }]}>
       <View style={styles.header}>
-        <Text style={styles.title}>Recipes</Text>
-        <Button title="+ Add Recipe" onPress={() => setShowAddForm(true)} />
+        <Text style={[styles.title, { color: themeColors.textColor }]}>Recipes</Text>
+        <Button title="+ Add Recipe" onPress={() => setShowAddForm(true)} color={themeColors.accentColor} />
       </View>
 
       {recipeList.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyStateText}>No recipes yet</Text>
+          <Text style={[styles.emptyStateText, { color: themeColors.textColor }]}>No recipes yet</Text>
           <Text style={styles.emptyStateSubtext}>Add your first recipe to get started</Text>
         </View>
       ) : (
         recipeList.map((recipe) => (
           <TouchableOpacity 
             key={recipe.id} 
-            style={styles.recipeCard}
+            style={[styles.recipeCard, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}
             onPress={() => onRecipeSelect?.(recipe.id)}
           >
-            <Text style={styles.recipeName}>{recipe.name}</Text>
+            <Text style={[styles.recipeName, { color: themeColors.textColor }]}>{recipe.name}</Text>
             {recipe.description && (
-              <Text style={styles.recipeDescription}>{recipe.description}</Text>
+              <Text style={[styles.recipeDescription, { color: themeColors.textColor }]}>{recipe.description}</Text>
             )}
             <View style={styles.recipeInfo}>
-              <Text style={styles.infoText}>Cook: {recipe.cookTime} min</Text>
-              <Text style={styles.infoText}>Servings: {recipe.servings}</Text>
-              <Text style={styles.infoText}>Difficulty: {recipe.difficulty}</Text>
+              <Text style={[styles.infoText, { color: themeColors.textColor }]}>Cook: {recipe.cookTime} min</Text>
+              <Text style={[styles.infoText, { color: themeColors.textColor }]}>Servings: {recipe.servings}</Text>
+              <Text style={[styles.infoText, { color: themeColors.textColor }]}>Difficulty: {recipe.difficulty}</Text>
             </View>
-            <Text style={styles.ingredients}>
+            <Text style={[styles.ingredients, { color: themeColors.textColor }]}>
               Ingredients: {recipe.ingredients.length} items
             </Text>
           </TouchableOpacity>
@@ -92,8 +102,8 @@ export default function RecipeListScreen({ onRecipeSelect }: RecipeListScreenPro
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f5f5",
-    marginTop: 50,
+    paddingTop: 50,
+    paddingBottom: 80,
   },
   header: {
     flexDirection: "row",
@@ -101,14 +111,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: "#fff",
     borderBottomWidth: 1,
     borderBottomColor: "#eee",
   },
   title: {
     fontSize: 28,
     fontWeight: "bold",
-    color: "#333",
   },
   emptyState: {
     flex: 1,
@@ -119,7 +127,6 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 18,
     fontWeight: "bold",
-    color: "#999",
     marginBottom: 8,
   },
   emptyStateSubtext: {
@@ -127,7 +134,6 @@ const styles = StyleSheet.create({
     color: "#bbb",
   },
   recipeCard: {
-    backgroundColor: "#fff",
     borderRadius: 8,
     padding: 16,
     marginHorizontal: 16,
@@ -142,12 +148,10 @@ const styles = StyleSheet.create({
   recipeName: {
     fontSize: 18,
     fontWeight: "bold",
-    color: "#333",
     marginBottom: 4,
   },
   recipeDescription: {
     fontSize: 14,
-    color: "#666",
     marginBottom: 8,
   },
   recipeInfo: {
@@ -157,13 +161,11 @@ const styles = StyleSheet.create({
   },
   infoText: {
     fontSize: 12,
-    color: "#888",
     marginRight: 12,
     marginBottom: 4,
   },
   ingredients: {
     fontSize: 12,
-    color: "#666",
     fontStyle: "italic",
   },
 });
