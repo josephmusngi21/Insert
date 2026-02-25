@@ -26,12 +26,26 @@ interface Recipe {
   cuisine: string;
 }
 
+interface ThemeColors {
+  mode: "light" | "dark" | "custom";
+  textColor: string;
+  accentColor: string;
+  backgroundColor: string;
+}
+
 interface RecipeDetailScreenProps {
   recipeId?: number;
   onBack?: () => void;
+  theme?: ThemeColors;
 }
 
-export default function RecipeDetailScreen({ recipeId = 1, onBack }: RecipeDetailScreenProps) {
+export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: RecipeDetailScreenProps) {
+  const themeColors = theme || {
+    mode: "light",
+    textColor: "#333",
+    accentColor: "#4CAF50",
+    backgroundColor: "#f5f5f5",
+  };
   const [recipe, setRecipe] = useState<Recipe | null>(null);
 
   useEffect(() => {
@@ -66,45 +80,45 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack }: RecipeDetai
 
   if (!recipe) {
     return (
-      <View style={styles.container}>
-        <Text>Loading...</Text>
+      <View style={[styles.container, { backgroundColor: themeColors.backgroundColor }]}>
+        <Text style={{ color: themeColors.textColor }}>Loading...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: themeColors.backgroundColor }]}>
       {onBack && (
-        <TouchableOpacity style={styles.backButton} onPress={onBack}>
-          <Text style={styles.backButtonText}>Back</Text>
+        <TouchableOpacity style={[styles.backButton, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]} onPress={onBack}>
+          <Text style={[styles.backButtonText, { color: themeColors.accentColor }]}>Back</Text>
         </TouchableOpacity>
       )}
       <ScrollView>
         {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>{recipe.name}</Text>
-          <Text style={styles.description}>{recipe.description}</Text>
+        <View style={[styles.header, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
+          <Text style={[styles.title, { color: themeColors.textColor }]}>{recipe.name}</Text>
+          <Text style={[styles.description, { color: themeColors.mode === "dark" ? "#bbb" : "#666" }]}>{recipe.description}</Text>
 
           {/* Recipe Meta Info */}
-          <View style={styles.metaContainer}>
+          <View style={[styles.metaContainer, { backgroundColor: themeColors.mode === "dark" ? "#444" : "#f8f9fa" }]}>
             <View style={styles.metaItem}>
-              <Text style={styles.metaLabel}>Servings:</Text>
-              <Text style={styles.metaValue}>{recipe.servings}</Text>
+              <Text style={[styles.metaLabel, { color: themeColors.mode === "dark" ? "#aaa" : "#888" }]}>Servings:</Text>
+              <Text style={[styles.metaValue, { color: themeColors.textColor }]}>{recipe.servings}</Text>
             </View>
             <View style={styles.metaItem}>
-              <Text style={styles.metaLabel}>Cook Time:</Text>
-              <Text style={styles.metaValue}>{recipe.cookTime} mins</Text>
+              <Text style={[styles.metaLabel, { color: themeColors.mode === "dark" ? "#aaa" : "#888" }]}>Cook Time:</Text>
+              <Text style={[styles.metaValue, { color: themeColors.textColor }]}>{recipe.cookTime} mins</Text>
             </View>
             <View style={styles.metaItem}>
-              <Text style={styles.metaLabel}>Difficulty:</Text>
-              <Text style={styles.metaValue}>{recipe.difficulty}</Text>
+              <Text style={[styles.metaLabel, { color: themeColors.mode === "dark" ? "#aaa" : "#888" }]}>Difficulty:</Text>
+              <Text style={[styles.metaValue, { color: themeColors.textColor }]}>{recipe.difficulty}</Text>
             </View>
           </View>
         </View>
 
         {/* Ingredients Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Ingredients</Text>
+        <View style={[styles.section, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
+          <Text style={[styles.sectionTitle, { color: themeColors.textColor }]}>Ingredients</Text>
           {recipe.ingredients.map((ingredient, index) => {
             const status = getIngredientStatus(ingredient);
             return (
@@ -115,14 +129,15 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack }: RecipeDetai
                   status === 'available' && styles.ingredientAvailable,
                   status === 'partial' && styles.ingredientPartial,
                   status === 'missing' && styles.ingredientMissing,
+                  themeColors.mode === "dark" && { backgroundColor: "#444" }
                 ]}
               >
-                <Text style={styles.ingredientBullet}>-</Text>
+                <Text style={[styles.ingredientBullet, { color: themeColors.accentColor }]}>-</Text>
                 <View style={styles.ingredientContent}>
-                  <Text style={styles.ingredientName}>
+                  <Text style={[styles.ingredientName, { color: themeColors.textColor }]}>
                     {ingredient.quantity} {ingredient.unit} {ingredient.name}
                   </Text>
-                  <Text style={styles.ingredientStatus}>
+                  <Text style={[styles.ingredientStatus, { color: themeColors.mode === "dark" ? "#aaa" : "#666" }]}>
                     {status === 'available' ? '(In Stock)' : status === 'partial' ? '(Not Enough)' : '(Missing)'}
                   </Text>
                 </View>
@@ -132,12 +147,12 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack }: RecipeDetai
         </View>
 
         {/* Instructions Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Instructions</Text>
+        <View style={[styles.section, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
+          <Text style={[styles.sectionTitle, { color: themeColors.textColor }]}>Instructions</Text>
           {recipe.instructions.map((instruction, index) => (
-            <View key={`instruction-${index}`} style={styles.instructionItem}>
-              <Text style={styles.instructionNumber}>{index + 1}.</Text>
-              <Text style={styles.instructionText}>{instruction}</Text>
+            <View key={`instruction-${index}`} style={[styles.instructionItem, { borderBottomColor: themeColors.mode === "dark" ? "#555" : "#f0f0f0" }]}>
+              <Text style={[styles.instructionNumber, { color: themeColors.accentColor }]}>{index + 1}.</Text>
+              <Text style={[styles.instructionText, { color: themeColors.mode === "dark" ? "#ddd" : "#555" }]}>{instruction}</Text>
             </View>
           ))}
         </View>
@@ -158,7 +173,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#e0e0e0",
     zIndex: 10,
-    marginTop: 50,
+    paddingTop: 50,
   },
   backButtonText: {
     fontSize: 16,
