@@ -30,7 +30,7 @@ const TabIcon: React.FC<TabIconProps> = ({ icon, label, isActive, accentColor = 
 export default function Index() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentScreen, setCurrentScreen] = useState<Screen>('home');
-  const [selectedRecipeId, setSelectedRecipeId] = useState<number>(1);
+  const [selectedRecipeId, setSelectedRecipeId] = useState<string>("local_1");
   const [theme, setTheme] = useState<ThemeColors>({
     mode: "light",
     textColor: "#333",
@@ -43,7 +43,7 @@ export default function Index() {
     setCurrentScreen('home');
   };
 
-  const handleRecipeSelect = (recipeId: number) => {
+  const handleRecipeSelect = (recipeId: string) => {
     setSelectedRecipeId(recipeId);
     setCurrentScreen('recipeDetail');
   };
