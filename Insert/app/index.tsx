@@ -5,6 +5,7 @@ import PantryItemDetailScreen from "@/screens/pantry/PantryItemDetailScreen";
 import RecipeListScreen from "@/screens/recipes/RecipeListScreen";
 import RecipeDetailScreen from "@/screens/recipes/RecipeDetailScreen";
 import MoreScreen from "@/screens/more/MoreScreen";
+import ShoppingListScreen from "@/screens/shopping/ShoppingListScreen";
 import ThemeCustomizerScreen, { type ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import MainLogin from '../screens/firebaseAuthLoginRegister/MainLogin';
 
@@ -57,7 +58,7 @@ export default function Index() {
     { name: 'recipes', icon: 'R', label: 'Recipes' },
     { name: 'pantry', icon: 'P', label: 'Pantry' },
     { name: 'blank1', icon: '+', label: 'Center', isCenter: true },
-    { name: 'blank2', icon: 'D', label: 'Discover' },
+    { name: 'blank2', icon: 'S', label: 'Shopping' },
     { name: 'more', icon: 'M', label: 'More' },
   ];
 
@@ -71,7 +72,7 @@ export default function Index() {
           <Text style={[styles.blankText, { color: theme.textColor }]}>Coming Soon</Text>
         </View>
       )}
-      {currentScreen === 'blank2' && <View style={{ flex: 1, backgroundColor: theme.backgroundColor, paddingTop: 50, marginTop: 0 }} />}
+      {currentScreen === 'blank2' && <ShoppingListScreen theme={theme} />}
       {currentScreen === 'more' && (
         <MoreScreen 
           userEmail="user@example.com" 
