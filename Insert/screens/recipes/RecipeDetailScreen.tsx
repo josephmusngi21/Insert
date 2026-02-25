@@ -4,7 +4,10 @@
  */
 
 import { useState, useEffect } from "react";
-import { View, Text, ScrollView, StyleSheet, Button, TouchableOpacity } from "react-native";
+import { View, Text, ScrollView, StyleSheet, Button, TouchableOpacity, Alert } from "react-native";
+import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
+import { collection, addDoc, query, where, onSnapshot } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 import recipeData from "./example/recipes.json";
 import pantryData from "../pantry/example/data.json";
 
@@ -47,6 +50,10 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: Reci
     backgroundColor: "#f5f5f5",
   };
   const [recipe, setRecipe] = useState<Recipe | null>(null);
+  const [addingIngredient, setAddingIngredient] = useState<string | null>(null);
+  const [shoppingListItems, setShoppingListItems] = useState<string[]>([]);
+  const auth = getAuth();
+  const userId = auth.currentUser?.uid || "";
 
   useEffect(() => {
     // Find recipe by ID or use first recipe
@@ -54,28 +61,90 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: Reci
     setRecipe(foundRecipe || (recipeData.recipes[0] as Recipe));
   }, [recipeId]);
 
-  // Check ingredient availability in pantry
-  const getIngredientStatus = (ingredient: Ingredient): 'available' | 'partial' | 'missing' => {
+  // Load shopping list items with real-time listener
+  useEffect(() => {
+    if (!userId) return;
+    
+    const q = query(
+      collection(db, "shoppingList"),
+      where("userId", "==", userId)
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const items = snapshot.docs.map(doc => doc.data().name.toLowerCase());
+      setShoppingListItems(items);
+    }, (error) => {
+      console.error("Error loading shopping list:", error);
+    });
+    
+    return () => unsubscribe();
+  }, [userId]);
+
+  // Check ingredient availability in pantry and shopping list
+  const getIngredientStatus = (ingredient: Ingredient): { status: 'available' | 'partial' | 'missing' | 'shopping'; inShoppingList: boolean } => {
     const pantryItems = pantryData.pantryItems as any[];
+    const ingredientNameLower = ingredient.name.toLowerCase();
+    
+    // Check if already in shopping list
+    const inShoppingList = shoppingListItems.some(item => 
+      item.includes(ingredientNameLower) || ingredientNameLower.includes(item)
+    );
+
+    if (inShoppingList) {
+      return { status: 'shopping', inShoppingList: true };
+    }
     
     // Try to find matching item in pantry (case-insensitive, partial match)
     const matchedItem = pantryItems.find(item => 
-      item.name.toLowerCase().includes(ingredient.name.toLowerCase()) ||
-      ingredient.name.toLowerCase().includes(item.name.toLowerCase()) ||
-      item.type.toLowerCase().includes(ingredient.name.toLowerCase()) ||
-      ingredient.name.toLowerCase().includes(item.type.toLowerCase())
+      item.name.toLowerCase().includes(ingredientNameLower) ||
+      ingredientNameLower.includes(item.name.toLowerCase()) ||
+      item.type.toLowerCase().includes(ingredientNameLower) ||
+      ingredientNameLower.includes(item.type.toLowerCase())
     );
 
     if (!matchedItem) {
-      return 'missing';
+      return { status: 'missing', inShoppingList: false };
     }
 
     // Check if quantity is sufficient
     if (matchedItem.quantity >= ingredient.quantity) {
-      return 'available';
+      return { status: 'available', inShoppingList: false };
     }
 
-    return 'partial';
+    return { status: 'partial', inShoppingList: false };
+  };
+
+  const addSingleIngredientToShoppingList = (ingredient: Ingredient) => {
+    if (!userId) {
+      Alert.alert("Error", "Unable to add ingredient");
+      return;
+    }
+
+    // Check if already in shopping list
+    if (shoppingListItems.some(item => item === ingredient.name.toLowerCase())) {
+      Alert.alert("Info", `${ingredient.name} is already in your shopping list`);
+      return;
+    }
+
+    // Update UI immediately
+    setShoppingListItems([...shoppingListItems, ingredient.name.toLowerCase()]);
+
+    // Add to Firestore (fire and forget)
+    addDoc(collection(db, "shoppingList"), {
+      name: ingredient.name,
+      quantity: ingredient.quantity.toString(),
+      unit: ingredient.unit,
+      completed: false,
+      userId,
+      createdAt: Date.now(),
+      source: "recipe",
+    }).catch(error => {
+      console.error("Error adding ingredient:", error);
+      setShoppingListItems(prev => 
+        prev.filter(item => item !== ingredient.name.toLowerCase())
+      );
+      Alert.alert("Error", "Failed to add ingredient to shopping list");
+    });
   };
 
   if (!recipe) {
@@ -120,7 +189,7 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: Reci
         <View style={[styles.section, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
           <Text style={[styles.sectionTitle, { color: themeColors.textColor }]}>Ingredients</Text>
           {recipe.ingredients.map((ingredient, index) => {
-            const status = getIngredientStatus(ingredient);
+            const { status, inShoppingList } = getIngredientStatus(ingredient);
             return (
               <View 
                 key={`ingredient-${index}`} 
@@ -129,18 +198,27 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: Reci
                   status === 'available' && styles.ingredientAvailable,
                   status === 'partial' && styles.ingredientPartial,
                   status === 'missing' && styles.ingredientMissing,
+                  status === 'shopping' && styles.ingredientShopping,
                   themeColors.mode === "dark" && { backgroundColor: "#444" }
                 ]}
               >
-                <Text style={[styles.ingredientBullet, { color: themeColors.accentColor }]}>-</Text>
+                <Text style={[styles.ingredientBullet, { color: status === 'shopping' ? '#fff' : themeColors.accentColor }]}>-</Text>
                 <View style={styles.ingredientContent}>
-                  <Text style={[styles.ingredientName, { color: themeColors.textColor }]}>
+                  <Text style={[styles.ingredientName, { color: status === 'shopping' ? '#fff' : themeColors.textColor }]}>
                     {ingredient.quantity} {ingredient.unit} {ingredient.name}
                   </Text>
-                  <Text style={[styles.ingredientStatus, { color: themeColors.mode === "dark" ? "#aaa" : "#666" }]}>
-                    {status === 'available' ? '(In Stock)' : status === 'partial' ? '(Not Enough)' : '(Missing)'}
+                  <Text style={[styles.ingredientStatus, { color: status === 'shopping' ? '#e8f0ff' : themeColors.mode === "dark" ? "#aaa" : "#666" }]}>
+                    {status === 'available' ? '(In Stock)' : status === 'partial' ? '(Not Enough)' : status === 'shopping' ? '(On Shopping List)' : '(Missing)'}
                   </Text>
                 </View>
+                {(status === 'missing' || status === 'partial') && (
+                  <TouchableOpacity 
+                    onPress={() => addSingleIngredientToShoppingList(ingredient)}
+                    style={[styles.addIngredientButton, { backgroundColor: themeColors.accentColor }]}
+                  >
+                    <Text style={styles.addIngredientButtonText}>+</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             );
           })}
@@ -231,6 +309,22 @@ const styles = StyleSheet.create({
     color: "#1a1a1a",
     marginBottom: 12,
   },
+  ingredientHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  addShoppingButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  addShoppingButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
+  },
   ingredientItem: {
     flexDirection: "row",
     paddingVertical: 8,
@@ -238,6 +332,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     backgroundColor: "#f8f9fa",
     borderRadius: 6,
+    alignItems: "center",
   },
   ingredientAvailable: {
     backgroundColor: "#d4edda",
@@ -253,6 +348,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8d7da",
     borderLeftWidth: 4,
     borderLeftColor: "#dc3545",
+  },
+  ingredientShopping: {
+    backgroundColor: "#4A90E2",
+    borderLeftWidth: 4,
+    borderLeftColor: "#2E5C8A",
   },
   ingredientBullet: {
     fontSize: 16,
@@ -274,6 +374,19 @@ const styles = StyleSheet.create({
     color: "#666",
     marginTop: 4,
     fontStyle: "italic",
+  },
+  addIngredientButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 8,
+  },
+  addIngredientButtonText: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "bold",
   },
   instructionItem: {
     flexDirection: "row",
