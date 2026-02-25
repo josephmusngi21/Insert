@@ -15,6 +15,7 @@ type Ingredient = {
 
 type RecipeFormData = {
   name: string;
+  description: string;
   servings: string;
   cookTime: string;
   difficulty: string;
@@ -35,6 +36,10 @@ interface RecipeFormScreenProps {
   theme?: ThemeColors;
 }
 
+const COOKING_UNITS = [
+  "ml", "L", "g", "kg", "oz", "lb", "tsp", "tbsp", "cup"
+];
+
 export default function RecipeFormScreen({ onRecipeSaved, onCancel, theme }: RecipeFormScreenProps) {
   const themeColors = theme || {
     mode: "light",
@@ -42,9 +47,10 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel, theme }: Rec
     accentColor: "#4CAF50",
     backgroundColor: "#f5f5f5",
   };
-  const [step, setStep] = useState<"name" | "servings" | "cookTime" | "difficulty" | "ingredients" | "instructions" | "review">("name");
+  const [step, setStep] = useState<"name" | "description" | "servings" | "cookTime" | "difficulty" | "ingredients" | "instructions" | "review">("name");
   const [formData, setFormData] = useState<RecipeFormData>({
     name: "",
+    description: "",
     servings: "",
     cookTime: "",
     difficulty: "easy",
@@ -55,6 +61,10 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel, theme }: Rec
 
   const handleNameChange = (text: string) => {
     setFormData({ ...formData, name: text });
+  };
+
+  const handleDescriptionChange = (text: string) => {
+    setFormData({ ...formData, description: text });
   };
 
   const handleServingsChange = (text: string) => {
@@ -120,34 +130,97 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel, theme }: Rec
   };
 
   const handleSaveRecipe = () => {
-    if (!formData.name.trim()) {
-      Alert.alert("Error", "Recipe name is required");
-      return;
-    }
-    if (!formData.servings.trim()) {
-      Alert.alert("Error", "Servings is required");
-      return;
-    }
-    if (!formData.cookTime.trim()) {
-      Alert.alert("Error", "Cook time is required");
-      return;
-    }
-    if (formData.ingredients.some((ing) => !ing.name.trim())) {
-      Alert.alert("Error", "All ingredients must have a name");
-      return;
-    }
-    if (formData.instructions.some((inst) => !inst.trim())) {
-      Alert.alert("Error", "All instructions must have text");
+    console.log("Attempting to save recipe...");
+    
+    // Validate recipe name
+    if (!formData.name || !formData.name.trim()) {
+      console.log("Missing recipe name");
+      Alert.alert("Missing Recipe Name", "Please enter a recipe name");
+      setStep("name");
       return;
     }
 
-    onRecipeSaved?.(formData);
-    Alert.alert("Success", "Recipe saved successfully!");
+    // Validate description (optional, but if provided shouldn't be blank)
+    if (formData.description && !formData.description.trim()) {
+      console.log("Description is blank but was started");
+      Alert.alert("Incomplete Description", "Please complete the description or leave it empty");
+      setStep("description");
+      return;
+    }
+
+    // Servings is now optional - defaults to "--"
+    // Cook time is now optional - defaults to "--"
+
+    // Validate ingredients - must have name, quantity, and unit
+    const invalidIngredients = formData.ingredients.filter(
+      (ing) => !ing.name.trim() || !ing.quantity.trim() || !ing.unit.trim()
+    );
+    if (invalidIngredients.length > 0) {
+      console.log("Invalid ingredients:", invalidIngredients);
+      Alert.alert(
+        "Incomplete Ingredients",
+        "All ingredients must have a name, quantity, and unit. Please fill in or remove blank ingredients."
+      );
+      setStep("ingredients");
+      return;
+    }
+
+    // Validate instructions - at least 1 instruction with text (allow single instruction)
+    const validInstructions = formData.instructions.filter((inst) => inst.trim());
+    if (validInstructions.length === 0) {
+      console.log("Missing instructions");
+      Alert.alert(
+        "Missing Instructions",
+        "Please add at least one cooking instruction"
+      );
+      setStep("instructions");
+      return;
+    }
+
+    console.log("All validations passed, showing confirmation");
+    
+    // Show unified confirmation dialog
+    const servingsDisplay = formData.servings.trim() || "--";
+    const cookTimeDisplay = formData.cookTime.trim() || "--";
+    
+    const recipePreview = `Recipe: ${formData.name}
+Servings: ${servingsDisplay}
+Cook Time: ${cookTimeDisplay} minutes
+Difficulty: ${formData.difficulty}
+Ingredients: ${formData.ingredients.length} items
+Instructions: ${validInstructions.length} steps`;
+
+    Alert.alert(
+      "Save Recipe?",
+      recipePreview,
+      [
+        {
+          text: "Keep Editing",
+          onPress: () => console.log("Continue editing"),
+          style: "cancel",
+        },
+        {
+          text: "Discard",
+          onPress: onCancel,
+          style: "destructive",
+        },
+        {
+          text: "Save & Close",
+          onPress: () => {
+            console.log("Saving recipe...");
+            onRecipeSaved?.(formData);
+            onCancel?.();
+          },
+          style: "default",
+        },
+      ]
+    );
   };
 
   const nextStep = () => {
-    const steps: Array<"name" | "servings" | "cookTime" | "difficulty" | "ingredients" | "instructions" | "review"> = [
+    const steps: Array<"name" | "description" | "servings" | "cookTime" | "difficulty" | "ingredients" | "instructions" | "review"> = [
       "name",
+      "description",
       "servings",
       "cookTime",
       "difficulty",
@@ -157,7 +230,25 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel, theme }: Rec
     ];
     const currentIndex = steps.indexOf(step);
 
-    // Validate ingredients before moving to next step
+    // Validate current step before moving to next
+    if (step === "name") {
+      if (!formData.name || !formData.name.trim()) {
+        Alert.alert("Missing Recipe Name", "Please enter a recipe name");
+        return;
+      }
+    }
+
+    if (step === "description") {
+      if (formData.description && !formData.description.trim()) {
+        Alert.alert("Incomplete Description", "Please complete the description or leave it empty");
+        return;
+      }
+    }
+
+    // Servings is now optional - no validation needed
+
+    // Cook time is now optional - no validation needed
+
     if (step === "ingredients") {
       const blankIngredients = formData.ingredients.filter(
         (ing) => !ing.name.trim() || !ing.quantity.trim() || !ing.unit.trim()
@@ -171,14 +262,26 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel, theme }: Rec
       }
     }
 
+    if (step === "instructions") {
+      const validInstructions = formData.instructions.filter((inst) => inst.trim());
+      if (validInstructions.length === 0) {
+        Alert.alert(
+          "Missing Instructions",
+          "Please add at least one cooking instruction"
+        );
+        return;
+      }
+    }
+
     if (currentIndex < steps.length - 1) {
       setStep(steps[currentIndex + 1]);
     }
   };
 
   const prevStep = () => {
-    const steps: Array<"name" | "servings" | "cookTime" | "difficulty" | "ingredients" | "instructions" | "review"> = [
+    const steps: Array<"name" | "description" | "servings" | "cookTime" | "difficulty" | "ingredients" | "instructions" | "review"> = [
       "name",
+      "description",
       "servings",
       "cookTime",
       "difficulty",
@@ -193,8 +296,8 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel, theme }: Rec
   };
 
   const StepIndicator = () => {
-    const steps = ["Name", "Servings", "Cook Time", "Difficulty", "Ingredients", "Instructions", "Review"];
-    const currentIndex = ["name", "servings", "cookTime", "difficulty", "ingredients", "instructions", "review"].indexOf(step);
+    const steps = ["Name", "Description", "Servings", "Cook Time", "Difficulty", "Ingredients", "Instructions", "Review"];
+    const currentIndex = ["name", "description", "servings", "cookTime", "difficulty", "ingredients", "instructions", "review"].indexOf(step);
 
     return (
       <View style={styles.stepIndicator}>
@@ -228,6 +331,24 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel, theme }: Rec
             value={formData.name}
             onChangeText={handleNameChange}
           />
+        </View>
+      )}
+
+      {step === "description" && (
+        <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
+          <Text style={[styles.label, { color: themeColors.textColor }]}>Description</Text>
+          <TextInput
+            style={[styles.input, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9", height: 100, textAlignVertical: "top" }]}
+            placeholder="Enter a brief description of your recipe"
+            placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
+            value={formData.description}
+            onChangeText={handleDescriptionChange}
+            multiline
+            maxLength={500}
+          />
+          <Text style={[styles.charCount, { color: themeColors.mode === "dark" ? "#999" : "#999" }]}>
+            {formData.description.length}/500
+          </Text>
         </View>
       )}
 
@@ -284,37 +405,57 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel, theme }: Rec
         <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
           <Text style={[styles.label, { color: themeColors.textColor }]}>Ingredients</Text>
           {formData.ingredients.map((ingredient, index) => (
-            <View key={ingredient.id} style={styles.ingredientRow}>
-              <TextInput
-                style={[styles.input, styles.ingredientInput, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
-                placeholder="Ingredient name"
-                placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
-                value={ingredient.name}
-                onChangeText={(text) => handleIngredientChange(ingredient.id, "name", text)}
-              />
-              <TextInput
-                style={[styles.input, styles.quantityInput, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
-                placeholder="Qty"
-                placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
-                keyboardType="decimal-pad"
-                value={ingredient.quantity}
-                onChangeText={(text) => handleIngredientChange(ingredient.id, "quantity", text)}
-              />
-              <TextInput
-                style={[styles.input, styles.unitInput, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
-                placeholder="Unit"
-                placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
-                value={ingredient.unit}
-                onChangeText={(text) => handleIngredientChange(ingredient.id, "unit", text)}
-              />
-              {formData.ingredients.length > 1 && (
-                <TouchableOpacity
-                  style={[styles.deleteButton, { backgroundColor: "#f44336" }]}
-                  onPress={() => handleRemoveIngredient(ingredient.id)}
-                >
-                  <Text style={styles.deleteButtonText}>✕</Text>
-                </TouchableOpacity>
-              )}
+            <View key={ingredient.id}>
+              <View style={styles.ingredientRow}>
+                <TextInput
+                  style={[styles.input, styles.ingredientInput, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
+                  placeholder="Ingredient name"
+                  placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
+                  value={ingredient.name}
+                  onChangeText={(text) => handleIngredientChange(ingredient.id, "name", text)}
+                />
+                <TextInput
+                  style={[styles.input, styles.quantityInput, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
+                  placeholder="Qty"
+                  placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
+                  keyboardType="decimal-pad"
+                  value={ingredient.quantity}
+                  onChangeText={(text) => handleIngredientChange(ingredient.id, "quantity", text)}
+                />
+                {formData.ingredients.length > 1 && (
+                  <TouchableOpacity
+                    style={[styles.deleteButton, { backgroundColor: "#f44336" }]}
+                    onPress={() => handleRemoveIngredient(ingredient.id)}
+                  >
+                    <Text style={styles.deleteButtonText}>✕</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              
+              {/* Quick Unit Buttons */}
+              <View style={{ marginBottom: 12 }}>
+                <Text style={[{ color: themeColors.mode === "dark" ? "#aaa" : "#666", fontSize: 12, marginBottom: 8, marginHorizontal: 4 }]}>
+                  Quick units:
+                </Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginHorizontal: 4 }}>
+                  {COOKING_UNITS.map(unit => (
+                    <TouchableOpacity
+                      key={unit}
+                      onPress={() => handleIngredientChange(ingredient.id, "unit", unit)}
+                      style={[{ 
+                        paddingHorizontal: 11, 
+                        paddingVertical: 7, 
+                        borderRadius: 6, 
+                        backgroundColor: ingredient.unit === unit ? themeColors.accentColor : (themeColors.mode === "dark" ? "#555" : "#ddd")
+                      }]}
+                    >
+                      <Text style={[{ color: ingredient.unit === unit ? "#fff" : themeColors.textColor, fontSize: 12, fontWeight: "500" }]}>
+                        {unit}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
             </View>
           ))}
           <Button title="Add Ingredient" color={themeColors.accentColor} onPress={handleAddIngredient} />
@@ -354,8 +495,13 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel, theme }: Rec
           <Text style={[styles.label, { color: themeColors.textColor }]}>Review Recipe</Text>
           <View style={[styles.reviewCard, { backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}>
             <Text style={[styles.reviewTitle, { color: themeColors.textColor }]}>{formData.name}</Text>
-            <Text style={[styles.reviewInfo, { color: themeColors.textColor }]}>Servings: {formData.servings}</Text>
-            <Text style={[styles.reviewInfo, { color: themeColors.textColor }]}>Cook Time: {formData.cookTime} min</Text>
+            {formData.description && (
+              <Text style={[styles.reviewText, { color: themeColors.mode === "dark" ? "#ddd" : "#666", marginBottom: 12, fontStyle: "italic" }]}>
+                {formData.description}
+              </Text>
+            )}
+            <Text style={[styles.reviewInfo, { color: themeColors.textColor }]}>Servings: {formData.servings || "--"}</Text>
+            <Text style={[styles.reviewInfo, { color: themeColors.textColor }]}>Cook Time: {formData.cookTime || "--"} {formData.cookTime ? "min" : ""}</Text>
             <Text style={[styles.reviewInfo, { color: themeColors.textColor }]}>Difficulty: {formData.difficulty}</Text>
 
             <Text style={[styles.reviewSubtitle, { color: themeColors.textColor }]}>Ingredients:</Text>
@@ -388,7 +534,28 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel, theme }: Rec
       </View>
 
       {onCancel && (
-        <Button title="Cancel" onPress={onCancel} color="#f44336" />
+        <Button 
+          title="Cancel" 
+          onPress={() => {
+            Alert.alert(
+              "Cancel Recipe",
+              "Are you sure you want to cancel? Any unsaved changes will be lost.",
+              [
+                {
+                  text: "Keep Editing",
+                  onPress: () => console.log("Continue editing"),
+                  style: "cancel",
+                },
+                {
+                  text: "Discard",
+                  onPress: onCancel,
+                  style: "destructive",
+                },
+              ]
+            );
+          }} 
+          color="#f44336" 
+        />
       )}
     </ScrollView>
   );
@@ -454,6 +621,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 12,
     backgroundColor: "#f9f9f9",
+  },
+  charCount: {
+    fontSize: 12,
+    textAlign: "right",
+    marginTop: -8,
+    marginBottom: 12,
   },
   difficultyButtons: {
     flexDirection: "row",

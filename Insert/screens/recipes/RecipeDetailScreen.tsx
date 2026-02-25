@@ -6,27 +6,27 @@
 import { useState, useEffect } from "react";
 import { View, Text, ScrollView, StyleSheet, Button, TouchableOpacity, Alert } from "react-native";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
-import { collection, addDoc, query, where, onSnapshot } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, getDoc, addDoc, deleteDoc } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import recipeData from "./example/recipes.json";
 import pantryData from "../pantry/example/data.json";
 
 interface Ingredient {
   name: string;
-  quantity: number;
+  quantity: number | string;
   unit: string;
 }
 
 interface Recipe {
-  id: number;
+  id: string;
   name: string;
-  description: string;
-  servings: number;
-  cookTime: number;
+  description?: string;
+  servings: number | string;
+  cookTime: number | string;
   ingredients: Ingredient[];
   instructions: string[];
   difficulty: string;
-  cuisine: string;
+  cuisine?: string;
 }
 
 interface ThemeColors {
@@ -37,12 +37,12 @@ interface ThemeColors {
 }
 
 interface RecipeDetailScreenProps {
-  recipeId?: number;
+  recipeId?: string;
   onBack?: () => void;
   theme?: ThemeColors;
 }
 
-export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: RecipeDetailScreenProps) {
+export default function RecipeDetailScreen({ recipeId = "local_1", onBack, theme }: RecipeDetailScreenProps) {
   const themeColors = theme || {
     mode: "light",
     textColor: "#333",
@@ -57,9 +57,45 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: Reci
   const userId = auth.currentUser?.uid || "";
 
   useEffect(() => {
-    // Find recipe by ID or use first recipe
-    const foundRecipe = recipeData.recipes.find((r) => r.id === recipeId) as Recipe | undefined;
-    setRecipe(foundRecipe || (recipeData.recipes[0] as Recipe));
+    if (!recipeId) return;
+    
+    console.log("Loading recipe with ID:", recipeId);
+    
+    // If it's a local recipe (prefixed with "local_")
+    if (recipeId.startsWith("local_")) {
+      const localId = parseInt(recipeId.replace("local_", ""));
+      const foundRecipe = recipeData.recipes.find((r) => r.id === localId);
+      console.log("Found local recipe:", foundRecipe);
+      if (foundRecipe) {
+        setRecipe({ ...foundRecipe, id: recipeId } as Recipe);
+      }
+    } else {
+      // Load from Firestore using real-time listener for instant display
+      const docRef = doc(db, "recipes", recipeId);
+      const unsubscribe = onSnapshot(docRef, (docSnap) => {
+        console.log("Firestore doc exists:", docSnap.exists());
+        console.log("Firestore doc data:", docSnap.data());
+        if (docSnap.exists()) {
+          const recipeData = docSnap.data();
+          setRecipe({ 
+            id: docSnap.id, 
+            name: recipeData.name,
+            description: recipeData.description || "",
+            servings: recipeData.servings,
+            cookTime: recipeData.cookTime,
+            difficulty: recipeData.difficulty,
+            ingredients: recipeData.ingredients || [],
+            instructions: recipeData.instructions || [],
+          } as Recipe);
+        } else {
+          console.log("Document does not exist");
+        }
+      }, (error) => {
+        console.error("Error loading recipe from Firestore:", error);
+      });
+
+      return () => unsubscribe();
+    }
   }, [recipeId]);
 
   // Load shopping list items with real-time listener
@@ -206,6 +242,36 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: Reci
     );
   }
 
+  const handleDeleteRecipe = () => {
+    Alert.alert(
+      "Delete Recipe",
+      `Are you sure you want to delete "${recipe?.name}"? This cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              // Only delete if it's a Firestore recipe (not a local one)
+              if (recipeId && !recipeId.startsWith("local_")) {
+                await deleteDoc(doc(db, "recipes", recipeId));
+                Alert.alert("Success", "Recipe deleted successfully", [
+                  { text: "OK", onPress: () => onBack?.() }
+                ]);
+              } else {
+                Alert.alert("Info", "Local recipes cannot be deleted");
+              }
+            } catch (error) {
+              console.error("Error deleting recipe:", error);
+              Alert.alert("Error", "Failed to delete recipe");
+            }
+          }
+        }
+      ]
+    );
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: themeColors.backgroundColor }]}>
       {onBack && (
@@ -215,7 +281,12 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: Reci
       )}
       <ScrollView>
         {/* Header */}
-        <View style={[styles.header, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
+        <TouchableOpacity 
+          onLongPress={handleDeleteRecipe} 
+          delayLongPress={500}
+          style={[styles.header, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}
+          activeOpacity={1}
+        >
           <Text style={[styles.title, { color: themeColors.textColor }]}>{recipe.name}</Text>
           <Text style={[styles.description, { color: themeColors.mode === "dark" ? "#bbb" : "#666" }]}>{recipe.description}</Text>
 
@@ -223,18 +294,18 @@ export default function RecipeDetailScreen({ recipeId = 1, onBack, theme }: Reci
           <View style={[styles.metaContainer, { backgroundColor: themeColors.mode === "dark" ? "#444" : "#f8f9fa" }]}>
             <View style={styles.metaItem}>
               <Text style={[styles.metaLabel, { color: themeColors.mode === "dark" ? "#aaa" : "#888" }]}>Servings:</Text>
-              <Text style={[styles.metaValue, { color: themeColors.textColor }]}>{recipe.servings}</Text>
+              <Text style={[styles.metaValue, { color: themeColors.textColor }]}>{recipe.servings || "--"}</Text>
             </View>
             <View style={styles.metaItem}>
               <Text style={[styles.metaLabel, { color: themeColors.mode === "dark" ? "#aaa" : "#888" }]}>Cook Time:</Text>
-              <Text style={[styles.metaValue, { color: themeColors.textColor }]}>{recipe.cookTime} mins</Text>
+              <Text style={[styles.metaValue, { color: themeColors.textColor }]}>{recipe.cookTime ? `${recipe.cookTime} mins` : "--"}</Text>
             </View>
             <View style={styles.metaItem}>
               <Text style={[styles.metaLabel, { color: themeColors.mode === "dark" ? "#aaa" : "#888" }]}>Difficulty:</Text>
               <Text style={[styles.metaValue, { color: themeColors.textColor }]}>{recipe.difficulty}</Text>
             </View>
           </View>
-        </View>
+        </TouchableOpacity>
 
         {/* Ingredients Section */}
         <View style={[styles.section, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
