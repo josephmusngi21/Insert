@@ -78,22 +78,39 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
     }
   };
 
-  const deleteItem = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, "shoppingList", id));
-    } catch (error) {
-      Alert.alert("Error", "Failed to delete item");
-    }
+  const deleteItem = async (id: string, itemName: string) => {
+    Alert.alert(
+      "Delete Item",
+      `Are you sure you want to remove "${itemName}" from your shopping list?`,
+      [
+        {
+          text: "Cancel",
+          onPress: () => {},
+          style: "cancel",
+        },
+        {
+          text: "Delete",
+          onPress: async () => {
+            try {
+              await deleteDoc(doc(db, "shoppingList", id));
+            } catch (error) {
+              Alert.alert("Error", "Failed to delete item");
+            }
+          },
+          style: "destructive",
+        },
+      ]
+    );
   };
 
   const addToPantry = async (item: ShoppingItem) => {
     try {
-      // Add to pantry collection
+      // Add to pending pantry items for confirmation
       const today = new Date().toISOString().split('T')[0];
       const expiryDate = new Date();
       expiryDate.setDate(expiryDate.getDate() + 30); // Default 30 days expiry
       
-      await addDoc(collection(db, "pantry"), {
+      await addDoc(collection(db, "pendingPantry"), {
         name: item.name,
         quantity: parseFloat(item.quantity),
         unit: item.unit,
@@ -106,10 +123,72 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
 
       // Delete from shopping list
       await deleteDoc(doc(db, "shoppingList", item.id));
-      Alert.alert("Success", `${item.name} added to pantry`);
+      Alert.alert("Success", `${item.name} moved to pending confirmation. Go to Pantry to confirm!`);
     } catch (error) {
-      Alert.alert("Error", "Failed to add to pantry");
+      Alert.alert("Error", "Failed to process item");
     }
+  };
+
+  const finishShopping = async () => {
+    const completedItems = items.filter(item => item.completed);
+    
+    if (completedItems.length === 0) {
+      Alert.alert("No Items", "Please select items to add to pantry before finishing shopping.");
+      return;
+    }
+
+    Alert.alert(
+      "Finish Shopping",
+      `Add ${completedItems.length} item(s) to pending confirmation?`,
+      [
+        {
+          text: "Cancel",
+          onPress: () => {},
+          style: "cancel",
+        },
+        {
+          text: "Finish",
+          onPress: async () => {
+            try {
+              const today = new Date().toISOString().split('T')[0];
+              const expiryDate = new Date();
+              expiryDate.setDate(expiryDate.getDate() + 30); // Default 30 days expiry
+              
+              // Add all completed items to pending pantry in parallel
+              const addPromises = completedItems.map(item =>
+                addDoc(collection(db, "pendingPantry"), {
+                  name: item.name,
+                  quantity: parseFloat(item.quantity),
+                  unit: item.unit,
+                  location: "Pantry",
+                  dateAdded: today,
+                  expirationDate: expiryDate.toISOString().split('T')[0],
+                  userId,
+                  createdAt: Date.now(),
+                })
+              );
+              
+              // Delete all completed items from shopping list in parallel
+              const deletePromises = completedItems.map(item =>
+                deleteDoc(doc(db, "shoppingList", item.id))
+              );
+              
+              // Execute both in parallel
+              await Promise.all([...addPromises, ...deletePromises]);
+              
+              Alert.alert(
+                "Success",
+                `${completedItems.length} item(s) added to pending confirmation. Go to Pantry to review!`,
+                [{ text: "OK" }]
+              );
+            } catch (error) {
+              Alert.alert("Error", "Failed to finish shopping");
+            }
+          },
+          style: "default",
+        },
+      ]
+    );
   };
 
   const renderItem = ({ item }: { item: ShoppingItem }) => (
@@ -134,14 +213,9 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
 
       <View style={styles.actionButtons}>
         {item.completed && (
-          <TouchableOpacity 
-            onPress={() => addToPantry(item)}
-            style={[styles.pantryButton, { backgroundColor: theme.accentColor }]}
-          >
-            <Text style={styles.pantryButtonText}>Pantry</Text>
-          </TouchableOpacity>
+          <Text style={[styles.locationText, { color: theme.accentColor }]}>Pantry</Text>
         )}
-        <TouchableOpacity onPress={() => deleteItem(item.id)}>
+        <TouchableOpacity onPress={() => deleteItem(item.id, item.name)}>
           <Text style={[styles.deleteButton, { color: "#e74c3c" }]}>X</Text>
         </TouchableOpacity>
       </View>
@@ -191,13 +265,25 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
           <Text style={[styles.emptyText, { color: theme.mode === "dark" ? "#888" : "#999" }]}>No items yet. Add one to get started!</Text>
         </View>
       ) : (
-        <FlatList
-          data={items}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          scrollEnabled={true}
-        />
+        <>
+          <FlatList
+            data={items}
+            renderItem={renderItem}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContent}
+            scrollEnabled={true}
+          />
+          {items.some(item => item.completed) && (
+            <View style={[styles.footerContainer, { backgroundColor: theme.mode === "dark" ? "#222" : "#f9f9f9", borderTopColor: theme.accentColor }]}>
+              <TouchableOpacity 
+                style={[styles.finishButton, { backgroundColor: theme.accentColor }]}
+                onPress={finishShopping}
+              >
+                <Text style={styles.finishButtonText}>Finish Shopping</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </>
       )}
     </View>
   );
@@ -297,15 +383,10 @@ const styles = StyleSheet.create({
     gap: 8,
     alignItems: "center",
   },
-  pantryButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  pantryButtonText: {
-    color: "#fff",
+  locationText: {
     fontSize: 12,
     fontWeight: "600",
+    alignSelf: "center",
   },
   deleteButton: {
     fontSize: 18,
@@ -319,5 +400,22 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
+  },
+  footerContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    gap: 8,
+  },
+  finishButton: {
+    paddingVertical: 12,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  finishButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
   },
 });
