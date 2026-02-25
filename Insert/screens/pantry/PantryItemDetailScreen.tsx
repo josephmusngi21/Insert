@@ -66,6 +66,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
   const [editForm, setEditForm] = useState<{ [key: number]: { name: string; quantity: string; location: string } }>({});
   const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
   const [editingPending, setEditingPending] = useState<{ [key: string]: { quantity: string; name: string; unit: string; location: string } }>({});
+  const [showAddItemModal, setShowAddItemModal] = useState(false);
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
 
@@ -270,35 +271,25 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
   const Header = () => {
     return (
       <View style={[styles.header, { backgroundColor: themeColors.backgroundColor }]}>
-        {/* <View style={styles.searchContainer}>
-          <TextInput style={styles.search} placeholder="Search pantry items..." />
-        </View> */}
-
-        <View style={[styles.titleAndMenu, styles.row]}>
+        <View style={styles.titleAndMenu}>
           <Text style={[styles.title, { color: themeColors.textColor }]}>Pantry</Text>
-            <View style={styles.menuContainer}>
+          <View style={styles.headerButtonGroup}>
+            <TouchableOpacity onPress={() => setShowAddItemModal(true)}>
+              <Text style={[styles.headerButton, { color: themeColors.accentColor }]}>+ Add Item</Text>
+            </TouchableOpacity>
             <Button
-              title={editingMode ? "Done" : "+"} 
+              title={editingMode ? "Done" : "Edit Items"} 
               onPress={handleToggleEdit}
               color={themeColors.accentColor}
-              accessibilityLabel={editingMode ? "Done editing" : "Add item"}
+              accessibilityLabel={editingMode ? "Done editing" : "Edit items"}
             />
-            {onLogout && (
-              <Button
-                title="Logout"
-                onPress={onLogout}
-                color={themeColors.accentColor}
-                accessibilityLabel="Logout"
-              />
-            )}
-            </View>
+          </View>
         </View>
       </View>
     );
   };
 
   const AddItemModal = () => {
-    const [showModal, setShowModal] = useState(false);
     const [newItem, setNewItem] = useState({ name: "", type: "", location: "", quantity: "" });
 
     const itemTypes = [
@@ -329,21 +320,19 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
       const updatedItems = [...items, newPantryItem];
       setItems(updatedItems);
       setNewItem({ name: "", type: "", location: "", quantity: "" });
-      setShowModal(false);
+      setShowAddItemModal(false);
     };
 
-    return !showModal ? (
-      <Button title="Add New Item" onPress={() => setShowModal(true)} />
-    ) : (
+    return showAddItemModal ? (
       <View style={styles.modal}>
         <TextInput style={styles.input} placeholder="Item Name" value={newItem.name} onChangeText={(text) => setNewItem({ ...newItem, name: text })} />
         <TextInput style={styles.input} placeholder="Type" value={newItem.type} onChangeText={(text) => setNewItem({ ...newItem, type: text })} />
         <TextInput style={styles.input} placeholder="Location" value={newItem.location} onChangeText={(text) => setNewItem({ ...newItem, location: text })} />
         <TextInput style={styles.input} placeholder="Quantity" keyboardType="numeric" value={newItem.quantity} onChangeText={(text) => setNewItem({ ...newItem, quantity: text })} />
         <Button title="Add Item" onPress={handleAddItem} />
-        <Button title="Cancel" onPress={() => setShowModal(false)} />
+        <Button title="Cancel" onPress={() => setShowAddItemModal(false)} />
       </View>
-    );
+    ) : null;
   };
 
   const ItemDetails = ({ item, isEditing }: ItemDetailsProps) => {
