@@ -3,14 +3,17 @@
  * Supports filtering by dietary tags and search by title/ingredients
  */
 
-import { useState } from "react";
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Button } from "react-native";
+import { useState, useEffect } from "react";
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Button, Alert } from "react-native";
 import recipes from "./example/recipes.json";
 import RecipeFormScreen from "./RecipeFormScreen";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
+import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
+import { collection, addDoc, query, where, onSnapshot } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 
 type Recipe = {
-  id: number;
+  id: string;
   name: string;
   description?: string;
   servings: string | number;
@@ -21,13 +24,15 @@ type Recipe = {
 };
 
 interface RecipeListScreenProps {
-  onRecipeSelect?: (recipeId: number) => void;
+  onRecipeSelect?: (recipeId: string) => void;
   theme?: ThemeColors;
 }
 
 export default function RecipeListScreen({ onRecipeSelect, theme }: RecipeListScreenProps) {
-  const [recipeList, setRecipeList] = useState<Recipe[]>(recipes.recipes);
+  const [recipeList, setRecipeList] = useState<Recipe[]>(recipes.recipes.map((r, i) => ({ ...r, id: `local_${r.id}` } as Recipe)));
   const [showAddForm, setShowAddForm] = useState(false);
+  const auth = getAuth();
+  const userId = auth.currentUser?.uid || "";
 
   const themeColors = theme || {
     mode: "light",
@@ -36,19 +41,83 @@ export default function RecipeListScreen({ onRecipeSelect, theme }: RecipeListSc
     backgroundColor: "#f5f5f5",
   };
 
-  const handleRecipeSaved = (newRecipe: any) => {
-    const recipe: Recipe = {
-      id: Math.max(...recipeList.map((r) => r.id), 0) + 1,
-      name: newRecipe.name,
-      description: "",
-      servings: newRecipe.servings,
-      cookTime: newRecipe.cookTime,
-      difficulty: newRecipe.difficulty,
-      ingredients: newRecipe.ingredients,
-      instructions: newRecipe.instructions,
-    };
-    setRecipeList([...recipeList, recipe]);
-    setShowAddForm(false);
+  // Load recipes from Firestore with real-time listener
+  useEffect(() => {
+    if (!userId) return;
+
+    const q = query(
+      collection(db, "recipes"),
+      where("userId", "==", userId)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const firestoreRecipes = snapshot.docs.map(doc => ({
+        id: doc.id,
+        name: doc.data().name,
+        description: doc.data().description,
+        servings: doc.data().servings,
+        cookTime: doc.data().cookTime,
+        difficulty: doc.data().difficulty,
+        ingredients: doc.data().ingredients,
+        instructions: doc.data().instructions,
+      } as Recipe));
+      
+      // Combine local recipes with Firestore recipes
+      const localRecipes = recipes.recipes.map((r, i) => ({ ...r, id: `local_${r.id}` } as Recipe));
+      setRecipeList([...localRecipes, ...firestoreRecipes]);
+    }, (error) => {
+      console.error("Error loading recipes:", error);
+    });
+
+    return () => unsubscribe();
+  }, [userId]);
+
+  const handleRecipeSaved = async (newRecipe: any) => {
+    try {
+      console.log("handleRecipeSaved called with:", newRecipe.name);
+      
+      // Save to Firestore
+      const docRef = await addDoc(collection(db, "recipes"), {
+        userId,
+        name: newRecipe.name,
+        description: newRecipe.description || "",
+        servings: newRecipe.servings,
+        cookTime: newRecipe.cookTime,
+        difficulty: newRecipe.difficulty,
+        ingredients: newRecipe.ingredients,
+        instructions: newRecipe.instructions,
+      });
+      
+      console.log("Recipe saved with ID:", docRef.id);
+      console.log("Closing form now...");
+      
+      // Close the form first
+      setShowAddForm(false);
+      
+      // Then show the alert and navigate
+      setTimeout(() => {
+        Alert.alert(
+          "Recipe Saved!",
+          `"${newRecipe.name}" has been saved successfully.`,
+          [
+            {
+              text: "View Recipe",
+              onPress: () => {
+                console.log("Navigating to recipe:", docRef.id);
+                onRecipeSelect?.(docRef.id);
+              }
+            },
+            {
+              text: "OK",
+              style: "cancel"
+            }
+          ]
+        );
+      }, 100);
+    } catch (error) {
+      console.error("Error saving recipe:", error);
+      Alert.alert("Error", "Failed to save recipe");
+    }
   };
 
   if (showAddForm) {
@@ -85,8 +154,8 @@ export default function RecipeListScreen({ onRecipeSelect, theme }: RecipeListSc
               <Text style={[styles.recipeDescription, { color: themeColors.textColor }]}>{recipe.description}</Text>
             )}
             <View style={styles.recipeInfo}>
-              <Text style={[styles.infoText, { color: themeColors.textColor }]}>Cook: {recipe.cookTime} min</Text>
-              <Text style={[styles.infoText, { color: themeColors.textColor }]}>Servings: {recipe.servings}</Text>
+              <Text style={[styles.infoText, { color: themeColors.textColor }]}>Cook: {recipe.cookTime ? `${recipe.cookTime} min` : "--"}</Text>
+              <Text style={[styles.infoText, { color: themeColors.textColor }]}>Servings: {recipe.servings || "--"}</Text>
               <Text style={[styles.infoText, { color: themeColors.textColor }]}>Difficulty: {recipe.difficulty}</Text>
             </View>
             <Text style={[styles.ingredients, { color: themeColors.textColor }]}>
