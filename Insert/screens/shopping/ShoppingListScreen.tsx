@@ -4,6 +4,7 @@ import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { collection, addDoc, deleteDoc, doc, updateDoc, query, where, onSnapshot } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { type ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
+import { getLocationForItem } from "@/screens/utils/locationUtils";
 
 interface ShoppingItem {
   id: string;
@@ -26,6 +27,7 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
   const [newItemQuantity, setNewItemQuantity] = useState("");
   const [newItemUnit, setNewItemUnit] = useState("qty");
   const [loading, setLoading] = useState(true);
+  const [locations, setLocations] = useState<Record<string, string[]>>({});
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
 
@@ -41,6 +43,29 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
       setItems(loadedItems.sort((a, b) => b.createdAt - a.createdAt));
       setLoading(false);
     });
+
+    return () => unsubscribe();
+  }, [userId]);
+
+  // Load locations from Firestore
+  useEffect(() => {
+    if (!userId) return;
+
+    const locationsRef = doc(db, "users", userId, "settings", "locations");
+    const unsubscribe = onSnapshot(
+      locationsRef,
+      (doc) => {
+        if (doc.exists()) {
+          const data = doc.data();
+          if (data.locations) {
+            setLocations(data.locations);
+          }
+        }
+      },
+      (error) => {
+        console.error("Error loading locations:", error);
+      }
+    );
 
     return () => unsubscribe();
   }, [userId]);
@@ -105,6 +130,9 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
 
   const addToPantry = async (item: ShoppingItem) => {
     try {
+      // Get the correct location for the item
+      const itemLocation = getLocationForItem(item.name, locations) || "Pantry";
+      
       // Add to pending pantry items for confirmation
       const today = new Date().toISOString().split('T')[0];
       const expiryDate = new Date();
@@ -114,7 +142,7 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
         name: item.name,
         quantity: parseFloat(item.quantity),
         unit: item.unit,
-        location: "Pantry",
+        location: itemLocation,
         dateAdded: today,
         expirationDate: expiryDate.toISOString().split('T')[0],
         userId,
@@ -123,7 +151,7 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
 
       // Delete from shopping list
       await deleteDoc(doc(db, "shoppingList", item.id));
-      Alert.alert("Success", `${item.name} moved to pending confirmation. Go to Pantry to confirm!`);
+      Alert.alert("Success", `${item.name} moved to pending confirmation (${itemLocation}). Go to Pantry to confirm!`);
     } catch (error) {
       Alert.alert("Error", "Failed to process item");
     }
@@ -155,18 +183,19 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
               expiryDate.setDate(expiryDate.getDate() + 30); // Default 30 days expiry
               
               // Add all completed items to pending pantry in parallel
-              const addPromises = completedItems.map(item =>
-                addDoc(collection(db, "pendingPantry"), {
+              const addPromises = completedItems.map(item => {
+                const itemLocation = getLocationForItem(item.name, locations) || "Pantry";
+                return addDoc(collection(db, "pendingPantry"), {
                   name: item.name,
                   quantity: parseFloat(item.quantity),
                   unit: item.unit,
-                  location: "Pantry",
+                  location: itemLocation,
                   dateAdded: today,
                   expirationDate: expiryDate.toISOString().split('T')[0],
                   userId,
                   createdAt: Date.now(),
-                })
-              );
+                });
+              });
               
               // Delete all completed items from shopping list in parallel
               const deletePromises = completedItems.map(item =>
@@ -213,7 +242,9 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
 
       <View style={styles.actionButtons}>
         {item.completed && (
-          <Text style={[styles.locationText, { color: theme.accentColor }]}>Pantry</Text>
+          <Text style={[styles.locationText, { color: theme.accentColor }]}>
+            {getLocationForItem(item.name, locations) || "Pantry"}
+          </Text>
         )}
         <TouchableOpacity onPress={() => deleteItem(item.id, item.name)}>
           <Text style={[styles.deleteButton, { color: "#e74c3c" }]}>X</Text>
@@ -258,7 +289,7 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
 
       {loading ? (
         <View style={styles.centerContent}>
-          <Text style={{ color: theme.textColor }}>Loading...</Text>
+          <Text style={{ color: theme.textColor }}>No items yet. Add one to get started!</Text>
         </View>
       ) : items.length === 0 ? (
         <View style={styles.centerContent}>
