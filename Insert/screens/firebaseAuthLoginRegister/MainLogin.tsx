@@ -14,21 +14,10 @@ interface MainLoginProps {
 
 export default function MainLogin({ onLoginSuccess }: MainLoginProps) {
   const [showLogin, setShowLogin] = useState(true);
-  const [loggedIn, setLoggedIn] = useState(false);
 
   const handleLoginSuccess = () => {
-    setLoggedIn(true);
     onLoginSuccess?.();
   };
-
-  // If user is logged in, show the main app (HomeScreen with tabs)
-  if (loggedIn) {
-    return (
-      <View style={styles.container}>
-        <Text>Welcome! You are logged in.</Text>
-      </View>
-    );
-  }
 
   const Footer = () => {
     return (
