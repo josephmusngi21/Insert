@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore/lite";
+import { getFirestore } from "firebase/firestore";
 // Note: getAnalytics removed because it requires 'window' object which doesn't exist in React Native
 
 // Optionally import the services that you want to use
@@ -11,13 +11,6 @@ import { getFirestore } from "firebase/firestore/lite";
 // import {...} from 'firebase/storage';
 
 const firebaseConfig = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: "",
-  measurementId: ""
 };
 
 const app = initializeApp(firebaseConfig);
