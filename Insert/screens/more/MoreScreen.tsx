@@ -9,10 +9,12 @@ interface MoreScreenProps {
   userEmail?: string;
   onLogout?: () => void;
   onThemePress?: () => void;
+  onAllergiesPress?: () => void;
+  onLocationsPress?: () => void;
   theme?: ThemeColors;
 }
 
-export default function MoreScreen({ userEmail = "user@example.com", onLogout, onThemePress, theme }: MoreScreenProps) {
+export default function MoreScreen({ userEmail = "user@example.com", onLogout, onThemePress, onAllergiesPress, onLocationsPress, theme }: MoreScreenProps) {
   const themeColors = theme || {
     mode: "light",
     textColor: "#333",
@@ -21,11 +23,13 @@ export default function MoreScreen({ userEmail = "user@example.com", onLogout, o
   };
 
   const menuItems = [
-    { label: "Customize Theme", icon: "🎨", action: onThemePress },
-    { label: "Account Settings", icon: "⚙️", action: undefined },
-    { label: "Preferences", icon: "⚙️", action: undefined },
-    { label: "Help & Support", icon: "❓", action: undefined },
-    { label: "About", icon: "ℹ️", action: undefined },
+    { label: "Customize Theme", icon: "", action: onThemePress },
+    { label: "Allergies", icon: "", action: onAllergiesPress },
+    { label: "Locations", icon: "", action: onLocationsPress },
+    { label: "Account Settings", icon: "", action: undefined },
+    { label: "Preferences", icon: "", action: undefined },
+    { label: "Help & Support", icon: "", action: undefined },
+    { label: "About", icon: "", action: undefined },
   ];
 
   return (
