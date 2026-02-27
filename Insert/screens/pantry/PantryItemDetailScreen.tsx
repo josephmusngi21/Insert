@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity, FlatList, StyleSheet } from "react-native";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
-import { collection, onSnapshot, query, where, addDoc, deleteDoc, doc, writeBatch } from "firebase/firestore";
+import { collection, onSnapshot, query, where, addDoc, deleteDoc, doc, writeBatch, getDoc } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import styles from "./PantryItemDetailScreen.styles";
 import data from "./example/data.json";
@@ -68,6 +68,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
   const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
   const [editingPending, setEditingPending] = useState<{ [key: string]: { quantity: string; name: string; unit: string; location: string } }>({});
   const [showAddItemModal, setShowAddItemModal] = useState(false);
+  const [showExpiredItems, setShowExpiredItems] = useState(false);
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
 
@@ -98,11 +99,8 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
         };
       }) as unknown as PantryItem[];
       console.log("Pantry items from Firestore:", firestoreItems.length);
-      // Combine Firestore items with local items
-      const combinedItems = [...pantryItems, ...firestoreItems];
-      // Remove duplicates by name
-      const uniqueItems = Array.from(new Map(combinedItems.map(item => [item.name, item])).values());
-      setItems(uniqueItems);
+      // Use only Firestore items - don't mix with local JSON data to avoid reappearing deleted items
+      setItems(firestoreItems);
     });
 
     return () => {
@@ -305,6 +303,69 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
     );
   };
 
+  // Get expired items
+  const expiredItems = items.filter(item => {
+    const expirationDays = calculateExpirationDays(item.expirationDate);
+    return expirationDays < 0;
+  });
+
+  // Remove all expired items
+  const removeAllExpiredItems = async () => {
+    if (expiredItems.length === 0) {
+      Alert.alert("Info", "No expired items to remove");
+      return;
+    }
+
+    Alert.alert(
+      "Remove All Expired Items",
+      `Remove all ${expiredItems.length} expired items from your pantry? This cannot be undone.`,
+      [
+        {
+          text: "Cancel",
+          onPress: () => {},
+          style: "cancel",
+        },
+        {
+          text: "Remove All",
+          onPress: async () => {
+            try {
+              const batch = writeBatch(db);
+              let firestoreRemovedCount = 0;
+
+              // Delete each expired item from Firestore if it has a Firestore ID
+              expiredItems.forEach((item) => {
+                if (item._firestoreId) {
+                  const itemRef = doc(db, "pantry", item._firestoreId);
+                  batch.delete(itemRef);
+                  firestoreRemovedCount++;
+                }
+              });
+
+              // Commit Firestore deletions
+              if (firestoreRemovedCount > 0) {
+                await batch.commit();
+              }
+
+              // Remove all expired items from local state regardless
+              const updatedItems = items.filter(item => {
+                const expirationDays = calculateExpirationDays(item.expirationDate);
+                return expirationDays >= 0; // Keep only non-expired items
+              });
+              setItems(updatedItems);
+              setShowExpiredItems(false);
+
+              Alert.alert("Success", `Removed ${expiredItems.length} expired item${expiredItems.length !== 1 ? 's' : ''}`);
+            } catch (error) {
+              console.error("Error removing expired items:", error);
+              Alert.alert("Error", "Failed to remove items");
+            }
+          },
+          style: "destructive",
+        },
+      ]
+    );
+  };
+
   const handleToggleEdit = async () => {
     if (editingMode) {
       // Save all changes when exiting edit mode
@@ -381,13 +442,34 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
 
   const AddItemModal = () => {
     const [newItem, setNewItem] = useState({ name: "", type: "", location: "", quantity: "" });
-
-    const itemTypes = [
+    const [itemTypes, setItemTypes] = useState([
       { label: "Produce", value: "produce", expirationDays: 7 },
       { label: "Dairy", value: "dairy", expirationDays: 14 },
       { label: "Meat", value: "meat", expirationDays: 3 },
       { label: "Pantry", value: "pantry", expirationDays: 30 },
-    ];
+    ]);
+
+    // Load user preferences when modal opens
+    useEffect(() => {
+      const loadPreferences = async () => {
+        if (!userId) return;
+        
+        try {
+          const prefsDoc = await getDoc(doc(db, "users", userId, "settings", "preferences"));
+          
+          if (prefsDoc.exists()) {
+            const savedPrefs = prefsDoc.data().itemTypes || [];
+            setItemTypes(savedPrefs);
+          }
+        } catch (_error) {
+          console.log("No preferences found, using defaults");
+        }
+      };
+
+      if (showAddItemModal) {
+        loadPreferences();
+      }
+    }, []);
 
     const handleAddItem = async () => {
       if (!newItem.name || !newItem.type || !newItem.location || !newItem.quantity) {
@@ -608,6 +690,82 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
                 </View>
               );
             })}
+          </View>
+        )}
+
+        {/* Expired Items Section */}
+        {expiredItems.length > 0 && (
+          <View>
+            <TouchableOpacity
+              onPress={() => setShowExpiredItems(!showExpiredItems)}
+              style={[{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginHorizontal: 16, marginTop: 16, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 12, backgroundColor: themeColors.mode === "dark" ? "#444" : "#FFE6E6", borderRadius: 8, borderLeftColor: "#F44336", borderLeftWidth: 4 }]}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={[{ fontSize: 18, fontWeight: "bold", color: "#F44336" }]}>
+                  Expired Items ({expiredItems.length})
+                </Text>
+                <Text style={[{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#999", marginTop: 4 }]}>
+                  Tap to review and remove
+                </Text>
+              </View>
+              <Text style={[{ fontSize: 20, color: "#F44336" }]}>
+                {showExpiredItems ? "▼" : "▶"}
+              </Text>
+            </TouchableOpacity>
+
+            {showExpiredItems && (
+              <View>
+                {expiredItems.map((item) => {
+                  const expirationDays = calculateExpirationDays(item.expirationDate);
+                  const daysExpired = Math.abs(expirationDays);
+                  
+                  return (
+                    <View 
+                      key={`${item.name}-${item.id}`}
+                      style={[{ backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff", borderLeftColor: "#F44336", borderLeftWidth: 4, borderRadius: 8, marginHorizontal: 16, marginBottom: 10, padding: 12 }]}
+                    >
+                      <View style={{ marginBottom: 8 }}>
+                        <Text style={[{ fontSize: 16, fontWeight: "600", color: themeColors.textColor }]}>
+                          {item.name}
+                        </Text>
+                        <Text style={[{ fontSize: 12, color: "#F44336", fontWeight: "600", marginTop: 4 }]}>
+                          Expired {daysExpired} day{daysExpired !== 1 ? 's' : ''} ago
+                        </Text>
+                      </View>
+                      
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                        <View>
+                          <Text style={[{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#666" }]}>
+                            {item.quantity} {item.unit}
+                          </Text>
+                          <Text style={[{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#666", marginTop: 2 }]}>
+                            {item.location}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <TouchableOpacity
+                        onPress={() => handleDeleteItem(item.id, item.name)}
+                        style={[{ backgroundColor: "#F44336", borderRadius: 6, padding: 10, alignItems: "center" }]}
+                      >
+                        <Text style={[{ color: "#fff", fontWeight: "600", fontSize: 14 }]}>Remove Item</Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+
+                {expiredItems.length > 1 && (
+                  <TouchableOpacity
+                    onPress={removeAllExpiredItems}
+                    style={[{ backgroundColor: "#d32f2f", marginHorizontal: 16, marginBottom: 16, borderRadius: 8, padding: 12, alignItems: "center" }]}
+                  >
+                    <Text style={[{ color: "#fff", fontWeight: "700", fontSize: 16 }]}>
+                      Remove All {expiredItems.length} Expired Items
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
           </View>
         )}
         
