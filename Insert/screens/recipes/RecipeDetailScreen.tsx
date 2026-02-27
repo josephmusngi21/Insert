@@ -167,9 +167,9 @@ export default function RecipeDetailScreen({ recipeId = "local_1", onBack, theme
       return { status: 'shopping', inShoppingList: true, isCompleted: false };
     }
     
-    // Try to find matching item in pantry (case-insensitive, partial match)
+    // Try to find ALL matching items in pantry (case-insensitive, partial match)
     // Check both name and type fields
-    const matchedItem = pantryItems.find(item => {
+    const matchedItems = pantryItems.filter(item => {
       const itemName = (item.name || "").toLowerCase();
       const itemType = (item.type || "").toLowerCase();
       return itemName.includes(ingredientNameLower) ||
@@ -178,19 +178,28 @@ export default function RecipeDetailScreen({ recipeId = "local_1", onBack, theme
              ingredientNameLower.includes(itemType);
     });
 
-    if (!matchedItem) {
+    if (matchedItems.length === 0) {
       return { status: 'missing', inShoppingList: false, isCompleted: false };
     }
 
-    // Check if item is expired
-    if (matchedItem.expirationDate) {
-      const expirationDate = new Date(matchedItem.expirationDate);
+    // Helper function to check if an item is expired
+    const isItemExpired = (item: any): boolean => {
+      if (!item.expirationDate) return false;
+      const expirationDate = new Date(item.expirationDate);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       expirationDate.setHours(0, 0, 0, 0);
-      if (expirationDate < today) {
-        return { status: 'expired', inShoppingList: false, isCompleted: false };
-      }
+      return expirationDate < today;
+    };
+
+    // Prioritize non-expired items
+    const nonExpiredItems = matchedItems.filter(item => !isItemExpired(item));
+    const itemsToCheck = nonExpiredItems.length > 0 ? nonExpiredItems : matchedItems;
+    const matchedItem = itemsToCheck[0];
+
+    // If the best match is expired and there were no non-expired items
+    if (isItemExpired(matchedItem) && nonExpiredItems.length === 0) {
+      return { status: 'expired', inShoppingList: false, isCompleted: false };
     }
 
     // Check if quantity is sufficient
