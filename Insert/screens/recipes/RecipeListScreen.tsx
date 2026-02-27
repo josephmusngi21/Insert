@@ -3,16 +3,14 @@
  * Supports filtering by dietary tags and search by title/ingredients
  */
 
-import { useState, useMemo } from "react";
-import { View, Text, ScrollView, TouchableOpacity, Alert } from "react-native";
+import { useState, useMemo, useEffect } from "react";
+import { View, Text, ScrollView, TouchableOpacity, Alert, Button } from "react-native";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { collection, query, where, onSnapshot, addDoc } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import styles from "./RecipeListScreen.styles";
-import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
-import { collection, addDoc, query, where, onSnapshot } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import exampleRecipesData from "./example/recipes.json";
 
 // Dietary restrictions with their allowed ingredients
 const DIETARY_RESTRICTIONS: Record<string, { name: string; allowedIngredients: string[] }> = {
@@ -81,7 +79,9 @@ interface RecipeListScreenProps {
 }
 
 export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies = [], showRecipeForm = false, setShowRecipeForm = () => {} }: RecipeListScreenProps) {
-  const [recipeList, setRecipeList] = useState<Recipe[]>(recipes.recipes.map((r, i) => ({ ...r, id: `local_${r.id}` } as Recipe)));
+  const [recipeList, setRecipeList] = useState<Recipe[]>(
+    exampleRecipesData.recipes.map((r: any, i: number) => ({ ...r, id: `local_${r.id}` } as Recipe))
+  );
   const [filterByAllergies, setFilterByAllergies] = useState(false);
   const [selectedDiets, setSelectedDiets] = useState<string[]>([]);
   const auth = getAuth();
@@ -115,9 +115,9 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
         instructions: doc.data().instructions,
       } as Recipe));
       
-      // Combine local recipes with Firestore recipes
-      const localRecipes = recipes.recipes.map((r, i) => ({ ...r, id: `local_${r.id}` } as Recipe));
-      setRecipeList([...localRecipes, ...firestoreRecipes]);
+      // Combine example recipes with Firestore recipes
+      const exampleRecipes = exampleRecipesData.recipes.map((r: any) => ({ ...r, id: `local_${r.id}` } as Recipe));
+      setRecipeList([...exampleRecipes, ...firestoreRecipes]);
     }, (error) => {
       console.error("Error loading recipes:", error);
     });
