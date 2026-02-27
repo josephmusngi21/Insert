@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity, FlatList, StyleSheet } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { collection, onSnapshot, query, where, addDoc, deleteDoc, doc, writeBatch, getDoc } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
@@ -63,6 +64,9 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
     backgroundColor: "#f5f5f5",
   };
   const [items, setItems] = useState<PantryItem[]>(pantryItems);
+  const [deletedExampleItemIds, setDeletedExampleItemIds] = useState<Set<number>>(new Set());
+  const [firestoreItemIds, setFirestoreItemIds] = useState<Set<string>>(new Set());
+  const [hasUserAddedItems, setHasUserAddedItems] = useState(false);
   const [editingMode, setEditingMode] = useState(false);
   const [editForm, setEditForm] = useState<{ [key: string]: { name: string; quantity: string; location: string } }>({});
   const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
@@ -71,6 +75,27 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
   const [showExpiredItems, setShowExpiredItems] = useState(false);
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
+
+  // Load deleted example item IDs from AsyncStorage on mount
+  useEffect(() => {
+    const loadDeletedItems = async () => {
+      try {
+        const deleted = await AsyncStorage.getItem("deletedExamplePantryItems");
+        if (deleted) {
+          setDeletedExampleItemIds(new Set(JSON.parse(deleted)));
+        }
+      } catch (error) {
+        console.error("Error loading deleted items:", error);
+      }
+    };
+    loadDeletedItems();
+  }, []);
+
+  // Update displayed items when deleted items change
+  useEffect(() => {
+    const filteredItems = pantryItems.filter(item => !deletedExampleItemIds.has(item.id as number));
+    setItems(filteredItems);
+  }, [deletedExampleItemIds]);
 
   // Load both pending items and pantry items from Firestore
   useEffect(() => {
@@ -99,8 +124,26 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
         };
       }) as unknown as PantryItem[];
       console.log("Pantry items from Firestore:", firestoreItems.length);
-      // Use only Firestore items - don't mix with local JSON data to avoid reappearing deleted items
-      setItems(firestoreItems);
+      
+      // Always update items from Firestore
+      // If we have Firestore items, show them; otherwise show what's in state (example data or empty)
+      if (firestoreItems.length > 0) {
+        setItems(firestoreItems);
+        setHasUserAddedItems(true);
+      } else {
+        // No Firestore items - keep current state unless we've already switched to Firestore mode
+        setItems(prevItems => {
+          // Check if we were already showing Firestore items
+          const wasShowingFirestore = prevItems.some(item => item._firestoreId);
+          
+          if (wasShowingFirestore) {
+            // We were showing Firestore items, so show empty state
+            return [];
+          }
+          // Otherwise keep showing example data
+          return prevItems;
+        });
+      }
     });
 
     return () => {
@@ -331,6 +374,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
             try {
               const batch = writeBatch(db);
               let firestoreRemovedCount = 0;
+              const newDeletedIds = new Set(deletedExampleItemIds);
 
               // Delete each expired item from Firestore if it has a Firestore ID
               expiredItems.forEach((item) => {
@@ -338,12 +382,21 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
                   const itemRef = doc(db, "pantry", item._firestoreId);
                   batch.delete(itemRef);
                   firestoreRemovedCount++;
+                } else {
+                  // It's an example item - mark as deleted
+                  newDeletedIds.add(item.id as number);
                 }
               });
 
               // Commit Firestore deletions
               if (firestoreRemovedCount > 0) {
                 await batch.commit();
+              }
+
+              // Save deleted example items to AsyncStorage
+              if (newDeletedIds.size > deletedExampleItemIds.size) {
+                await AsyncStorage.setItem("deletedExamplePantryItems", JSON.stringify(Array.from(newDeletedIds)));
+                setDeletedExampleItemIds(newDeletedIds);
               }
 
               // Remove all expired items from local state regardless
@@ -403,8 +456,16 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
               // If it's a Firestore item, delete using _firestoreId
               const itemIndex = items.findIndex(item => item.id === itemId);
               if (itemIndex !== -1 && items[itemIndex]._firestoreId) {
+                // Mark that user has deleted Firestore items (prevents example data from reappearing)
+                setHasUserAddedItems(true);
                 await deleteDoc(doc(db, "pantry", items[itemIndex]._firestoreId!));
                 console.log("Item deleted from Firestore:", items[itemIndex]._firestoreId);
+              } else {
+                // It's an example item - mark it as deleted in AsyncStorage
+                const newDeletedIds = new Set(deletedExampleItemIds);
+                newDeletedIds.add(itemId as number);
+                setDeletedExampleItemIds(newDeletedIds);
+                await AsyncStorage.setItem("deletedExamplePantryItems", JSON.stringify(Array.from(newDeletedIds)));
               }
             } catch (error) {
               console.error("Error deleting item:", error);
