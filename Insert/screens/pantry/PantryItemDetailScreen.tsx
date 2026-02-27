@@ -236,6 +236,75 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
     );
   };
 
+  const confirmAllPendingItems = async () => {
+    if (pendingItems.length === 0) {
+      Alert.alert("Info", "No pending items to confirm");
+      return;
+    }
+
+    Alert.alert(
+      "Confirm All Items",
+      `Add all ${pendingItems.length} pending items to your pantry?`,
+      [
+        {
+          text: "Cancel",
+          onPress: () => {},
+          style: "cancel",
+        },
+        {
+          text: "Confirm All",
+          onPress: async () => {
+            try {
+              const batch = writeBatch(db);
+              
+              // Process each pending item
+              pendingItems.forEach((item) => {
+                const editedQuantity = editingPending[item.id]?.quantity || item.quantity.toString();
+                const editedName = editingPending[item.id]?.name || item.name;
+                const editedUnit = editingPending[item.id]?.unit || item.unit;
+                const editedLocation = editingPending[item.id]?.location || item.location;
+                
+                // Convert to useful unit
+                const parsedQuantity = parseFloat(editedQuantity);
+                const converted = convertToUsefulUnit(parsedQuantity, editedUnit);
+                
+                // Add to pantry
+                const pantryRef = doc(collection(db, "pantry"));
+                batch.set(pantryRef, {
+                  name: editedName,
+                  type: item.name,
+                  quantity: converted.quantity,
+                  unit: converted.unit,
+                  location: editedLocation,
+                  dateAdded: new Date().toISOString().split('T')[0],
+                  expirationDate: item.expirationDate,
+                  userId,
+                  createdAt: Date.now(),
+                });
+                
+                // Delete from pending
+                const pendingRef = doc(db, "pendingPantry", item.id);
+                batch.delete(pendingRef);
+              });
+              
+              // Commit all operations at once
+              await batch.commit();
+              
+              // Clear editing state
+              setEditingPending({});
+              
+              Alert.alert("Success", `All ${pendingItems.length} items added to pantry`);
+            } catch (error) {
+              console.error("Error confirming all items:", error);
+              Alert.alert("Error", "Failed to confirm items: " + (error instanceof Error ? error.message : String(error)));
+            }
+          },
+          style: "default",
+        },
+      ]
+    );
+  };
+
   const handleToggleEdit = async () => {
     if (editingMode) {
       // Save all changes when exiting edit mode
@@ -357,12 +426,13 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
   };
 
   const ItemDetails = ({ item, isEditing }: ItemDetailsProps) => {
-    const currentForm = editForm[item.id] ?? { name: item.name, quantity: item.quantity.toString(), location: item.location };
+    const itemKey = typeof item.id === 'string' ? item.id : item.id.toString();
+    const currentForm = editForm[itemKey] ?? { name: item.name, quantity: item.quantity.toString(), location: item.location };
     
     const handleEditChange = (field: string, value: string) => {
       setEditForm({
         ...editForm,
-        [item.id]: { ...currentForm, [field]: value }
+        [itemKey]: { ...currentForm, [field]: value }
       });
     };
 
@@ -445,9 +515,17 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
         {/* Pending Items Section */}
         {pendingItems.length > 0 && (
           <View>
-            <Text style={[{ fontSize: 18, fontWeight: "bold", color: themeColors.accentColor, marginHorizontal: 16, marginTop: 16, marginBottom: 8 }]}>
-              Pending Confirmation
-            </Text>
+            <View style={[{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginHorizontal: 16, marginTop: 16, marginBottom: 8 }]}>
+              <Text style={[{ fontSize: 18, fontWeight: "bold", color: themeColors.accentColor }]}>
+                Pending Confirmation
+              </Text>
+              <TouchableOpacity
+                onPress={confirmAllPendingItems}
+                style={[{ backgroundColor: themeColors.accentColor, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }]}
+              >
+                <Text style={[{ color: "#fff", fontWeight: "600", fontSize: 12 }]}>Confirm All</Text>
+              </TouchableOpacity>
+            </View>
             {pendingItems.map((item) => {
               const currentQuantity = editingPending[item.id]?.quantity || item.quantity.toString();
               const currentName = editingPending[item.id]?.name || item.name;
