@@ -7,11 +7,12 @@ import RecipeDetailScreen from "@/screens/recipes/RecipeDetailScreen";
 import MoreScreen from "@/screens/more/MoreScreen";
 import AllergiesScreen from "@/screens/more/AllergiesScreen";
 import LocationsScreen from "@/screens/more/LocationsScreen";
+import PreferencesScreen from "@/screens/more/PreferencesScreen";
 import ShoppingListScreen from "@/screens/shopping/ShoppingListScreen";
 import ThemeCustomizerScreen, { type ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import MainLogin from '../screens/firebaseAuthLoginRegister/MainLogin';
 
-type Screen = 'home' | 'recipes' | 'pantry' | 'blank1' | 'blank2' | 'more' | 'theme' | 'recipeDetail' | 'allergies' | 'locations';
+type Screen = 'home' | 'recipes' | 'pantry' | 'blank1' | 'blank2' | 'more' | 'theme' | 'recipeDetail' | 'allergies' | 'locations' | 'preferences';
 
 interface TabIconProps {
   icon: string;
@@ -23,9 +24,23 @@ interface TabIconProps {
 }
 
 const TabIcon: React.FC<TabIconProps> = ({ icon, label, isActive, accentColor = "#4CAF50", textColor = "#333", isDark = false }) => (
-  <View style={styles.tabIcon}>
-    <Text style={[styles.iconText, isActive && styles.iconTextActive, { color: isActive ? accentColor : textColor }]}>{icon}</Text>
-    <Text style={[styles.tabLabel, isActive && { color: accentColor, fontWeight: "600" }, !isActive && { color: isDark ? "#aaa" : "#999" }]}>{label}</Text>
+  <View style={[styles.tabIcon, isActive && { opacity: 1 }, !isActive && { opacity: 0.7 }]}>
+    <Text style={[
+      styles.iconText,
+      isActive && styles.iconTextActive,
+      {
+        color: isActive ? accentColor : (isDark ? "#aaa" : "#999"),
+      }
+    ]}>
+      {icon}
+    </Text>
+    <Text style={[
+      styles.tabLabel,
+      isActive && { color: accentColor, fontWeight: "700" },
+      !isActive && { color: isDark ? "#aaa" : "#999" }
+    ]}>
+      {label}
+    </Text>
   </View>
 );
 
@@ -86,6 +101,7 @@ export default function Index() {
           onThemePress={() => setCurrentScreen('theme')}
           onAllergiesPress={() => setCurrentScreen('allergies')}
           onLocationsPress={() => setCurrentScreen('locations')}
+          onPreferencesPress={() => setCurrentScreen('preferences')}
           theme={theme}
         />
       )}
@@ -99,6 +115,12 @@ export default function Index() {
       )}
       {currentScreen === 'locations' && (
         <LocationsScreen
+          onBack={() => setCurrentScreen('more')}
+          theme={theme}
+        />
+      )}
+      {currentScreen === 'preferences' && (
+        <PreferencesScreen
           onBack={() => setCurrentScreen('more')}
           theme={theme}
         />
@@ -191,45 +213,65 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     borderTopWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    paddingBottom: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingBottom: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 6,
   },
   tabButton: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingVertical: 0,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: 12,
+    transition: "all 0.3s ease-in-out",
   },
   tabIcon: {
     justifyContent: "center",
     alignItems: "center",
+    gap: 4,
   },
   iconText: {
     fontSize: 24,
     marginBottom: 2,
+    fontWeight: "500",
+    transition: "all 0.2s ease-in-out",
   },
   iconTextActive: {
     fontSize: 26,
+    fontWeight: "700",
   },
   tabLabel: {
     fontSize: 11,
     color: "#999",
+    fontWeight: "500",
+    transition: "all 0.2s ease-in-out",
   },
   tabLabelActive: {
     color: "#4CAF50",
-    fontWeight: "600",
+    fontWeight: "700",
   },
   centerButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 2,
+    borderWidth: 2.5,
+    shadowColor: "#4CAF50",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+    transition: "all 0.2s ease-in-out",
   },
   centerButtonIcon: {
     fontSize: 36,
-    fontWeight: "bold",
+    fontWeight: "700",
   },
 });
