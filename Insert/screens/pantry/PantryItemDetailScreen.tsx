@@ -64,7 +64,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
   };
   const [items, setItems] = useState<PantryItem[]>(pantryItems);
   const [editingMode, setEditingMode] = useState(false);
-  const [editForm, setEditForm] = useState<{ [key: number]: { name: string; quantity: string; location: string } }>({});
+  const [editForm, setEditForm] = useState<{ [key: string]: { name: string; quantity: string; location: string } }>({});
   const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
   const [editingPending, setEditingPending] = useState<{ [key: string]: { quantity: string; name: string; unit: string; location: string } }>({});
   const [showAddItemModal, setShowAddItemModal] = useState(false);
@@ -385,7 +385,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
     setEditingMode(!editingMode);
   };
 
-  const handleDeleteItem = (itemId: number, itemName: string) => {
+  const handleDeleteItem = (itemId: number | string, itemName: string) => {
     Alert.alert(
       "Delete Item",
       `Are you sure you want to remove "${itemName}"?`,
@@ -400,12 +400,11 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
               const updatedItems = items.filter(item => item.id !== itemId);
               setItems(updatedItems);
 
-              // If it's a Firestore item (id starts with 'fs_'), delete from Firestore
+              // If it's a Firestore item, delete using _firestoreId
               const itemIndex = items.findIndex(item => item.id === itemId);
-              if (itemIndex !== -1 && items[itemIndex].id.toString().startsWith('fs_')) {
-                const firestoreId = items[itemIndex].id.toString().replace('fs_', '');
-                await deleteDoc(doc(db, "pantry", firestoreId));
-                console.log("Item deleted from Firestore:", firestoreId);
+              if (itemIndex !== -1 && items[itemIndex]._firestoreId) {
+                await deleteDoc(doc(db, "pantry", items[itemIndex]._firestoreId!));
+                console.log("Item deleted from Firestore:", items[itemIndex]._firestoreId);
               }
             } catch (error) {
               console.error("Error deleting item:", error);
@@ -479,7 +478,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
 
       const selectedType = itemTypes.find((t) => t.value === newItem.type);
       const newPantryItem: PantryItem = {
-        id: Math.max(...items.map((i) => i.id), 0) + 1,
+        id: Math.max(...items.map((i) => typeof i.id === 'string' ? parseInt(i.id) : i.id), 0) + 1,
         type: newItem.type,
         name: newItem.name,
         quantity: parseInt(newItem.quantity),

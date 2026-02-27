@@ -565,6 +565,3 @@ Instructions: ${validInstructions.length} steps`;
     </ScrollView>
   );
 }
-
-});
-}

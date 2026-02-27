@@ -11,6 +11,7 @@ import { getAuth } from "firebase/auth";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import styles from "./RecipeListScreen.styles";
 import exampleRecipesData from "./example/recipes.json";
+import RecipeFormScreen from "./RecipeFormScreen";
 
 // Dietary restrictions with their allowed ingredients
 const DIETARY_RESTRICTIONS: Record<string, { name: string; allowedIngredients: string[] }> = {
