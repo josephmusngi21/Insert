@@ -3,11 +3,13 @@
  * Supports filtering by dietary tags and search by title/ingredients
  */
 
-import { useState, useEffect } from "react";
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Button, Alert } from "react-native";
-import recipes from "./example/recipes.json";
-import RecipeFormScreen from "./RecipeFormScreen";
+import { useState, useMemo } from "react";
+import { View, Text, ScrollView, TouchableOpacity, Alert } from "react-native";
+import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
+import styles from "./RecipeListScreen.styles";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { collection, addDoc, query, where, onSnapshot } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
@@ -315,91 +317,3 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingTop: 50,
-    paddingBottom: 80,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "bold",
-  },
-  filterContainer: {
-    flexDirection: "row",
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  filterButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  filterButtonText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 40,
-  },
-  emptyStateText: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 8,
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: "#bbb",
-  },
-  recipeCard: {
-    borderRadius: 8,
-    padding: 16,
-    marginHorizontal: 16,
-    marginBottom: 12,
-    marginTop: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  recipeName: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 4,
-  },
-  recipeDescription: {
-    fontSize: 14,
-    marginBottom: 8,
-  },
-  recipeInfo: {
-    flexDirection: "row",
-    marginBottom: 8,
-    flexWrap: "wrap",
-  },
-  infoText: {
-    fontSize: 12,
-    marginRight: 12,
-    marginBottom: 4,
-  },
-  ingredients: {
-    fontSize: 12,
-    fontStyle: "italic",
-  },
-});

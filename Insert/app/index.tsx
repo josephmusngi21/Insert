@@ -229,7 +229,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 4,
     borderRadius: 12,
-    transition: "all 0.3s ease-in-out",
   },
   tabIcon: {
     justifyContent: "center",
@@ -240,7 +239,6 @@ const styles = StyleSheet.create({
     fontSize: 24,
     marginBottom: 2,
     fontWeight: "500",
-    transition: "all 0.2s ease-in-out",
   },
   iconTextActive: {
     fontSize: 26,
@@ -250,7 +248,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#999",
     fontWeight: "500",
-    transition: "all 0.2s ease-in-out",
   },
   tabLabelActive: {
     color: "#4CAF50",
@@ -268,7 +265,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 8,
-    transition: "all 0.2s ease-in-out",
   },
   centerButtonIcon: {
     fontSize: 36,

@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, StyleSheet } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert } from "react-native";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { findItemCollisions } from "@/screens/utils/locationUtils";
+import styles from "./LocationsScreen.styles";
 
 interface LocationsScreenProps {
   onBack: () => void;
@@ -168,26 +169,26 @@ export default function LocationsScreen({ onBack, theme }: LocationsScreenProps)
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: themeColors.backgroundColor }}>
+    <View style={[styles.container, { backgroundColor: themeColors.backgroundColor }]}>
       {/* Header */}
       <View
         style={[
           styles.header,
-          { backgroundColor: themeColors.backgroundColor, borderBottomColor: "#eee" },
+          { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff", borderBottomColor: themeColors.mode === "dark" ? "#444" : "#eee" },
         ]}
       >
-        <TouchableOpacity onPress={onBack}>
-          <Text style={{ fontSize: 18, color: themeColors.accentColor }}>← Back</Text>
+        <TouchableOpacity onPress={onBack} style={styles.backButton}>
+          <Text style={[styles.backButtonText, { color: themeColors.accentColor }]}>← Back</Text>
         </TouchableOpacity>
         <Text style={[styles.title, { color: themeColors.textColor }]}>Locations</Text>
-        <View style={{ width: 40 }} />
+        <View style={{ width: 60 }} />
       </View>
 
       {/* Tab Buttons */}
       <View
         style={[
           styles.tabContainer,
-          { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff", borderBottomColor: "#eee" },
+          { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff", borderBottomColor: themeColors.mode === "dark" ? "#444" : "#eee" },
         ]}
       >
         <TouchableOpacity
@@ -200,7 +201,8 @@ export default function LocationsScreen({ onBack, theme }: LocationsScreenProps)
           <Text
             style={[
               styles.tabButtonText,
-              { color: activeTab === 'locations' ? themeColors.accentColor : themeColors.textColor },
+              { color: activeTab === 'locations' ? themeColors.accentColor : (themeColors.mode === "dark" ? "#999" : "#999") },
+              activeTab === 'locations' && { fontWeight: "700" },
             ]}
           >
             Locations
@@ -216,7 +218,8 @@ export default function LocationsScreen({ onBack, theme }: LocationsScreenProps)
           <Text
             style={[
               styles.tabButtonText,
-              { color: activeTab === 'collisions' ? themeColors.accentColor : themeColors.textColor },
+              { color: activeTab === 'collisions' ? themeColors.accentColor : (themeColors.mode === "dark" ? "#999" : "#999") },
+              activeTab === 'collisions' && { fontWeight: "700" },
             ]}
           >
             Collisions {Object.keys(collisions).length > 0 && `(${Object.keys(collisions).length})`}
@@ -224,7 +227,7 @@ export default function LocationsScreen({ onBack, theme }: LocationsScreenProps)
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView contentContainerStyle={styles.contentContainer}>
         {activeTab === 'locations' && (
           <>
             {/* Add New Location Section */}
@@ -378,162 +381,3 @@ export default function LocationsScreen({ onBack, theme }: LocationsScreenProps)
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    marginTop: 12,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: "bold",
-  },
-  tabContainer: {
-    flexDirection: "row",
-    borderBottomWidth: 1,
-    paddingHorizontal: 16,
-  },
-  tabButton: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    alignItems: "center",
-    borderBottomWidth: 2,
-    borderBottomColor: "transparent",
-  },
-  tabButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  container: {
-    padding: 16,
-    paddingBottom: 32,
-  },
-  section: {
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 12,
-  },
-  inputGroup: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 14,
-  },
-  addButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-    justifyContent: "center",
-  },
-  addButtonText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: 14,
-  },
-  locationCard: {
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
-    borderLeftWidth: 4,
-  },
-  locationHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  locationName: {
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-  locationActions: {
-    flexDirection: "row",
-  },
-  itemsList: {
-    marginBottom: 12,
-  },
-  itemRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  itemName: {
-    fontSize: 14,
-    textTransform: "capitalize",
-  },
-  removeButton: {
-    paddingHorizontal: 8,
-  },
-  addItemGroup: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  addItemInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 14,
-  },
-  addItemButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-    justifyContent: "center",
-  },
-  collisionCard: {
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: "#ff6b6b",
-  },
-  collisionHeader: {
-    marginBottom: 12,
-  },
-  collisionItemName: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 4,
-  },
-  collisionLocations: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  collisionLocationButton: {
-    flex: 1,
-    minWidth: 120,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  collisionLocationText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: 14,
-  },
-});

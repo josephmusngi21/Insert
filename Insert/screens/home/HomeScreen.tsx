@@ -3,8 +3,9 @@
  * Displays welcome message and navigation menu
  */
 
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text } from "react-native";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
+import styles from "./HomeScreen.styles";
 
 interface HomeScreenProps {
   theme?: ThemeColors;
@@ -25,19 +26,3 @@ export default function HomeScreen({ theme }: HomeScreenProps) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  welcomeText: {
-    fontSize: 32,
-    fontWeight: "bold",
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-  },
-});
