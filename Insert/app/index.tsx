@@ -130,6 +130,7 @@ export default function Index() {
         <ThemeCustomizerScreen 
           currentTheme={theme}
           onThemeChange={setTheme}
+          onBack={() => setCurrentScreen('more')}
         />
       )}
       {currentScreen === 'recipeDetail' && (
