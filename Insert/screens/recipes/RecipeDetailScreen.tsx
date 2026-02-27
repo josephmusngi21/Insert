@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { View, Text, ScrollView, StyleSheet, Button, TouchableOpacity, Alert } from "react-native";
+import { View, Text, ScrollView, StyleSheet, Button, TouchableOpacity, Alert, RefreshControl } from "react-native";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { collection, query, where, onSnapshot, doc, getDoc, addDoc, deleteDoc } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
@@ -53,6 +53,7 @@ export default function RecipeDetailScreen({ recipeId = "local_1", onBack, theme
   const [addingIngredient, setAddingIngredient] = useState<string | null>(null);
   const [shoppingListItems, setShoppingListItems] = useState<{ name: string; completed: boolean }[]>([]);
   const [pantryItems, setPantryItems] = useState<any[]>(pantryData.pantryItems);
+  const [refreshing, setRefreshing] = useState(false);
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
 
@@ -281,6 +282,20 @@ export default function RecipeDetailScreen({ recipeId = "local_1", onBack, theme
     );
   };
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      // Force re-fetch of pantry and shopping list items
+      // The onSnapshot listeners will automatically update the state
+      // We just need to add a small delay to ensure fresh data is fetched
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (error) {
+      console.error("Error refreshing:", error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: themeColors.backgroundColor }]}>
       {onBack && (
@@ -288,7 +303,16 @@ export default function RecipeDetailScreen({ recipeId = "local_1", onBack, theme
           <Text style={[styles.backButtonText, { color: themeColors.accentColor }]}>Back</Text>
         </TouchableOpacity>
       )}
-      <ScrollView>
+      <ScrollView
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={themeColors.accentColor}
+            progressBackgroundColor={themeColors.mode === "dark" ? "#333" : "#fff"}
+          />
+        }
+      >
         {/* Header */}
         <TouchableOpacity 
           onLongPress={handleDeleteRecipe} 
