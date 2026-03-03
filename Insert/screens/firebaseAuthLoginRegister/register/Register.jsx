@@ -85,6 +85,13 @@ export default function Register() {
             return;
         }
 
+        // Email format validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            Alert.alert("Error", "Please enter a valid email address");
+            return;
+        }
+
         if (password !== confirmPassword) {
             Alert.alert("Error", "Passwords do not match");
             return;
@@ -139,6 +146,8 @@ export default function Register() {
             setConfirmPassword("");
         } catch (error) {
             console.error("Registration error:", error);
+            console.error("Error code:", error.code);
+            console.error("Full error:", JSON.stringify(error));
             
             // Handle specific Firebase errors
             let errorMessage = "An error occurred during registration";
@@ -147,7 +156,11 @@ export default function Register() {
             } else if (error.code === 'auth/invalid-email') {
                 errorMessage = "Please enter a valid email address";
             } else if (error.code === 'auth/weak-password') {
-                errorMessage = "Password is too weak";
+                errorMessage = "Password is too weak. Use at least 6 characters";
+            } else if (error.code === 'auth/invalid-credential') {
+                errorMessage = "Invalid email or password format";
+            } else if (error.message) {
+                errorMessage = error.message;
             }
             
             Alert.alert("Registration Error", errorMessage);
