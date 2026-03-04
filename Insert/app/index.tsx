@@ -11,9 +11,11 @@ import LocationsScreen from "@/screens/more/LocationsScreen";
 import PreferencesScreen from "@/screens/more/PreferencesScreen";
 import ShoppingListScreen from "@/screens/shopping/ShoppingListScreen";
 import ThemeCustomizerScreen, { type ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
+import PrivacyPolicy from "@/screens/misc/PrivacyPolicy";
+import TermsOfService from "@/screens/misc/TermsOfService";
 import MainLogin from '../screens/firebaseAuthLoginRegister/MainLogin';
 
-type Screen = 'home' | 'recipes' | 'pantry' | 'blank1' | 'blank2' | 'more' | 'theme' | 'recipeDetail' | 'allergies' | 'locations' | 'preferences';
+type Screen = 'home' | 'recipes' | 'pantry' | 'blank1' | 'blank2' | 'more' | 'theme' | 'recipeDetail' | 'allergies' | 'locations' | 'preferences' | 'privacy' | 'terms';
 
 interface TabIconProps {
   icon: string;
@@ -103,6 +105,8 @@ export default function Index() {
           onAllergiesPress={() => setCurrentScreen('allergies')}
           onLocationsPress={() => setCurrentScreen('locations')}
           onPreferencesPress={() => setCurrentScreen('preferences')}
+          onPrivacyPress={() => setCurrentScreen('privacy')}
+          onTermsPress={() => setCurrentScreen('terms')}
           theme={theme}
         />
       )}
@@ -131,6 +135,16 @@ export default function Index() {
           currentTheme={theme}
           onThemeChange={setTheme}
           onBack={() => setCurrentScreen('more')}
+        />
+      )}
+      {currentScreen === 'privacy' && (
+        <PrivacyPolicy
+          onClose={() => setCurrentScreen('more')}
+        />
+      )}
+      {currentScreen === 'terms' && (
+        <TermsOfService
+          onClose={() => setCurrentScreen('more')}
         />
       )}
       {currentScreen === 'recipeDetail' && (
