@@ -15,10 +15,11 @@ interface MoreScreenProps {
   onPreferencesPress?: () => void;
   onPrivacyPress?: () => void;
   onTermsPress?: () => void;
+  onAboutPress?: () => void;
   theme?: ThemeColors;
 }
 
-export default function MoreScreen({ userEmail = "user@example.com", onLogout, onThemePress, onAllergiesPress, onLocationsPress, onPreferencesPress, onPrivacyPress, onTermsPress, theme }: MoreScreenProps) {
+export default function MoreScreen({ userEmail = "user@example.com", onLogout, onThemePress, onAllergiesPress, onLocationsPress, onPreferencesPress, onPrivacyPress, onTermsPress, onAboutPress, theme }: MoreScreenProps) {
   const themeColors = theme || {
     mode: "light",
     textColor: "#333",
@@ -34,8 +35,8 @@ export default function MoreScreen({ userEmail = "user@example.com", onLogout, o
     { label: "Preferences", icon: "", action: onPreferencesPress },
     { label: "Privacy Policy", icon: "", action: onPrivacyPress },
     { label: "Terms of Service", icon: "", action: onTermsPress },
+    { label: "About", icon: "", action: onAboutPress },
     { label: "Help & Support", icon: "", action: undefined },
-    { label: "About", icon: "", action: undefined },
   ];
 
   return (
