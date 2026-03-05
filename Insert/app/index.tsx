@@ -13,9 +13,10 @@ import ShoppingListScreen from "@/screens/shopping/ShoppingListScreen";
 import ThemeCustomizerScreen, { type ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import PrivacyPolicy from "@/screens/misc/PrivacyPolicy";
 import TermsOfService from "@/screens/misc/TermsOfService";
+import AboutScreen from "@/screens/misc/AboutScreen";
 import MainLogin from '../screens/firebaseAuthLoginRegister/MainLogin';
 
-type Screen = 'home' | 'recipes' | 'pantry' | 'blank1' | 'blank2' | 'more' | 'theme' | 'recipeDetail' | 'allergies' | 'locations' | 'preferences' | 'privacy' | 'terms';
+type Screen = 'home' | 'recipes' | 'pantry' | 'blank1' | 'blank2' | 'more' | 'theme' | 'recipeDetail' | 'allergies' | 'locations' | 'preferences' | 'privacy' | 'terms' | 'about';
 
 interface TabIconProps {
   icon: string;
@@ -107,6 +108,7 @@ export default function Index() {
           onPreferencesPress={() => setCurrentScreen('preferences')}
           onPrivacyPress={() => setCurrentScreen('privacy')}
           onTermsPress={() => setCurrentScreen('terms')}
+          onAboutPress={() => setCurrentScreen('about')}
           theme={theme}
         />
       )}
@@ -145,6 +147,11 @@ export default function Index() {
       {currentScreen === 'terms' && (
         <TermsOfService
           onClose={() => setCurrentScreen('more')}
+        />
+      )}
+      {currentScreen === 'about' && (
+        <AboutScreen
+          onBack={() => setCurrentScreen('more')}
         />
       )}
       {currentScreen === 'recipeDetail' && (
