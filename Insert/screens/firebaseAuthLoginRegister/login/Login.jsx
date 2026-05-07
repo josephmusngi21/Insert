@@ -43,7 +43,7 @@ import styles from "./styles";
  * @param {Function} props.onLoginSuccess - Callback executed after successful authentication
  * @returns {JSX.Element} The rendered Login screen
  */
-export default function Login({ onLoginSuccess }) {
+export default function Login({ onLoginSuccess, compact = false }) {
   // ============================================================
   // STATE MANAGEMENT
   // ============================================================
@@ -142,10 +142,10 @@ export default function Login({ onLoginSuccess }) {
   // ============================================================
 
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 20}
     >
       <ScrollView 
         contentContainerStyle={{ flexGrow: 1 }}
@@ -153,7 +153,7 @@ export default function Login({ onLoginSuccess }) {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.container}>
-          <View style={styles.header}>
+          {!compact && <View style={styles.header}>
             {/* 
             <Image
               source={require("../../assets/images/logo.png")}
@@ -162,7 +162,14 @@ export default function Login({ onLoginSuccess }) {
              */}
             <Text style={styles.title}>Insert</Text>
             <Text style={styles.description}>Pantry App</Text>
-          </View>
+          </View>}
+
+          {compact && (
+            <View style={styles.compactHeader}>
+              <Text style={styles.compactTitle}>Sign in to continue</Text>
+              <Text style={styles.compactDescription}>Pick up where you left off in your pantry.</Text>
+            </View>
+          )}
 
           <View style={styles.form}>
             {/* Form for login and submit button */}
@@ -175,6 +182,8 @@ export default function Login({ onLoginSuccess }) {
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
+                placeholder="you@example.com"
+                placeholderTextColor="#8ba58d"
               />
             </View>
             <View style={styles.input}>
@@ -186,6 +195,8 @@ export default function Login({ onLoginSuccess }) {
                 secureTextEntry
                 autoCapitalize="none"
                 autoCorrect={false}
+                placeholder="Enter your password"
+                placeholderTextColor="#8ba58d"
               />
             </View>
 
@@ -201,7 +212,7 @@ export default function Login({ onLoginSuccess }) {
               </TouchableOpacity>
             </View>
             <TouchableOpacity onPress={handleForgotPassword}>
-                <Text style={styles.forgotPassword}>Forgot Password?</Text>
+                <Text style={styles.forgotPassword}>Forgot password?</Text>
             </TouchableOpacity>
           </View>
         </View>

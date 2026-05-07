@@ -45,7 +45,7 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.0.17:3000';
  * @component
  * @returns {JSX.Element} The rendered Register screen
  */
-export default function Register() {
+export default function Register({ compact = false, onRegistered }) {
     // ============================================================
     // STATE MANAGEMENT
     // ============================================================
@@ -138,7 +138,16 @@ export default function Register() {
                 // Continue anyway since Firebase user was created
             }
             
-            Alert.alert("Success", "Account created successfully!");
+            Alert.alert(
+                "Success",
+                "Account created successfully! You can log in now.",
+                [
+                    {
+                        text: "Go to Login",
+                        onPress: () => onRegistered?.(),
+                    },
+                ]
+            );
             
             // Clear form
             setEmail("");
@@ -174,10 +183,10 @@ export default function Register() {
     // ============================================================
 
     return (
-        <KeyboardAvoidingView 
+        <KeyboardAvoidingView
             style={{ flex: 1 }}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 20}
         >
             <ScrollView 
                 contentContainerStyle={{ flexGrow: 1 }}
@@ -185,7 +194,7 @@ export default function Register() {
                 keyboardShouldPersistTaps="handled"
             >
                 <View style={styles.container}>
-                    <View style={styles.header}>
+                    {!compact && <View style={styles.header}>
                         {/* 
                         <Image
                             source={require("../../assets/images/logo.png")}
@@ -194,7 +203,14 @@ export default function Register() {
                          */}
                         <Text style={styles.title}>Insert</Text>
                         <Text style={styles.description}>Create your account</Text>
-                    </View>
+                    </View>}
+
+                    {compact && (
+                        <View style={styles.compactHeader}>
+                            <Text style={styles.compactTitle}>Create your account</Text>
+                            <Text style={styles.compactDescription}>Get started with your pantry profile in under a minute.</Text>
+                        </View>
+                    )}
 
                     <View style={styles.form}>
                         <View style={styles.input}>
@@ -206,6 +222,8 @@ export default function Register() {
                                 keyboardType="email-address"
                                 autoCapitalize="none"
                                 autoCorrect={false}
+                                placeholder="you@example.com"
+                                placeholderTextColor="#8ba58d"
                             />
                         </View>
                         <View style={styles.input}>
@@ -217,6 +235,8 @@ export default function Register() {
                                 secureTextEntry
                                 autoCapitalize="none"
                                 autoCorrect={false}
+                                placeholder="At least 6 characters"
+                                placeholderTextColor="#8ba58d"
                             />
                         </View>
                         <View style={styles.input}>
@@ -228,6 +248,8 @@ export default function Register() {
                                 secureTextEntry
                                 autoCapitalize="none"
                                 autoCorrect={false}
+                                placeholder="Retype your password"
+                                placeholderTextColor="#8ba58d"
                             />
                         </View>
 
