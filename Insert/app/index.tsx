@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { Text, View, Button, TouchableOpacity } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import styles from "./index.styles";
+
+type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 import HomeScreen from "@/screens/home/HomeScreen";
 import PantryItemDetailScreen from "@/screens/pantry/PantryItemDetailScreen";
 import RecipeListScreen from "@/screens/recipes/RecipeListScreen";
@@ -19,29 +22,27 @@ import MainLogin from '../screens/firebaseAuthLoginRegister/MainLogin';
 type Screen = 'home' | 'recipes' | 'pantry' | 'blank1' | 'blank2' | 'more' | 'theme' | 'recipeDetail' | 'allergies' | 'locations' | 'preferences' | 'privacy' | 'terms' | 'about';
 
 interface TabIconProps {
-  icon: string;
+  icon: IoniconsName;
+  activeIcon: IoniconsName;
   label: string;
   isActive: boolean;
   accentColor?: string;
-  textColor?: string;
   isDark?: boolean;
 }
 
-const TabIcon: React.FC<TabIconProps> = ({ icon, label, isActive, accentColor = "#4CAF50", textColor = "#333", isDark = false }) => (
-  <View style={[styles.tabIcon, isActive && { opacity: 1 }, !isActive && { opacity: 0.7 }]}>
-    <Text style={[
-      styles.iconText,
-      isActive && styles.iconTextActive,
-      {
-        color: isActive ? accentColor : (isDark ? "#aaa" : "#999"),
-      }
-    ]}>
-      {icon}
-    </Text>
+const TabIcon: React.FC<TabIconProps> = ({ icon, activeIcon, label, isActive, accentColor = "#4CAF50", isDark = false }) => (
+  <View style={styles.tabIcon}>
+    <View style={[styles.tabIconPill, isActive && { backgroundColor: accentColor + "22" }]}>
+      <Ionicons
+        name={isActive ? activeIcon : icon}
+        size={24}
+        color={isActive ? accentColor : (isDark ? "#777" : "#bbb")}
+      />
+    </View>
     <Text style={[
       styles.tabLabel,
       isActive && { color: accentColor, fontWeight: "700" },
-      !isActive && { color: isDark ? "#aaa" : "#999" }
+      !isActive && { color: isDark ? "#666" : "#bbb" },
     ]}>
       {label}
     </Text>
@@ -79,12 +80,14 @@ export default function Index() {
     );
   }
 
-  const tabs: Array<{ name: Screen; icon: string; label: string; isCenter?: boolean }> = [
-    { name: 'recipes', icon: 'R', label: 'Recipes' },
-    { name: 'pantry', icon: 'P', label: 'Pantry' },
-    { name: 'blank1', icon: '+', label: 'Center', isCenter: true },
-    { name: 'blank2', icon: 'S', label: 'Shopping' },
-    { name: 'more', icon: 'M', label: 'More' },
+  type TabDef = { name: Screen; icon: IoniconsName; activeIcon: IoniconsName; label: string; isCenter?: boolean };
+
+  const tabs: TabDef[] = [
+    { name: 'recipes', icon: 'restaurant-outline',  activeIcon: 'restaurant',  label: 'Recipes' },
+    { name: 'pantry',  icon: 'basket-outline',       activeIcon: 'basket',       label: 'Pantry'  },
+    { name: 'blank1',  icon: 'add',                  activeIcon: 'add',          label: '',        isCenter: true },
+    { name: 'blank2',  icon: 'cart-outline',          activeIcon: 'cart',         label: 'Shopping' },
+    { name: 'more',    icon: 'settings-outline',      activeIcon: 'settings',     label: 'More'    },
   ];
 
   return (
@@ -182,7 +185,7 @@ export default function Index() {
                   isFocused ? { backgroundColor: theme.accentColor, borderColor: theme.accentColor } : { backgroundColor: "transparent", borderColor: theme.accentColor },
                 ]}
               >
-                <Text style={[styles.centerButtonIcon, { color: isFocused ? "#fff" : theme.accentColor }]}>{tab.icon}</Text>
+                <Ionicons name="add" size={32} color={isFocused ? "#fff" : theme.accentColor} />
               </TouchableOpacity>
             );
           }
@@ -206,10 +209,10 @@ export default function Index() {
             >
               <TabIcon
                 icon={tab.icon}
+                activeIcon={tab.activeIcon}
                 label={tab.label}
                 isActive={isFocused || (tab.name === 'recipes' && currentScreen === 'recipeDetail')}
                 accentColor={theme.accentColor}
-                textColor={theme.textColor}
                 isDark={theme.mode === "dark"}
               />
             </TouchableOpacity>
