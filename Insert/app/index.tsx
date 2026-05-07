@@ -9,17 +9,11 @@ import PantryItemDetailScreen from "@/screens/pantry/PantryItemDetailScreen";
 import RecipeListScreen from "@/screens/recipes/RecipeListScreen";
 import RecipeDetailScreen from "@/screens/recipes/RecipeDetailScreen";
 import MoreScreen from "@/screens/more/MoreScreen";
-import AllergiesScreen from "@/screens/more/AllergiesScreen";
-import LocationsScreen from "@/screens/more/LocationsScreen";
-import PreferencesScreen from "@/screens/more/PreferencesScreen";
 import ShoppingListScreen from "@/screens/shopping/ShoppingListScreen";
-import ThemeCustomizerScreen, { type ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
-import PrivacyPolicy from "@/screens/misc/PrivacyPolicy";
-import TermsOfService from "@/screens/misc/TermsOfService";
-import AboutScreen from "@/screens/misc/AboutScreen";
+import { type ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import MainLogin from '../screens/firebaseAuthLoginRegister/MainLogin';
 
-type Screen = 'home' | 'recipes' | 'pantry' | 'blank1' | 'blank2' | 'more' | 'theme' | 'recipeDetail' | 'allergies' | 'locations' | 'preferences' | 'privacy' | 'terms' | 'about';
+type Screen = 'home' | 'recipes' | 'pantry' | 'blank1' | 'blank2' | 'more' | 'recipeDetail';
 
 interface TabIconProps {
   icon: IoniconsName;
@@ -62,6 +56,7 @@ export default function Index() {
     backgroundColor: "#f5f5f5",
   });
   const [userAllergies, setUserAllergies] = useState<string[]>([]);
+  const [moreSubScreenActive, setMoreSubScreenActive] = useState(false);
 
   const handleLogout = () => {
     setIsLoggedIn(false);
@@ -102,59 +97,14 @@ export default function Index() {
       )}
       {currentScreen === 'blank2' && <ShoppingListScreen theme={theme} />}
       {currentScreen === 'more' && (
-        <MoreScreen 
-          userEmail="user@example.com" 
+        <MoreScreen
+          userEmail="user@example.com"
           onLogout={handleLogout}
-          onThemePress={() => setCurrentScreen('theme')}
-          onAllergiesPress={() => setCurrentScreen('allergies')}
-          onLocationsPress={() => setCurrentScreen('locations')}
-          onPreferencesPress={() => setCurrentScreen('preferences')}
-          onPrivacyPress={() => setCurrentScreen('privacy')}
-          onTermsPress={() => setCurrentScreen('terms')}
-          onAboutPress={() => setCurrentScreen('about')}
           theme={theme}
-        />
-      )}
-      {currentScreen === 'allergies' && (
-        <AllergiesScreen
           userAllergies={userAllergies}
           onAllergiesChange={setUserAllergies}
-          onBack={() => setCurrentScreen('more')}
-          theme={theme}
-        />
-      )}
-      {currentScreen === 'locations' && (
-        <LocationsScreen
-          onBack={() => setCurrentScreen('more')}
-          theme={theme}
-        />
-      )}
-      {currentScreen === 'preferences' && (
-        <PreferencesScreen
-          onBack={() => setCurrentScreen('more')}
-          theme={theme}
-        />
-      )}
-      {currentScreen === 'theme' && (
-        <ThemeCustomizerScreen 
-          currentTheme={theme}
           onThemeChange={setTheme}
-          onBack={() => setCurrentScreen('more')}
-        />
-      )}
-      {currentScreen === 'privacy' && (
-        <PrivacyPolicy
-          onClose={() => setCurrentScreen('more')}
-        />
-      )}
-      {currentScreen === 'terms' && (
-        <TermsOfService
-          onClose={() => setCurrentScreen('more')}
-        />
-      )}
-      {currentScreen === 'about' && (
-        <AboutScreen
-          onBack={() => setCurrentScreen('more')}
+          onSubScreenChange={setMoreSubScreenActive}
         />
       )}
       {currentScreen === 'recipeDetail' && (
@@ -170,6 +120,7 @@ export default function Index() {
         </View>
       )}
 
+      {!moreSubScreenActive && (
       <View style={[styles.bottomTabContainer, { backgroundColor: theme.mode === "dark" ? "#222" : "#fff", borderTopColor: theme.mode === "dark" ? "#444" : "#eee" }]}>
         {tabs.map((tab) => {
           const isFocused = currentScreen === tab.name;
@@ -219,6 +170,7 @@ export default function Index() {
           );
         })}
       </View>
+      )}
     </View>
   );
 }
