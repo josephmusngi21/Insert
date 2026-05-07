@@ -3,10 +3,11 @@
  * Supports filtering by dietary tags and search by title/ingredients
  */
 
-import { useState, useMemo, useEffect } from "react";
-import { View, Text, ScrollView, TouchableOpacity, Alert, Button } from "react-native";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { View, Text, ScrollView, TouchableOpacity, Alert, Button, Animated } from "react-native";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
-import { collection, query, where, onSnapshot, addDoc } from "firebase/firestore";
+import { onSnapshot, addDoc } from "firebase/firestore";
+import { recipesCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import styles from "./RecipeListScreen.styles";
@@ -85,6 +86,20 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
   );
   const [filterByAllergies, setFilterByAllergies] = useState(false);
   const [selectedDiets, setSelectedDiets] = useState<string[]>([]);
+  const [toast, setToast] = useState<{ message: string; success: boolean } | null>(null);
+  const toastAnim = useRef(new Animated.Value(0)).current;
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = (message: string, success: boolean) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ message, success });
+    toastAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(toastAnim, { toValue: 1, duration: 220, useNativeDriver: true }),
+      Animated.delay(2400),
+      Animated.timing(toastAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
+    ]).start(() => setToast(null));
+  };
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
 
@@ -99,12 +114,7 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
   useEffect(() => {
     if (!userId) return;
 
-    const q = query(
-      collection(db, "recipes"),
-      where("userId", "==", userId)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(recipesCol(userId), (snapshot) => {
       const firestoreRecipes = snapshot.docs.map(doc => ({
         id: doc.id,
         name: doc.data().name,
@@ -167,7 +177,7 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
       console.log("handleRecipeSaved called with:", newRecipe.name);
       
       // Save to Firestore
-      const docRef = await addDoc(collection(db, "recipes"), {
+      const docRef = await addDoc(recipesCol(userId), {
         userId,
         name: newRecipe.name,
         description: newRecipe.description || "",
@@ -179,34 +189,11 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
       });
       
       console.log("Recipe saved with ID:", docRef.id);
-      console.log("Closing form now...");
-      
-      // Close the form first
       setShowRecipeForm(false);
-      
-      // Then show the alert and navigate
-      setTimeout(() => {
-        Alert.alert(
-          "Recipe Saved!",
-          `"${newRecipe.name}" has been saved successfully.`,
-          [
-            {
-              text: "View Recipe",
-              onPress: () => {
-                console.log("Navigating to recipe:", docRef.id);
-                onRecipeSelect?.(docRef.id);
-              }
-            },
-            {
-              text: "OK",
-              style: "cancel"
-            }
-          ]
-        );
-      }, 100);
+      showToast(`"${newRecipe.name}" saved!`, true);
     } catch (error) {
       console.error("Error saving recipe:", error);
-      Alert.alert("Error", "Failed to save recipe");
+      showToast("Failed to save recipe. Try again.", false);
     }
   };
 

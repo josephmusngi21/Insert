@@ -7,7 +7,8 @@ import { useState, useEffect } from "react";
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, RefreshControl } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
-import { collection, query, where, onSnapshot, doc, getDoc, addDoc, deleteDoc } from "firebase/firestore";
+import { onSnapshot, doc, getDoc, addDoc, deleteDoc } from "firebase/firestore";
+import { shoppingCol, pantryCol, recipesDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import recipeData from "./example/recipes.json";
 import pantryData from "../pantry/example/data.json";
@@ -73,7 +74,7 @@ export default function RecipeDetailScreen({ recipeId = "local_1", onBack, theme
       }
     } else {
       // Load from Firestore using real-time listener for instant display
-      const docRef = doc(db, "recipes", recipeId);
+      const docRef = recipesDoc(userId, recipeId);
       const unsubscribe = onSnapshot(docRef, (docSnap) => {
         console.log("Firestore doc exists:", docSnap.exists());
         console.log("Firestore doc data:", docSnap.data());
@@ -104,12 +105,7 @@ export default function RecipeDetailScreen({ recipeId = "local_1", onBack, theme
   useEffect(() => {
     if (!userId) return;
     
-    const q = query(
-      collection(db, "shoppingList"),
-      where("userId", "==", userId)
-    );
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(shoppingCol(userId), (snapshot) => {
       const items = snapshot.docs.map(doc => ({
         name: doc.data().name.toLowerCase(),
         completed: doc.data().completed || false
@@ -126,12 +122,7 @@ export default function RecipeDetailScreen({ recipeId = "local_1", onBack, theme
   useEffect(() => {
     if (!userId) return;
     
-    const q = query(
-      collection(db, "pantry"),
-      where("userId", "==", userId)
-    );
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(pantryCol(userId), (snapshot) => {
       const items = snapshot.docs.map(doc => ({
         id: `fs_${doc.id}`,
         name: doc.data().name || "",
@@ -228,7 +219,7 @@ export default function RecipeDetailScreen({ recipeId = "local_1", onBack, theme
     setShoppingListItems([...shoppingListItems, { name: ingredient.name.toLowerCase(), completed: false }]);
 
     // Add to Firestore (fire and forget)
-    addDoc(collection(db, "shoppingList"), {
+    addDoc(shoppingCol(userId), {
       name: ingredient.name,
       quantity: ingredient.quantity.toString(),
       unit: ingredient.unit,
@@ -266,7 +257,7 @@ export default function RecipeDetailScreen({ recipeId = "local_1", onBack, theme
             try {
               // Only delete if it's a Firestore recipe (not a local one)
               if (recipeId && !recipeId.startsWith("local_")) {
-                await deleteDoc(doc(db, "recipes", recipeId));
+                await deleteDoc(recipesDoc(userId, recipeId));
                 Alert.alert("Success", "Recipe deleted successfully", [
                   { text: "OK", onPress: () => onBack?.() }
                 ]);

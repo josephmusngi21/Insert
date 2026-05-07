@@ -171,4 +171,69 @@ export default StyleSheet.create({
     gap: 8,
     marginBottom: 16,
   },
+
+  // Import from URL section
+  importCard: {
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+  },
+  importCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+    gap: 8,
+  },
+  importCardTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    flex: 1,
+  },
+  importCardSubtitle: {
+    fontSize: 12,
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  importRow: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+  },
+  importInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+  },
+  importButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+    minWidth: 80,
+  },
+  importButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+    gap: 10,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+  },
+  dividerText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
 });

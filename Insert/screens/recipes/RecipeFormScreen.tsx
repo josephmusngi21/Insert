@@ -4,11 +4,14 @@
  */
 
 import { useState } from "react";
-import { View, Text, TextInput, ScrollView, Button, TouchableOpacity, Alert, FlatList } from "react-native";
+import { View, Text, TextInput, ScrollView, Button, TouchableOpacity, Alert, ActivityIndicator } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
-import { collection, addDoc, doc, getDoc, updateDoc } from "firebase/firestore";
+import { addDoc } from "firebase/firestore";
+import { recipesCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
+import { parseAllRecipesFromUrl, ParsedRecipe } from "@/screens/utils/recipeImport";
 import styles from "./RecipeFormScreen.styles";
 
 type Ingredient = {
@@ -63,9 +66,111 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel, theme }: Rec
     instructions: [""],
   });
   const [currentIngredientId, setCurrentIngredientId] = useState(2);
+  const [importUrl, setImportUrl] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
+  // Picker state — shown when a URL has multiple recipes
+  const [pickerRecipes, setPickerRecipes] = useState<ParsedRecipe[] | null>(null);
+  const [pickerSelected, setPickerSelected] = useState<Set<number>>(new Set());
 
   const handleNameChange = (text: string) => {
     setFormData({ ...formData, name: text });
+  };
+
+  const handleImportFromUrl = async () => {
+    if (!importUrl.trim()) {
+      Alert.alert("No URL", "Please paste a recipe URL first.");
+      return;
+    }
+    setIsImporting(true);
+    try {
+      const parsed = await parseAllRecipesFromUrl(importUrl.trim());
+      setImportUrl("");
+
+      if (parsed.length === 1) {
+        // Single recipe — fill form directly
+        applyParsedRecipe(parsed[0]);
+      } else {
+        // Multiple recipes — show picker
+        setPickerRecipes(parsed);
+        setPickerSelected(new Set(parsed.map((_, i) => i)));
+      }
+    } catch (err: any) {
+      Alert.alert("Import Failed", err?.message ?? "Something went wrong. Try a different URL.");
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const applyParsedRecipe = (parsed: ParsedRecipe) => {
+    const ingredients = parsed.ingredients.map((ing, idx) => ({
+      id: idx + 1,
+      name: ing.name,
+      quantity: ing.quantity,
+      unit: ing.unit,
+    }));
+    setFormData({
+      name: parsed.name,
+      description: parsed.description,
+      servings: parsed.servings,
+      cookTime: parsed.cookTime,
+      difficulty: parsed.difficulty,
+      ingredients: ingredients.length > 0 ? ingredients : [{ id: 1, name: "", quantity: "", unit: "" }],
+      instructions: parsed.instructions.length > 0 ? parsed.instructions : [""],
+    });
+    setCurrentIngredientId(ingredients.length + 1);
+    setPickerRecipes(null);
+    setStep("review");
+  };
+
+  const handlePickerConfirm = async () => {
+    if (pickerSelected.size === 0) {
+      Alert.alert("Nothing selected", "Please select at least one recipe.");
+      return;
+    }
+
+    const selected = pickerRecipes!.filter((_, i) => pickerSelected.has(i));
+
+    if (selected.length === 1) {
+      // Single selection → fill form
+      applyParsedRecipe(selected[0]);
+      return;
+    }
+
+    // Multiple selections → save directly to Firestore, then close form
+    const auth = getAuth();
+    const uid = auth.currentUser?.uid || "";
+    if (!uid) {
+      Alert.alert("Not signed in", "Please sign in to save recipes.");
+      return;
+    }
+
+    setIsImporting(true);
+    let saved = 0;
+    let failed = 0;
+    for (const recipe of selected) {
+      try {
+        await addDoc(recipesCol(userId), {
+          userId: uid,
+          name: recipe.name,
+          description: recipe.description || "",
+          servings: recipe.servings,
+          cookTime: recipe.cookTime,
+          difficulty: recipe.difficulty,
+          ingredients: recipe.ingredients,
+          instructions: recipe.instructions,
+        });
+        saved++;
+      } catch {
+        failed++;
+      }
+    }
+    setIsImporting(false);
+    setPickerRecipes(null);
+
+    const msg = failed > 0
+      ? `${saved} recipe${saved !== 1 ? "s" : ""} saved, ${failed} failed.`
+      : `${saved} recipe${saved !== 1 ? "s" : ""} saved successfully!`;
+    Alert.alert("Import Complete", msg, [{ text: "Done", onPress: onCancel }]);
   };
 
   const handleDescriptionChange = (text: string) => {
@@ -321,9 +426,200 @@ Instructions: ${validInstructions.length} steps`;
     );
   };
 
+  // ── Recipe Picker (multiple recipes found) ──────────────────────────────
+  if (pickerRecipes) {
+    const numSelected = pickerSelected.size;
+    const allSelected = numSelected === pickerRecipes.length;
+    const toggleAll = () => {
+      if (allSelected) setPickerSelected(new Set());
+      else setPickerSelected(new Set(pickerRecipes.map((_, i) => i)));
+    };
+    const toggleOne = (i: number) => {
+      const next = new Set(pickerSelected);
+      if (next.has(i)) next.delete(i); else next.add(i);
+      setPickerSelected(next);
+    };
+
+    return (
+      <ScrollView
+        style={[styles.container, { backgroundColor: themeColors.backgroundColor }]}
+        contentContainerStyle={styles.contentContainer}
+      >
+        {/* Header */}
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
+          <TouchableOpacity onPress={() => setPickerRecipes(null)} style={{ marginRight: 10 }}>
+            <Ionicons name="chevron-back" size={22} color={themeColors.accentColor} />
+          </TouchableOpacity>
+          <Text style={[styles.header, { marginBottom: 0, flex: 1, color: themeColors.textColor }]}>
+            {pickerRecipes.length} Recipes Found
+          </Text>
+        </View>
+        <Text style={{ color: themeColors.mode === "dark" ? "#aaa" : "#666", fontSize: 14, marginBottom: 16, lineHeight: 20 }}>
+          Select one to review in the form, or select multiple to save them all at once.
+        </Text>
+
+        {/* Select All toggle */}
+        <TouchableOpacity
+          onPress={toggleAll}
+          style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}
+        >
+          <View style={{
+            width: 22, height: 22, borderRadius: 6, borderWidth: 2,
+            borderColor: themeColors.accentColor,
+            backgroundColor: allSelected ? themeColors.accentColor : "transparent",
+            alignItems: "center", justifyContent: "center", marginRight: 8,
+          }}>
+            {allSelected && <Ionicons name="checkmark" size={13} color="#fff" />}
+          </View>
+          <Text style={{ color: themeColors.textColor, fontSize: 14, fontWeight: "600" }}>
+            {allSelected ? "Deselect All" : "Select All"}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Recipe cards */}
+        {pickerRecipes.map((recipe, i) => {
+          const selected = pickerSelected.has(i);
+          return (
+            <TouchableOpacity
+              key={i}
+              onPress={() => toggleOne(i)}
+              style={[
+                styles.stepContainer,
+                {
+                  backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff",
+                  borderWidth: 2,
+                  borderColor: selected ? themeColors.accentColor : "transparent",
+                  marginBottom: 12,
+                }
+              ]}
+              activeOpacity={0.8}
+            >
+              <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+                <View style={{
+                  width: 22, height: 22, borderRadius: 6, borderWidth: 2,
+                  borderColor: selected ? themeColors.accentColor : (themeColors.mode === "dark" ? "#666" : "#ccc"),
+                  backgroundColor: selected ? themeColors.accentColor : "transparent",
+                  alignItems: "center", justifyContent: "center",
+                  marginRight: 10, marginTop: 2, flexShrink: 0,
+                }}>
+                  {selected && <Ionicons name="checkmark" size={13} color="#fff" />}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.reviewTitle, { color: themeColors.textColor, marginBottom: 6 }]} numberOfLines={2}>
+                    {recipe.name || "Untitled Recipe"}
+                  </Text>
+                  {recipe.description ? (
+                    <Text style={[styles.reviewText, { color: themeColors.mode === "dark" ? "#bbb" : "#666" }]} numberOfLines={2}>
+                      {recipe.description}
+                    </Text>
+                  ) : null}
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
+                    {recipe.servings ? (
+                      <Text style={{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#888" }}>
+                        {recipe.servings} servings
+                      </Text>
+                    ) : null}
+                    {recipe.cookTime ? (
+                      <Text style={{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#888" }}>
+                        {recipe.cookTime} min
+                      </Text>
+                    ) : null}
+                    <Text style={{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#888" }}>
+                      {recipe.ingredients.length} ingredients
+                    </Text>
+                    <Text style={{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#888" }}>
+                      {recipe.instructions.length} steps
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+
+        {/* Action buttons */}
+        <View style={[styles.navigationButtons, { marginTop: 8 }]}>
+          <TouchableOpacity
+            onPress={() => setPickerRecipes(null)}
+            style={[styles.importButton, { backgroundColor: themeColors.mode === "dark" ? "#555" : "#e0e0e0", flex: 1 }]}
+          >
+            <Text style={[styles.importButtonText, { color: themeColors.mode === "dark" ? "#fff" : "#333" }]}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handlePickerConfirm}
+            disabled={numSelected === 0 || isImporting}
+            style={[styles.importButton, {
+              backgroundColor: numSelected === 0 ? "#ccc" : themeColors.accentColor,
+              flex: 2,
+              opacity: isImporting ? 0.7 : 1,
+            }]}
+          >
+            {isImporting
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Text style={styles.importButtonText}>
+                  {numSelected === 0
+                    ? "Select a Recipe"
+                    : numSelected === 1
+                    ? "Review in Form"
+                    : `Save All ${numSelected} Recipes`}
+                </Text>
+            }
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    );
+  }
   return (
     <ScrollView style={[styles.container, { backgroundColor: themeColors.backgroundColor }]} contentContainerStyle={styles.contentContainer}>
       <Text style={[styles.header, { color: themeColors.textColor }]}>Add New Recipe</Text>
+
+      {/* Import from URL card */}
+      <View style={[styles.importCard, { borderColor: themeColors.accentColor + "55", backgroundColor: themeColors.mode === "dark" ? "#1e2e1e" : "#f0faf0" }]}>
+        <View style={styles.importCardHeader}>
+          <Ionicons name="link" size={18} color={themeColors.accentColor} />
+          <Text style={[styles.importCardTitle, { color: themeColors.textColor }]}>Import from a Website</Text>
+        </View>
+        <Text style={[styles.importCardSubtitle, { color: themeColors.mode === "dark" ? "#aaa" : "#666" }]}>
+          Paste a URL from AllRecipes, Food Network, Simply Recipes, Serious Eats, Epicurious, or any recipe blog.
+        </Text>
+        <View style={styles.importRow}>
+          <TextInput
+            style={[styles.importInput, {
+              color: themeColors.textColor,
+              borderColor: themeColors.mode === "dark" ? "#555" : "#d0d0d0",
+              backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff",
+            }]}
+            placeholder="https://www.allrecipes.com/recipe/..."
+            placeholderTextColor={themeColors.mode === "dark" ? "#666" : "#bbb"}
+            value={importUrl}
+            onChangeText={setImportUrl}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            returnKeyType="go"
+            onSubmitEditing={handleImportFromUrl}
+            editable={!isImporting}
+          />
+          <TouchableOpacity
+            style={[styles.importButton, { backgroundColor: themeColors.accentColor, opacity: isImporting ? 0.7 : 1 }]}
+            onPress={handleImportFromUrl}
+            disabled={isImporting}
+          >
+            {isImporting
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Text style={styles.importButtonText}>Import</Text>
+            }
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Divider */}
+      <View style={styles.dividerRow}>
+        <View style={[styles.dividerLine, { backgroundColor: themeColors.mode === "dark" ? "#444" : "#e0e0e0" }]} />
+        <Text style={[styles.dividerText, { color: themeColors.mode === "dark" ? "#777" : "#aaa" }]}>or fill in manually</Text>
+        <View style={[styles.dividerLine, { backgroundColor: themeColors.mode === "dark" ? "#444" : "#e0e0e0" }]} />
+      </View>
+
       <StepIndicator />
 
       {step === "name" && (
