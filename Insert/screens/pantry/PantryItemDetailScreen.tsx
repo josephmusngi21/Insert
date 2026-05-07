@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity, FlatList, StyleSheet } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
-import { collection, onSnapshot, query, where, addDoc, deleteDoc, doc, writeBatch, getDoc } from "firebase/firestore";
+import { onSnapshot, addDoc, deleteDoc, doc, writeBatch, getDoc } from "firebase/firestore";
+import { pantryCol, pantryDoc, pendingCol, pendingDoc, settingsDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import styles from "./PantryItemDetailScreen.styles";
 import data from "./example/data.json";
@@ -102,8 +103,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
     if (!userId) return;
     
     // Load pending items
-    const pendingQuery = query(collection(db, "pendingPantry"), where("userId", "==", userId));
-    const pendingUnsubscribe = onSnapshot(pendingQuery, (snapshot) => {
+    const pendingUnsubscribe = onSnapshot(pendingCol(userId), (snapshot) => {
       const items = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -113,8 +113,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
     });
 
     // Load pantry items from Firestore
-    const pantryQuery = query(collection(db, "pantry"), where("userId", "==", userId));
-    const pantryUnsubscribe = onSnapshot(pantryQuery, (snapshot) => {
+    const pantryUnsubscribe = onSnapshot(pantryCol(userId), (snapshot) => {
       const firestoreItems = snapshot.docs.map(doc => {
         const data = doc.data();
         return {
@@ -203,7 +202,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
               const batch = writeBatch(db);
               
               // Add to pantry
-              const pantryRef = doc(collection(db, "pantry"));
+              const pantryRef = doc(pantryCol(userId));
               batch.set(pantryRef, {
                 name: editedName,
                 type: item.name,
@@ -218,7 +217,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
               
               console.log("Adding delete from pending to batch...");
               // Delete from pending
-              const pendingRef = doc(db, "pendingPantry", item.id);
+              const pendingRef = pendingDoc(userId, item.id);
               batch.delete(pendingRef);
               
               console.log("Committing batch write...");
@@ -310,7 +309,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
                 const converted = convertToUsefulUnit(parsedQuantity, editedUnit);
                 
                 // Add to pantry
-                const pantryRef = doc(collection(db, "pantry"));
+                const pantryRef = doc(pantryCol(userId));
                 batch.set(pantryRef, {
                   name: editedName,
                   type: item.name,
@@ -324,7 +323,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
                 });
                 
                 // Delete from pending
-                const pendingRef = doc(db, "pendingPantry", item.id);
+                const pendingRef = pendingDoc(userId, item.id);
                 batch.delete(pendingRef);
               });
               
@@ -379,7 +378,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
               // Delete each expired item from Firestore if it has a Firestore ID
               expiredItems.forEach((item) => {
                 if (item._firestoreId) {
-                  const itemRef = doc(db, "pantry", item._firestoreId);
+                  const itemRef = pantryDoc(userId, item._firestoreId);
                   batch.delete(itemRef);
                   firestoreRemovedCount++;
                 } else {
@@ -458,7 +457,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
               if (itemIndex !== -1 && items[itemIndex]._firestoreId) {
                 // Mark that user has deleted Firestore items (prevents example data from reappearing)
                 setHasUserAddedItems(true);
-                await deleteDoc(doc(db, "pantry", items[itemIndex]._firestoreId!));
+                await deleteDoc(pantryDoc(userId, items[itemIndex]._firestoreId!));
                 console.log("Item deleted from Firestore:", items[itemIndex]._firestoreId);
               } else {
                 // It's an example item - mark it as deleted in AsyncStorage
@@ -515,7 +514,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
         if (!userId) return;
         
         try {
-          const prefsDoc = await getDoc(doc(db, "users", userId, "settings", "preferences"));
+          const prefsDoc = await getDoc(settingsDoc(userId, "preferences"));
           
           if (prefsDoc.exists()) {
             const savedPrefs = prefsDoc.data().itemTypes || [];
@@ -538,19 +537,42 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
       }
 
       const selectedType = itemTypes.find((t) => t.value === newItem.type);
-      const newPantryItem: PantryItem = {
-        id: Math.max(...items.map((i) => typeof i.id === 'string' ? parseInt(i.id) : i.id), 0) + 1,
-        type: newItem.type,
-        name: newItem.name,
-        quantity: parseInt(newItem.quantity),
-        unit: "pcs",
-        location: newItem.location,
-        dateAdded: new Date().toISOString(),
-        expirationDate: new Date(Date.now() + (selectedType?.expirationDays || 0) * 86400000).toISOString(),
-      };
+      const expirationDate = new Date(Date.now() + (selectedType?.expirationDays || 0) * 86400000).toISOString();
 
-      const updatedItems = [...items, newPantryItem];
-      setItems(updatedItems);
+      try {
+        if (userId) {
+          // Persist to Firestore — the onSnapshot listener will update the UI
+          await addDoc(pantryCol(userId), {
+            type: newItem.type,
+            name: newItem.name,
+            quantity: parseInt(newItem.quantity),
+            unit: "pcs",
+            location: newItem.location,
+            dateAdded: new Date().toISOString(),
+            expirationDate,
+            userId,
+            createdAt: Date.now(),
+          });
+        } else {
+          // Offline fallback: update local state only
+          const newPantryItem: PantryItem = {
+            id: Math.max(...items.map((i) => typeof i.id === "string" ? parseInt(i.id) : i.id), 0) + 1,
+            type: newItem.type,
+            name: newItem.name,
+            quantity: parseInt(newItem.quantity),
+            unit: "pcs",
+            location: newItem.location,
+            dateAdded: new Date().toISOString(),
+            expirationDate,
+          };
+          setItems([...items, newPantryItem]);
+        }
+      } catch (error) {
+        console.error("Error adding item:", error);
+        alert("Failed to add item. Please try again.");
+        return;
+      }
+
       setNewItem({ name: "", type: "", location: "", quantity: "" });
       setShowAddItemModal(false);
     };

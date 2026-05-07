@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, FlatList, TouchableOpacity, TextInput, Alert, ScrollView } from "react-native";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
-import { collection, addDoc, deleteDoc, doc, updateDoc, query, where, onSnapshot, getDoc, setDoc } from "firebase/firestore";
+import { addDoc, deleteDoc, updateDoc, onSnapshot, getDoc, setDoc, doc } from "firebase/firestore";
+import { shoppingCol, shoppingDoc, pendingCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import { type ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import { getLocationForItem } from "@/screens/utils/locationUtils";
@@ -35,8 +36,7 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
   useEffect(() => {
     if (!userId) return;
 
-    const q = query(collection(db, "shoppingList"), where("userId", "==", userId));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(shoppingCol(userId), (snapshot) => {
       const loadedItems: ShoppingItem[] = [];
       snapshot.forEach((doc) => {
         loadedItems.push({ id: doc.id, ...doc.data() } as ShoppingItem);
@@ -78,7 +78,7 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
     }
 
     try {
-      await addDoc(collection(db, "shoppingList"), {
+      await addDoc(shoppingCol(userId), {
         name: newItemName,
         quantity: newItemQuantity,
         unit: newItemUnit,
@@ -96,7 +96,7 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
 
   const toggleItem = async (id: string, currentStatus: boolean) => {
     try {
-      await updateDoc(doc(db, "shoppingList", id), {
+      await updateDoc(shoppingDoc(userId, id), {
         completed: !currentStatus,
       });
     } catch (error) {
@@ -118,7 +118,7 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
           text: "Delete",
           onPress: async () => {
             try {
-              await deleteDoc(doc(db, "shoppingList", id));
+              await deleteDoc(shoppingDoc(userId, id));
             } catch (error) {
               Alert.alert("Error", "Failed to delete item");
             }
@@ -139,7 +139,7 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
       const expiryDate = new Date();
       expiryDate.setDate(expiryDate.getDate() + 30); // Default 30 days expiry
       
-      await addDoc(collection(db, "pendingPantry"), {
+      await addDoc(pendingCol(userId), {
         name: item.name,
         quantity: parseFloat(item.quantity),
         unit: item.unit,
@@ -151,7 +151,7 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
       });
 
       // Delete from shopping list
-      await deleteDoc(doc(db, "shoppingList", item.id));
+      await deleteDoc(shoppingDoc(userId, item.id));
       Alert.alert("Success", `${item.name} moved to pending confirmation (${itemLocation}). Go to Pantry to confirm!`);
     } catch (error) {
       Alert.alert("Error", "Failed to process item");
@@ -186,7 +186,7 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
               // Add all completed items to pending pantry in parallel
               const addPromises = completedItems.map(item => {
                 const itemLocation = getLocationForItem(item.name, locations) || "Pantry";
-                return addDoc(collection(db, "pendingPantry"), {
+                return addDoc(pendingCol(userId), {
                   name: item.name,
                   quantity: parseFloat(item.quantity),
                   unit: item.unit,
@@ -200,7 +200,7 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
               
               // Delete all completed items from shopping list in parallel
               const deletePromises = completedItems.map(item =>
-                deleteDoc(doc(db, "shoppingList", item.id))
+                deleteDoc(shoppingDoc(userId, item.id))
               );
               
               // Execute both in parallel

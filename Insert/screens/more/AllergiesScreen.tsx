@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Button, Alert } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import styles from "./AllergiesScreen.styles";
 
@@ -69,8 +70,9 @@ export default function AllergiesScreen({ userAllergies, onAllergiesChange, onBa
   return (
     <ScrollView style={[styles.container, { backgroundColor: themeColors.backgroundColor }]} contentContainerStyle={styles.contentContainer}>
       {onBack && (
-        <TouchableOpacity style={[styles.backButton, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]} onPress={onBack}>
-          <Text style={[styles.backButtonText, { color: themeColors.accentColor }]}>← Back</Text>
+        <TouchableOpacity style={[styles.backButton, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff", borderBottomColor: themeColors.mode === "dark" ? "#444" : "#e8e8e8" }]} onPress={onBack}>
+          <Ionicons name="chevron-back" size={20} color={themeColors.accentColor} />
+          <Text style={[styles.backButtonText, { color: themeColors.accentColor }]}>Back</Text>
         </TouchableOpacity>
       )}
 
