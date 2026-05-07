@@ -34,6 +34,7 @@ import {
 } from "react-native";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebase/config";
+import { ensureUserProfile } from "../firebase/userDataService";
 import styles from "./styles";
 
 // API base URL from environment variables with fallback for development
@@ -110,33 +111,10 @@ export default function Register({ compact = false, onRegistered }) {
             const user = userCredential.user;
             console.log("Firebase user created:", user.uid);
             
-            // Step 2: Save user data to MongoDB for application features
-            try {
-                const response = await fetch(`${API_URL}/api/users`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        firebaseUid: user.uid,
-                        email: user.email,
-                        displayName: user.displayName || null,
-                        emailVerified: user.emailVerified
-                    })
-                });
-
-                const data = await response.json();
-                
-                if (!response.ok) {
-                    console.warn("MongoDB user creation failed:", data.error);
-                    // Continue anyway since Firebase user was created
-                } else {
-                    console.log("User saved to MongoDB:", data.user);
-                }
-            } catch (mongoError) {
-                console.error("MongoDB error:", mongoError);
-                // Continue anyway since Firebase user was created
-            }
+            // Save user profile to Firestore (non-blocking — rules may not be deployed yet)
+            ensureUserProfile(user.uid, user.email, user.displayName).catch(e =>
+              console.warn("Profile init failed (non-fatal):", e)
+            );
             
             Alert.alert(
                 "Success",

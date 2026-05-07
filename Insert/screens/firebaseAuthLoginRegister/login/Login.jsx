@@ -33,6 +33,7 @@ import {
 } from "react-native";
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "../firebase/config";
+import { ensureUserProfile } from "../firebase/userDataService";
 import styles from "./styles";
 
 /**
@@ -75,8 +76,14 @@ export default function Login({ onLoginSuccess, compact = false }) {
 
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      console.log("User logged in successfully:", userCredential.user);
-      
+      const user = userCredential.user;
+      console.log("User logged in successfully:", user);
+
+      // Ensure user profile exists in Firestore (non-blocking — rules may not be deployed yet)
+      ensureUserProfile(user.uid, user.email, user.displayName).catch(e =>
+        console.warn("Profile init failed (non-fatal):", e)
+      );
+
       // Clear form
       setEmail("");
       setPassword("");
