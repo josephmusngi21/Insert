@@ -3,25 +3,29 @@ import { StyleSheet } from "react-native";
 export default StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 50,
   },
   contentContainer: {
     paddingHorizontal: 16,
     paddingBottom: 100,
   },
   backButton: {
-    padding: 8,
-    borderRadius: 4,
-    marginBottom: 16,
-    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingTop: 50,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e8e8e8",
+    marginBottom: 20,
   },
   backButtonText: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "600",
+    marginLeft: 2,
   },
   title: {
     fontSize: 28,
-    fontWeight: "bold",
+    fontWeight: "700",
     marginBottom: 8,
   },
   subtitle: {
@@ -52,13 +56,13 @@ export default StyleSheet.create({
     fontWeight: "600",
   },
   section: {
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 16,
     marginBottom: 24,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
     elevation: 3,
   },
   sectionTitle: {
@@ -69,7 +73,7 @@ export default StyleSheet.create({
   allergenButton: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     marginBottom: 8,
   },

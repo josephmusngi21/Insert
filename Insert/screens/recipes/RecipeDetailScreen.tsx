@@ -4,7 +4,8 @@
  */
 
 import { useState, useEffect } from "react";
-import { View, Text, ScrollView, StyleSheet, Button, TouchableOpacity, Alert, RefreshControl } from "react-native";
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, RefreshControl } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { collection, query, where, onSnapshot, doc, getDoc, addDoc, deleteDoc } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
@@ -300,6 +301,7 @@ export default function RecipeDetailScreen({ recipeId = "local_1", onBack, theme
     <View style={[styles.container, { backgroundColor: themeColors.backgroundColor }]}>
       {onBack && (
         <TouchableOpacity style={[styles.backButton, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]} onPress={onBack}>
+          <Ionicons name="chevron-back" size={20} color={themeColors.accentColor} />
           <Text style={[styles.backButtonText, { color: themeColors.accentColor }]}>Back</Text>
         </TouchableOpacity>
       )}
@@ -404,11 +406,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8f9fa",
   },
   backButton: {
-    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
     paddingVertical: 12,
     backgroundColor: "#ffffff",
     borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
+    borderBottomColor: "#e8e8e8",
     zIndex: 10,
     paddingTop: 50,
   },
@@ -416,6 +420,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#2e7d32",
     fontWeight: "600",
+    marginLeft: 2,
   },
   header: {
     backgroundColor: "#ffffff",
@@ -440,7 +445,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     backgroundColor: "#f8f9fa",
     padding: 12,
-    borderRadius: 8,
+    borderRadius: 12,
   },
   metaItem: {
     alignItems: "center",

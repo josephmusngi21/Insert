@@ -11,7 +11,7 @@ export default StyleSheet.create({
   },
   header: {
     fontSize: 28,
-    fontWeight: "bold",
+    fontWeight: "700",
     marginBottom: 20,
     color: "#333",
     textAlign: "center",
@@ -42,7 +42,7 @@ export default StyleSheet.create({
   },
   stepContainer: {
     backgroundColor: "white",
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 20,
     marginBottom: 16,
   },
@@ -55,7 +55,7 @@ export default StyleSheet.create({
   input: {
     borderWidth: 1,
     borderColor: "#ddd",
-    borderRadius: 6,
+    borderRadius: 10,
     padding: 12,
     fontSize: 14,
     marginBottom: 12,
@@ -76,7 +76,7 @@ export default StyleSheet.create({
     flex: 1,
     paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 6,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: "#ddd",
     backgroundColor: "#f9f9f9",
@@ -137,14 +137,14 @@ export default StyleSheet.create({
   },
   reviewCard: {
     backgroundColor: "#f9f9f9",
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 16,
     borderWidth: 1,
     borderColor: "#ddd",
   },
   reviewTitle: {
     fontSize: 20,
-    fontWeight: "bold",
+    fontWeight: "700",
     marginBottom: 12,
     color: "#333",
   },

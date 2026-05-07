@@ -6,9 +6,9 @@ export default StyleSheet.create({
   },
   header: {
     paddingTop: 50,
-    paddingBottom: 16,
+    paddingBottom: 14,
     paddingHorizontal: 16,
-    borderBottomWidth: 2,
+    borderBottomWidth: 1,
   },
   headerTitle: {
     fontSize: 28,
@@ -24,7 +24,7 @@ export default StyleSheet.create({
   input: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
@@ -57,7 +57,7 @@ export default StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 12,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
     gap: 12,
   },
@@ -119,8 +119,8 @@ export default StyleSheet.create({
     gap: 8,
   },
   finishButton: {
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
   },

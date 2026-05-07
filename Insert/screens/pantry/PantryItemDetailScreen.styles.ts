@@ -2,12 +2,12 @@ import { StyleSheet } from "react-native";
 
 const styles = StyleSheet.create({
     searchContainer: {
-        marginTop: 40,
+        paddingTop: 50,
         paddingHorizontal: 16,
         paddingVertical: 8,
         backgroundColor: "#ffffff",
         borderBottomWidth: 1,
-        borderBottomColor: "#e0e0e0",
+        borderBottomColor: "#e8e8e8",
     },
     search: {
         marginTop: 8,
@@ -33,9 +33,9 @@ const styles = StyleSheet.create({
         justifyContent: "space-between",
         alignItems: "center",
         paddingHorizontal: 16,
-        paddingVertical: 12,
+        paddingVertical: 14,
         borderBottomWidth: 1,
-        borderBottomColor: "#eee",
+        borderBottomColor: "#e8e8e8",
     },
     titleAndMenu: {
         flexDirection: "row",
@@ -45,7 +45,7 @@ const styles = StyleSheet.create({
     },
     title: {
         fontSize: 28,
-        fontWeight: "bold",
+        fontWeight: "700",
     },
     headerButtonGroup: {
         flexDirection: "row",
@@ -65,15 +65,15 @@ const styles = StyleSheet.create({
         padding: 8,
     },
     itemDetails: {
-        borderRadius: 8,
+        borderRadius: 12,
         padding: 16,
         marginHorizontal: 16,
-        marginBottom: 12,
-        marginTop: 12,
+        marginBottom: 10,
+        marginTop: 10,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
+        shadowOpacity: 0.08,
+        shadowRadius: 6,
         elevation: 3,
     },
     nameQuantity: {
@@ -87,8 +87,8 @@ const styles = StyleSheet.create({
         marginBottom: 4,
     },
     itemName: {
-        fontSize: 18,
-        fontWeight: "bold",
+        fontSize: 17,
+        fontWeight: "700",
         flex: 1,
     },
     itemQuantity: {
@@ -160,8 +160,8 @@ const styles = StyleSheet.create({
     },
     input: {
         borderWidth: 1,
-        borderColor: "#e0e0e0",
-        borderRadius: 8,
+        borderColor: "#e8e8e8",
+        borderRadius: 10,
         paddingHorizontal: 12,
         paddingVertical: 10,
         fontSize: 14,
