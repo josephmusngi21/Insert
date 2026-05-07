@@ -11,14 +11,19 @@
     "newArchEnabled": true,
     "owner": "insert-app",
     "privacy": "public",
-    "platforms": ["ios", "android"],
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.insert.app",
       "buildNumber": "1",
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "Allow Insert to access your local network for communication",
-        "NSBonjourServiceTypes": ["_http._tcp"],
+        "NSBonjourServiceTypes": [
+          "_http._tcp"
+        ],
         "NSMicrophoneUsageDescription": "We don't access your microphone",
         "NSPhotoLibraryUsageDescription": "Allow Insert to access your photo library for sharing food items",
         "NSCameraUsageDescription": "Allow Insert to access your camera to take photos of food items",
@@ -84,7 +89,9 @@
         {
           "isEnabled": true
         }
-      ]
+      ],
+      "expo-font",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
