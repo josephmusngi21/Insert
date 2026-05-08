@@ -61,12 +61,6 @@ export default function AboutScreen({ onBack }: AboutScreenProps) {
           </Text>
         </View>
 
-        {onBack && (
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <Text style={styles.backButtonText}>← Back</Text>
-          </TouchableOpacity>
-        )}
-
         <View style={styles.footer}>
           <Text style={styles.footerText}>© 2026 Insert. All rights reserved.</Text>
         </View>
