@@ -121,6 +121,26 @@ export const shoppingDoc = (uid: string, id: string): DocumentReference =>
 export const settingsDoc = (uid: string, key: string): DocumentReference =>
   doc(db, "users", uid, "settings", key);
 
+// ── Shared product database ─────────────────────────────────────────────────
+
+/** Shared products collection — keyed by barcode */
+export const productsCol = (): CollectionReference =>
+  collection(db, "products");
+
+/** Reference to a specific product by barcode */
+export const productDoc = (barcode: string): DocumentReference =>
+  doc(db, "products", barcode);
+
+export interface ProductEntry {
+  barcode: string;
+  name: string;
+  type: string;
+  unit: string;
+  defaultExpirationDays: number;
+  addedBy: string;
+  createdAt: number;
+}
+
 // ── User profile management ─────────────────────────────────────────────────
 
 /**
