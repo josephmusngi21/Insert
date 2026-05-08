@@ -281,6 +281,7 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
         </TouchableOpacity>
       )}
       <ScrollView
+        contentContainerStyle={{ paddingBottom: 120 }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

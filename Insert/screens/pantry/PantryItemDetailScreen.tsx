@@ -1,8 +1,10 @@
-import { useState, useEffect } from "react";
-import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity, FlatList, StyleSheet } from "react-native";
+import { useState, useEffect, useRef } from "react";
+import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity, FlatList, StyleSheet, Modal, KeyboardAvoidingView, Platform, Dimensions, ActivityIndicator } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
-import { onSnapshot, addDoc, deleteDoc, doc, writeBatch, getDoc } from "firebase/firestore";
-import { pantryCol, pantryDoc, pendingCol, pendingDoc, settingsDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
+import { onSnapshot, addDoc, deleteDoc, doc, writeBatch, getDoc, setDoc } from "firebase/firestore";
+import { pantryCol, pantryDoc, pendingCol, pendingDoc, settingsDoc, productDoc, ProductEntry } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import styles from "./PantryItemDetailScreen.styles";
 
@@ -51,9 +53,11 @@ interface ThemeColors {
 interface PantryItemDetailScreenProps {
   onLogout?: () => void;
   theme?: ThemeColors;
+  showAddItemModal: boolean;
+  setShowAddItemModal: (v: boolean) => void;
 }
 
-export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDetailScreenProps) {
+export default function PantryItemDetailScreen({ onLogout, theme, showAddItemModal, setShowAddItemModal }: PantryItemDetailScreenProps) {
   const themeColors = theme || {
     mode: "light",
     textColor: "#333",
@@ -66,7 +70,6 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
   const [editForm, setEditForm] = useState<{ [key: string]: { name: string; quantity: string; location: string } }>({});
   const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
   const [editingPending, setEditingPending] = useState<{ [key: string]: { quantity: string; name: string; unit: string; location: string } }>({});
-  const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [showExpiredItems, setShowExpiredItems] = useState(false);
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
@@ -409,9 +412,6 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
         <View style={styles.titleAndMenu}>
           <Text style={[styles.title, { color: themeColors.textColor }]}>Pantry</Text>
           <View style={styles.headerButtonGroup}>
-            <TouchableOpacity onPress={() => setShowAddItemModal(true)}>
-              <Text style={[styles.headerButton, { color: themeColors.accentColor }]}>+ Add Item</Text>
-            </TouchableOpacity>
             <Button
               title={editingMode ? "Done" : "Edit Items"} 
               onPress={handleToggleEdit}
@@ -425,68 +425,221 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
   };
 
   const AddItemModal = () => {
-    const [newItem, setNewItem] = useState({ name: "", type: "", location: "", quantity: "" });
+    const [newItem, setNewItem] = useState({
+      name: "", type: "", location: "", quantity: "1", unit: "pcs",
+      brand: "", notes: "", customExpiry: "",
+    });
+    const [scannedBarcode, setScannedBarcode] = useState<string | null>(null);
+    const [isNewProduct, setIsNewProduct] = useState(false);
+    const [showScanner, setShowScanner] = useState(false);
+    const [lookingUp, setLookingUp] = useState(false);
+    const [showAdvanced, setShowAdvanced] = useState(false);
+    const [permission, requestPermission] = useCameraPermissions();
+    const scanLockRef = useRef(false);
     const [itemTypes, setItemTypes] = useState([
-      { label: "Produce", value: "produce", expirationDays: 7 },
-      { label: "Dairy", value: "dairy", expirationDays: 14 },
-      { label: "Meat", value: "meat", expirationDays: 3 },
-      { label: "Pantry", value: "pantry", expirationDays: 30 },
+      { label: "Produce",   value: "produce",   icon: "leaf-outline" as const,          expirationDays: 7,   location: "Fridge"  },
+      { label: "Dairy",     value: "dairy",     icon: "water-outline" as const,         expirationDays: 14,  location: "Fridge"  },
+      { label: "Meat",      value: "meat",      icon: "nutrition-outline" as const,     expirationDays: 3,   location: "Fridge"  },
+      { label: "Frozen",    value: "frozen",    icon: "snow-outline" as const,          expirationDays: 90,  location: "Freezer" },
+      { label: "Pantry",    value: "pantry",    icon: "archive-outline" as const,       expirationDays: 180, location: "Pantry"  },
+      { label: "Bakery",    value: "bakery",    icon: "storefront-outline" as const,    expirationDays: 5,   location: "Counter" },
+      { label: "Beverages", value: "beverages", icon: "cafe-outline" as const,          expirationDays: 30,  location: "Fridge"  },
     ]);
 
-    // Load user preferences when modal opens
     useEffect(() => {
       const loadPreferences = async () => {
         if (!userId) return;
-        
         try {
           const prefsDoc = await getDoc(settingsDoc(userId, "preferences"));
-          
           if (prefsDoc.exists()) {
             const savedPrefs = prefsDoc.data().itemTypes || [];
             setItemTypes(savedPrefs);
           }
-        } catch (_error) {
-          console.log("No preferences found, using defaults");
-        }
+        } catch (_error) {}
       };
-
-      if (showAddItemModal) {
-        loadPreferences();
-      }
+      if (showAddItemModal) loadPreferences();
     }, []);
 
+    const applyCategory = (typeValue: string) => {
+      const found = itemTypes.find(t => t.value === typeValue);
+      setNewItem(prev => ({
+        ...prev,
+        type: typeValue,
+        // Only auto-set location if user hasn't manually overridden it
+        location: prev.location || found?.location || "",
+      }));
+    };
+
+    const handleBarcodeScan = async (barcode: string) => {
+      if (scanLockRef.current) return;
+      scanLockRef.current = true;
+      setLookingUp(true);
+      setScannedBarcode(barcode);
+      try {
+        // 1. Our Firestore DB first
+        const snap = await getDoc(productDoc(barcode));
+        if (snap.exists()) {
+          const product = snap.data() as ProductEntry;
+          const found = itemTypes.find(t => t.value === product.type);
+          setNewItem(prev => ({
+            ...prev,
+            name: product.name,
+            type: product.type,
+            unit: product.unit,
+            quantity: "1",
+            location: prev.location || found?.location || "",
+          }));
+          setIsNewProduct(false);
+          Alert.alert("Found in our database!", `"${product.name}" loaded.`, [
+            { text: "OK", onPress: () => setShowScanner(false) }
+          ]);
+          return;
+        }
+
+        // 2. Open Food Facts
+        const offResp = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json`);
+        if (offResp.ok) {
+          const offData = await offResp.json();
+          if (offData.status === 1 && offData.product) {
+            const p = offData.product;
+            console.log("[OFF] Full product data:", JSON.stringify({
+              product_name: p.product_name,
+              product_name_en: p.product_name_en,
+              brands: p.brands,
+              quantity: p.quantity,
+              product_quantity: p.product_quantity,
+              product_quantity_unit: p.product_quantity_unit,
+              categories_tags: p.categories_tags,
+              serving_size: p.serving_size,
+              serving_quantity: p.serving_quantity,
+            }, null, 2));
+            const rawName: string = p.product_name_en || p.product_name || "";
+            const brand: string = p.brands || "";
+
+            // Map category
+            const allTags: string[] = p.categories_tags || [];
+            const categoryMap: Record<string, string> = {
+              dairy: "dairy", milk: "dairy", cheese: "dairy", yogurt: "dairy", butter: "dairy",
+              meat: "meat", beef: "meat", chicken: "meat", pork: "meat", fish: "meat", seafood: "meat",
+              fruits: "produce", vegetables: "produce", fresh: "produce", produce: "produce",
+              frozen: "frozen", "ice-cream": "frozen",
+              beverages: "beverages", drinks: "beverages", juices: "beverages",
+              breads: "bakery", pastries: "bakery", bakery: "bakery",
+            };
+            let mappedType = "pantry";
+            for (const tag of allTags) {
+              const clean = tag.replace(/^en:/, "").toLowerCase();
+              const hit = Object.entries(categoryMap).find(([key]) => clean.includes(key));
+              if (hit) { mappedType = hit[1]; break; }
+            }
+
+            // Parse quantity/unit from API
+            let parsedQty = "1";
+            let parsedUnit = "pcs";
+            if (p.product_quantity && p.product_quantity_unit) {
+              parsedQty = String(p.product_quantity);
+              parsedUnit = p.product_quantity_unit.toLowerCase();
+            } else if (p.quantity) {
+              const match = String(p.quantity).match(/^([\d.]+)\s*([a-zA-Z]+)/);
+              if (match) { parsedQty = match[1]; parsedUnit = match[2].toLowerCase(); }
+            }
+
+            if (rawName) {
+              const found = itemTypes.find(t => t.value === mappedType);
+              setNewItem(prev => ({
+                ...prev,
+                name: rawName,
+                type: mappedType,
+                quantity: parsedQty,
+                unit: parsedUnit,
+                brand,
+                location: prev.location || found?.location || "",
+              }));
+              setIsNewProduct(true);
+              Alert.alert("Found on Open Food Facts!", `"${rawName}"${brand ? ` by ${brand}` : ""} — confirm and we'll save it to our database.`, [
+                { text: "OK", onPress: () => setShowScanner(false) }
+              ]);
+              return;
+            }
+          }
+        }
+
+        // 3. Not found
+        setIsNewProduct(true);
+        Alert.alert("Product not found", "Fill in the details and we'll add it to our database!", [
+          { text: "OK", onPress: () => setShowScanner(false) }
+        ]);
+      } catch (e) {
+        console.error("Barcode lookup failed:", e);
+        setIsNewProduct(true);
+        setShowScanner(false);
+      } finally {
+        setLookingUp(false);
+      }
+    };
+
+    const openScanner = async () => {
+      if (!permission?.granted) {
+        const result = await requestPermission();
+        if (!result.granted) {
+          Alert.alert("Camera Permission", "Camera access is required to scan barcodes.");
+          return;
+        }
+      }
+      setShowScanner(true);
+      scanLockRef.current = false;
+    };
+
     const handleAddItem = async () => {
-      if (!newItem.name || !newItem.type || !newItem.location || !newItem.quantity) {
-        alert("Please fill all fields");
+      if (!newItem.name || !newItem.type) {
+        Alert.alert("Missing Fields", "Please enter a name and choose a category.");
         return;
       }
-
       const selectedType = itemTypes.find((t) => t.value === newItem.type);
-      const expirationDate = new Date(Date.now() + (selectedType?.expirationDays || 0) * 86400000).toISOString();
-
+      const effectiveLocation = newItem.location || selectedType?.location || "Pantry";
+      let expirationDate: string;
+      if (newItem.customExpiry) {
+        const parsed = new Date(newItem.customExpiry);
+        expirationDate = isNaN(parsed.getTime())
+          ? new Date(Date.now() + (selectedType?.expirationDays || 7) * 86400000).toISOString()
+          : parsed.toISOString();
+      } else {
+        expirationDate = new Date(Date.now() + (selectedType?.expirationDays || 7) * 86400000).toISOString();
+      }
       try {
         if (userId) {
-          // Persist to Firestore — the onSnapshot listener will update the UI
           await addDoc(pantryCol(userId), {
             type: newItem.type,
             name: newItem.name,
-            quantity: parseInt(newItem.quantity),
-            unit: "pcs",
-            location: newItem.location,
+            brand: newItem.brand || "",
+            notes: newItem.notes || "",
+            quantity: parseFloat(newItem.quantity) || 1,
+            unit: newItem.unit || "pcs",
+            location: effectiveLocation,
             dateAdded: new Date().toISOString(),
             expirationDate,
             userId,
             createdAt: Date.now(),
           });
+          if (scannedBarcode && isNewProduct) {
+            await setDoc(productDoc(scannedBarcode), {
+              barcode: scannedBarcode,
+              name: newItem.name,
+              type: newItem.type,
+              unit: newItem.unit || "pcs",
+              defaultExpirationDays: selectedType?.expirationDays || 7,
+              addedBy: userId,
+              createdAt: Date.now(),
+            } as ProductEntry);
+          }
         } else {
-          // Offline fallback: update local state only
           const newPantryItem: PantryItem = {
             id: Math.max(...items.map((i) => typeof i.id === "string" ? parseInt(i.id) : i.id), 0) + 1,
             type: newItem.type,
             name: newItem.name,
-            quantity: parseInt(newItem.quantity),
-            unit: "pcs",
-            location: newItem.location,
+            quantity: parseFloat(newItem.quantity) || 1,
+            unit: newItem.unit || "pcs",
+            location: effectiveLocation,
             dateAdded: new Date().toISOString(),
             expirationDate,
           };
@@ -494,24 +647,331 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
         }
       } catch (error) {
         console.error("Error adding item:", error);
-        alert("Failed to add item. Please try again.");
+        Alert.alert("Error", "Failed to add item. Please try again.");
         return;
       }
-
-      setNewItem({ name: "", type: "", location: "", quantity: "" });
+      setNewItem({ name: "", type: "", location: "", quantity: "1", unit: "pcs", brand: "", notes: "", customExpiry: "" });
+      setScannedBarcode(null);
+      setIsNewProduct(false);
+      setShowAdvanced(false);
       setShowAddItemModal(false);
     };
 
-    return showAddItemModal ? (
-      <View style={styles.modal}>
-        <TextInput style={styles.input} placeholder="Item Name" value={newItem.name} onChangeText={(text) => setNewItem({ ...newItem, name: text })} />
-        <TextInput style={styles.input} placeholder="Type" value={newItem.type} onChangeText={(text) => setNewItem({ ...newItem, type: text })} />
-        <TextInput style={styles.input} placeholder="Location" value={newItem.location} onChangeText={(text) => setNewItem({ ...newItem, location: text })} />
-        <TextInput style={styles.input} placeholder="Quantity" keyboardType="numeric" value={newItem.quantity} onChangeText={(text) => setNewItem({ ...newItem, quantity: text })} />
-        <Button title="Add Item" onPress={handleAddItem} />
-        <Button title="Cancel" onPress={() => setShowAddItemModal(false)} />
-      </View>
-    ) : null;
+    const UNITS = ["pcs", "g", "kg", "ml", "L", "oz", "lb", "cups"];
+    const LOCATIONS = ["Fridge", "Freezer", "Pantry", "Cupboard", "Counter", "Cabinet"];
+    const selectedType = itemTypes.find((t) => t.value === newItem.type);
+    const expirationDays = selectedType?.expirationDays ?? 0;
+    const effectiveLocation = newItem.location || selectedType?.location || "";
+    const expirationPreview = newItem.customExpiry
+      ? (isNaN(new Date(newItem.customExpiry).getTime()) ? "Invalid date" : new Date(newItem.customExpiry).toLocaleDateString())
+      : new Date(Date.now() + expirationDays * 86400000).toLocaleDateString();
+    const isDark = themeColors.mode === "dark";
+    const surfaceBg = isDark ? "#1e1e1e" : "#fff";
+    const inputBg = isDark ? "#2a2a2a" : "#fafafa";
+    const mutedBorder = isDark ? "#444" : "#e0e0e0";
+    const mutedText = isDark ? "#aaa" : "#666";
+    const chipInactiveBg = isDark ? "#333" : "#f0f0f0";
+    const allFilled = !!(newItem.name && newItem.type);
+
+    const labelStyle = {
+      fontSize: 12, fontWeight: "600" as const, color: mutedText,
+      marginBottom: 8, textTransform: "uppercase" as const, letterSpacing: 0.6,
+    };
+    const inputStyle = {
+      borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11,
+      fontSize: 15, color: themeColors.textColor, backgroundColor: inputBg,
+      borderColor: mutedBorder, marginBottom: 16,
+    };
+
+    return (
+      <Modal
+        visible={showAddItemModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowAddItemModal(false)}
+      >
+        {showScanner && (
+          <Modal visible={showScanner} animationType="slide" onRequestClose={() => setShowScanner(false)}>
+            <View style={{ flex: 1, backgroundColor: "#000" }}>
+              <CameraView
+                style={{ flex: 1 }}
+                facing="back"
+                barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "code128", "code39", "qr"] }}
+                onBarcodeScanned={({ data }) => handleBarcodeScan(data)}
+              />
+              <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "center", alignItems: "center", pointerEvents: "none" }}>
+                <View style={{ width: 260, height: 160, borderRadius: 12, borderWidth: 2, borderColor: "#fff", backgroundColor: "transparent" }} />
+                <Text style={{ color: "#fff", marginTop: 16, fontSize: 14, fontWeight: "500" }}>Point at a barcode</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowScanner(false)}
+                style={{ position: "absolute", top: 56, right: 20, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10 }}
+              >
+                <Text style={{ color: "#fff", fontWeight: "600" }}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </Modal>
+        )}
+
+        <KeyboardAvoidingView
+          style={{ flex: 1, justifyContent: "flex-end" }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <TouchableOpacity
+            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.45)" }}
+            activeOpacity={1}
+            onPress={() => setShowAddItemModal(false)}
+          />
+
+          <View style={{
+            backgroundColor: surfaceBg,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            paddingHorizontal: 20,
+            paddingTop: 12,
+            paddingBottom: Platform.OS === "ios" ? 40 : 24,
+            minHeight: Dimensions.get("window").height * 0.75,
+            maxHeight: Dimensions.get("window").height * 0.92,
+          }}>
+            <View style={{ width: 40, height: 4, backgroundColor: "#ddd", borderRadius: 2, alignSelf: "center", marginBottom: 16 }} />
+
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <Text style={{ fontSize: 22, fontWeight: "700", color: themeColors.textColor }}>Add Pantry Item</Text>
+              <TouchableOpacity onPress={() => setShowAddItemModal(false)} style={{ padding: 6 }}>
+                <Ionicons name="close" size={22} color="#999" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Scan button */}
+            <TouchableOpacity
+              onPress={openScanner}
+              style={{
+                flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                borderWidth: 1.5, borderColor: themeColors.accentColor, borderRadius: 12,
+                paddingVertical: 12, marginBottom: 16,
+                backgroundColor: isDark ? "#1a2e1a" : "#f0faf0",
+              }}
+            >
+              {lookingUp
+                ? <ActivityIndicator size="small" color={themeColors.accentColor} />
+                : <Ionicons name="barcode-outline" size={20} color={themeColors.accentColor} />}
+              <Text style={{ color: themeColors.accentColor, fontWeight: "600", fontSize: 15 }}>
+                {lookingUp ? "Looking up barcode…" : scannedBarcode ? "Scan Again" : "Scan Barcode"}
+              </Text>
+            </TouchableOpacity>
+
+            {scannedBarcode && !lookingUp && (
+              <View style={{
+                flexDirection: "row", alignItems: "center", gap: 6,
+                backgroundColor: isNewProduct ? (isDark ? "#2e1a00" : "#fff8e6") : (isDark ? "#1a2e1a" : "#f0faf0"),
+                borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 16,
+                borderLeftWidth: 3, borderLeftColor: isNewProduct ? "#FFA000" : themeColors.accentColor,
+              }}>
+                <Ionicons name={isNewProduct ? "add-circle-outline" : "checkmark-circle-outline"} size={18} color={isNewProduct ? "#FFA000" : themeColors.accentColor} />
+                <Text style={{ fontSize: 13, color: isNewProduct ? "#FFA000" : themeColors.accentColor, fontWeight: "600", flex: 1 }}>
+                  {isNewProduct ? "New product — confirm details and we'll save it" : "Found in our database — fields pre-filled"}
+                </Text>
+              </View>
+            )}
+
+            <ScrollView
+              style={{ flexShrink: 1 }}
+              contentContainerStyle={{ paddingBottom: 8, flexGrow: 1 }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* Name */}
+              <Text style={labelStyle}>Item Name</Text>
+              <TextInput
+                style={{ ...inputStyle, borderColor: newItem.name ? themeColors.accentColor : mutedBorder, fontSize: 16, marginBottom: 20 }}
+                placeholder="e.g. Chicken Breast"
+                placeholderTextColor={isDark ? "#555" : "#bbb"}
+                value={newItem.name}
+                onChangeText={(text) => setNewItem({ ...newItem, name: text })}
+                autoCapitalize="words"
+                returnKeyType="next"
+              />
+
+              {/* Category — also auto-sets location */}
+              <Text style={labelStyle}>Category</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
+                {itemTypes.map((type) => {
+                  const isSelected = newItem.type === type.value;
+                  return (
+                    <TouchableOpacity
+                      key={type.value}
+                      onPress={() => applyCategory(type.value)}
+                      style={{
+                        paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5,
+                        flexDirection: "row", alignItems: "center", gap: 6,
+                        backgroundColor: isSelected ? themeColors.accentColor : "transparent",
+                        borderColor: isSelected ? themeColors.accentColor : mutedBorder,
+                      }}
+                    >
+                      <Ionicons
+                        name={type.icon}
+                        size={14}
+                        color={isSelected ? "#fff" : themeColors.textColor}
+                      />
+                      <Text style={{ color: isSelected ? "#fff" : themeColors.textColor, fontWeight: isSelected ? "600" : "400", fontSize: 13 }}>
+                        {type.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {/* Auto-location hint */}
+              {effectiveLocation ? (
+                <Text style={{ fontSize: 12, color: mutedText, marginBottom: 20, marginTop: 6 }}>
+                  📍 Will be stored in: <Text style={{ color: themeColors.accentColor, fontWeight: "600" }}>{effectiveLocation}</Text>
+                  {" "}<Text style={{ color: mutedText }}>(change in Advanced Options)</Text>
+                </Text>
+              ) : <View style={{ marginBottom: 20 }} />}
+
+              {/* Quantity + Unit */}
+              <Text style={labelStyle}>Quantity & Unit</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                <TouchableOpacity
+                  onPress={() => setNewItem({ ...newItem, quantity: String(Math.max(1, parseFloat(newItem.quantity || "1") - 1)) })}
+                  style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: chipInactiveBg, alignItems: "center", justifyContent: "center" }}
+                >
+                  <Text style={{ fontSize: 22, color: themeColors.textColor, lineHeight: 24 }}>−</Text>
+                </TouchableOpacity>
+                <TextInput
+                  style={{
+                    flex: 1, borderWidth: 1.5, borderColor: mutedBorder, borderRadius: 12,
+                    paddingHorizontal: 14, paddingVertical: 10, fontSize: 20, fontWeight: "600",
+                    color: themeColors.textColor, textAlign: "center", backgroundColor: inputBg,
+                  }}
+                  keyboardType="decimal-pad"
+                  value={newItem.quantity}
+                  onChangeText={(text) => setNewItem({ ...newItem, quantity: text })}
+                />
+                <TouchableOpacity
+                  onPress={() => setNewItem({ ...newItem, quantity: String(parseFloat(newItem.quantity || "0") + 1) })}
+                  style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: themeColors.accentColor, alignItems: "center", justifyContent: "center" }}
+                >
+                  <Text style={{ fontSize: 22, color: "#fff", lineHeight: 24 }}>+</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 20 }}>
+                {UNITS.map((unit) => {
+                  const isSelected = newItem.unit === unit;
+                  return (
+                    <TouchableOpacity
+                      key={unit}
+                      onPress={() => setNewItem({ ...newItem, unit })}
+                      style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, backgroundColor: isSelected ? themeColors.accentColor : chipInactiveBg }}
+                    >
+                      <Text style={{ color: isSelected ? "#fff" : themeColors.textColor, fontSize: 13, fontWeight: isSelected ? "600" : "400" }}>{unit}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Expiry preview */}
+              {selectedType && (
+                <View style={{ backgroundColor: isDark ? "#1a3a1a" : "#f0faf0", borderRadius: 10, padding: 12, marginBottom: 16, borderLeftWidth: 3, borderLeftColor: themeColors.accentColor }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Ionicons name="time-outline" size={14} color={themeColors.accentColor} />
+                    <Text style={{ color: themeColors.accentColor, fontWeight: "600", fontSize: 13 }}>
+                      Expires ~{newItem.customExpiry ? expirationPreview : `in ${expirationDays} days (${expirationPreview})`}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Advanced Options */}
+              <TouchableOpacity
+                onPress={() => setShowAdvanced(v => !v)}
+                style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, marginBottom: 4 }}
+              >
+                <Text style={{ fontSize: 14, fontWeight: "600", color: themeColors.accentColor }}>Advanced Options</Text>
+                <Ionicons name={showAdvanced ? "chevron-up" : "chevron-down"} size={18} color={themeColors.accentColor} />
+              </TouchableOpacity>
+
+              {showAdvanced && (
+                <View style={{ backgroundColor: isDark ? "#252525" : "#fafafa", borderRadius: 14, padding: 14, marginBottom: 16, gap: 14 }}>
+                  {/* Location override */}
+                  <View>
+                    <Text style={labelStyle}>Storage Location Override</Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                      {LOCATIONS.map((loc) => {
+                        const isSelected = newItem.location === loc;
+                        return (
+                          <TouchableOpacity
+                            key={loc}
+                            onPress={() => setNewItem({ ...newItem, location: isSelected ? "" : loc })}
+                            style={{
+                              paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5,
+                              backgroundColor: isSelected ? themeColors.accentColor : "transparent",
+                              borderColor: isSelected ? themeColors.accentColor : mutedBorder,
+                            }}
+                          >
+                            <Text style={{ color: isSelected ? "#fff" : themeColors.textColor, fontSize: 13, fontWeight: isSelected ? "600" : "400" }}>{loc}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+
+                  {/* Brand */}
+                  <View>
+                    <Text style={labelStyle}>Brand (optional)</Text>
+                    <TextInput
+                      style={inputStyle}
+                      placeholder="e.g. Heinz, Kellogg's"
+                      placeholderTextColor={isDark ? "#555" : "#bbb"}
+                      value={newItem.brand}
+                      onChangeText={(text) => setNewItem({ ...newItem, brand: text })}
+                      autoCapitalize="words"
+                    />
+                  </View>
+
+                  {/* Notes */}
+                  <View>
+                    <Text style={labelStyle}>Notes (optional)</Text>
+                    <TextInput
+                      style={{ ...inputStyle, height: 72, textAlignVertical: "top" }}
+                      placeholder="e.g. Opened, low-fat, organic…"
+                      placeholderTextColor={isDark ? "#555" : "#bbb"}
+                      value={newItem.notes}
+                      onChangeText={(text) => setNewItem({ ...newItem, notes: text })}
+                      multiline
+                    />
+                  </View>
+
+                  {/* Custom expiry */}
+                  <View>
+                    <Text style={labelStyle}>Custom Expiry Date (optional)</Text>
+                    <TextInput
+                      style={inputStyle}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor={isDark ? "#555" : "#bbb"}
+                      value={newItem.customExpiry}
+                      onChangeText={(text) => setNewItem({ ...newItem, customExpiry: text })}
+                      keyboardType="numbers-and-punctuation"
+                    />
+                  </View>
+                </View>
+              )}
+
+              {/* Add button */}
+              <TouchableOpacity
+                onPress={handleAddItem}
+                style={{
+                  backgroundColor: allFilled ? themeColors.accentColor : (isDark ? "#333" : "#d0d0d0"),
+                  borderRadius: 14, paddingVertical: 16, alignItems: "center", marginBottom: 8,
+                }}
+              >
+                <Text style={{ color: allFilled ? "#fff" : mutedText, fontWeight: "700", fontSize: 16 }}>Add to Pantry</Text>
+              </TouchableOpacity>
+
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    );
   };
 
   const ItemDetails = ({ item, isEditing }: ItemDetailsProps) => {
