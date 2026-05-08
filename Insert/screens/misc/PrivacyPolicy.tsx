@@ -99,11 +99,6 @@ export default function PrivacyPolicy({ onClose }: PrivacyPolicyProps) {
           Website: www.insertapp.com
         </Text>
 
-        {onClose && (
-          <TouchableOpacity onPress={onClose} style={styles.button}>
-            <Text style={styles.buttonText}>← Back</Text>
-          </TouchableOpacity>
-        )}
       </View>
     </ScrollView>
   );
