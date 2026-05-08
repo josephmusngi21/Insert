@@ -10,8 +10,6 @@ import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { onSnapshot, doc, getDoc, addDoc, deleteDoc } from "firebase/firestore";
 import { shoppingCol, pantryCol, recipesDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
-import recipeData from "./example/recipes.json";
-import pantryData from "../pantry/example/data.json";
 
 interface Ingredient {
   name: string;
@@ -44,7 +42,7 @@ interface RecipeDetailScreenProps {
   theme?: ThemeColors;
 }
 
-export default function RecipeDetailScreen({ recipeId = "local_1", onBack, theme }: RecipeDetailScreenProps) {
+export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDetailScreenProps) {
   const themeColors = theme || {
     mode: "light",
     textColor: "#333",
@@ -54,7 +52,7 @@ export default function RecipeDetailScreen({ recipeId = "local_1", onBack, theme
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [addingIngredient, setAddingIngredient] = useState<string | null>(null);
   const [shoppingListItems, setShoppingListItems] = useState<{ name: string; completed: boolean }[]>([]);
-  const [pantryItems, setPantryItems] = useState<any[]>(pantryData.pantryItems);
+  const [pantryItems, setPantryItems] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
@@ -64,42 +62,32 @@ export default function RecipeDetailScreen({ recipeId = "local_1", onBack, theme
     
     console.log("Loading recipe with ID:", recipeId);
     
-    // If it's a local recipe (prefixed with "local_")
-    if (recipeId.startsWith("local_")) {
-      const localId = parseInt(recipeId.replace("local_", ""));
-      const foundRecipe = recipeData.recipes.find((r) => r.id === localId);
-      console.log("Found local recipe:", foundRecipe);
-      if (foundRecipe) {
-        setRecipe({ ...foundRecipe, id: recipeId } as Recipe);
+    // Load from Firestore using real-time listener for instant display
+    const docRef = recipesDoc(userId, recipeId);
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      console.log("Firestore doc exists:", docSnap.exists());
+      console.log("Firestore doc data:", docSnap.data());
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setRecipe({
+          id: docSnap.id,
+          name: data.name,
+          description: data.description || "",
+          servings: data.servings,
+          cookTime: data.cookTime,
+          difficulty: data.difficulty,
+          ingredients: data.ingredients || [],
+          instructions: data.instructions || [],
+        } as Recipe);
+      } else {
+        console.log("Document does not exist");
       }
-    } else {
-      // Load from Firestore using real-time listener for instant display
-      const docRef = recipesDoc(userId, recipeId);
-      const unsubscribe = onSnapshot(docRef, (docSnap) => {
-        console.log("Firestore doc exists:", docSnap.exists());
-        console.log("Firestore doc data:", docSnap.data());
-        if (docSnap.exists()) {
-          const recipeData = docSnap.data();
-          setRecipe({ 
-            id: docSnap.id, 
-            name: recipeData.name,
-            description: recipeData.description || "",
-            servings: recipeData.servings,
-            cookTime: recipeData.cookTime,
-            difficulty: recipeData.difficulty,
-            ingredients: recipeData.ingredients || [],
-            instructions: recipeData.instructions || [],
-          } as Recipe);
-        } else {
-          console.log("Document does not exist");
-        }
-      }, (error) => {
-        console.error("Error loading recipe from Firestore:", error);
-      });
+    }, (error) => {
+      console.error("Error loading recipe from Firestore:", error);
+    });
 
-      return () => unsubscribe();
-    }
-  }, [recipeId]);
+    return () => unsubscribe();
+  }, [recipeId, userId]);
 
   // Load shopping list items with real-time listener
   useEffect(() => {
@@ -132,13 +120,9 @@ export default function RecipeDetailScreen({ recipeId = "local_1", onBack, theme
         location: doc.data().location || "",
         expirationDate: doc.data().expirationDate || "",
       }));
-      // Combine Firestore items with local pantry data
-      const combinedItems = [...pantryData.pantryItems, ...items];
-      setPantryItems(combinedItems);
+      setPantryItems(items);
     }, (error) => {
       console.error("Error loading pantry items:", error);
-      // Fallback to local data if there's an error
-      setPantryItems(pantryData.pantryItems);
     });
     
     return () => unsubscribe();

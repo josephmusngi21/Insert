@@ -1,4 +1,4 @@
-{
+{{
   "recipes": [
     {
       "id": 1,
@@ -14,7 +14,7 @@
         { "name": "black pepper", "quantity": 1, "unit": "tsp" },
         { "name": "salt", "quantity": 1, "unit": "tsp" }
       ],
-      "instructions": [
+      "instructions": [ 
         "Cook pasta according to package directions",
         "Fry bacon until crispy",
         "Mix eggs with grated cheese",
@@ -153,4 +153,5 @@
       "cuisine": "mexican"
     }
   ]
+}
 }

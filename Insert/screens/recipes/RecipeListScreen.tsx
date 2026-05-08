@@ -11,7 +11,6 @@ import { recipesCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDat
 import { getAuth } from "firebase/auth";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import styles from "./RecipeListScreen.styles";
-import exampleRecipesData from "./example/recipes.json";
 import RecipeFormScreen from "./RecipeFormScreen";
 
 // Dietary restrictions with their allowed ingredients
@@ -81,9 +80,7 @@ interface RecipeListScreenProps {
 }
 
 export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies = [], showRecipeForm = false, setShowRecipeForm = () => {} }: RecipeListScreenProps) {
-  const [recipeList, setRecipeList] = useState<Recipe[]>(
-    exampleRecipesData.recipes.map((r: any, i: number) => ({ ...r, id: `local_${r.id}` } as Recipe))
-  );
+  const [recipeList, setRecipeList] = useState<Recipe[]>([]);
   const [filterByAllergies, setFilterByAllergies] = useState(false);
   const [selectedDiets, setSelectedDiets] = useState<string[]>([]);
   const [toast, setToast] = useState<{ message: string; success: boolean } | null>(null);
@@ -126,9 +123,7 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
         instructions: doc.data().instructions,
       } as Recipe));
       
-      // Combine example recipes with Firestore recipes
-      const exampleRecipes = exampleRecipesData.recipes.map((r: any) => ({ ...r, id: `local_${r.id}` } as Recipe));
-      setRecipeList([...exampleRecipes, ...firestoreRecipes]);
+      setRecipeList(firestoreRecipes);
     }, (error) => {
       console.error("Error loading recipes:", error);
     });

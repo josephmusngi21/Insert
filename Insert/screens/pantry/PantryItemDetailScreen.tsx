@@ -1,14 +1,10 @@
 import { useState, useEffect } from "react";
 import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity, FlatList, StyleSheet } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { onSnapshot, addDoc, deleteDoc, doc, writeBatch, getDoc } from "firebase/firestore";
 import { pantryCol, pantryDoc, pendingCol, pendingDoc, settingsDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import styles from "./PantryItemDetailScreen.styles";
-import data from "./example/data.json";
-
-const pantryItems = data.pantryItems;
 
 type PantryItem = {
   id: number | string;
@@ -64,9 +60,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
     accentColor: "#4CAF50",
     backgroundColor: "#f5f5f5",
   };
-  const [items, setItems] = useState<PantryItem[]>(pantryItems);
-  const [deletedExampleItemIds, setDeletedExampleItemIds] = useState<Set<number>>(new Set());
-  const [firestoreItemIds, setFirestoreItemIds] = useState<Set<string>>(new Set());
+  const [items, setItems] = useState<PantryItem[]>([]);
   const [hasUserAddedItems, setHasUserAddedItems] = useState(false);
   const [editingMode, setEditingMode] = useState(false);
   const [editForm, setEditForm] = useState<{ [key: string]: { name: string; quantity: string; location: string } }>({});
@@ -76,27 +70,6 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
   const [showExpiredItems, setShowExpiredItems] = useState(false);
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
-
-  // Load deleted example item IDs from AsyncStorage on mount
-  useEffect(() => {
-    const loadDeletedItems = async () => {
-      try {
-        const deleted = await AsyncStorage.getItem("deletedExamplePantryItems");
-        if (deleted) {
-          setDeletedExampleItemIds(new Set(JSON.parse(deleted)));
-        }
-      } catch (error) {
-        console.error("Error loading deleted items:", error);
-      }
-    };
-    loadDeletedItems();
-  }, []);
-
-  // Update displayed items when deleted items change
-  useEffect(() => {
-    const filteredItems = pantryItems.filter(item => !deletedExampleItemIds.has(item.id as number));
-    setItems(filteredItems);
-  }, [deletedExampleItemIds]);
 
   // Load both pending items and pantry items from Firestore
   useEffect(() => {
@@ -124,25 +97,8 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
       }) as unknown as PantryItem[];
       console.log("Pantry items from Firestore:", firestoreItems.length);
       
-      // Always update items from Firestore
-      // If we have Firestore items, show them; otherwise show what's in state (example data or empty)
-      if (firestoreItems.length > 0) {
-        setItems(firestoreItems);
-        setHasUserAddedItems(true);
-      } else {
-        // No Firestore items - keep current state unless we've already switched to Firestore mode
-        setItems(prevItems => {
-          // Check if we were already showing Firestore items
-          const wasShowingFirestore = prevItems.some(item => item._firestoreId);
-          
-          if (wasShowingFirestore) {
-            // We were showing Firestore items, so show empty state
-            return [];
-          }
-          // Otherwise keep showing example data
-          return prevItems;
-        });
-      }
+      setItems(firestoreItems);
+      if (firestoreItems.length > 0) setHasUserAddedItems(true);
     });
 
     return () => {
@@ -259,7 +215,7 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
           text: "Reject",
           onPress: async () => {
             try {
-              await deleteDoc(doc(db, "pendingPantry", itemId));
+              await deleteDoc(pendingDoc(userId, itemId));
               setEditingPending(prev => {
                 const newState = { ...prev };
                 delete newState[itemId];
@@ -372,38 +328,15 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
           onPress: async () => {
             try {
               const batch = writeBatch(db);
-              let firestoreRemovedCount = 0;
-              const newDeletedIds = new Set(deletedExampleItemIds);
 
-              // Delete each expired item from Firestore if it has a Firestore ID
+              // Delete each expired Firestore item
               expiredItems.forEach((item) => {
                 if (item._firestoreId) {
-                  const itemRef = pantryDoc(userId, item._firestoreId);
-                  batch.delete(itemRef);
-                  firestoreRemovedCount++;
-                } else {
-                  // It's an example item - mark as deleted
-                  newDeletedIds.add(item.id as number);
+                  batch.delete(pantryDoc(userId, item._firestoreId));
                 }
               });
 
-              // Commit Firestore deletions
-              if (firestoreRemovedCount > 0) {
-                await batch.commit();
-              }
-
-              // Save deleted example items to AsyncStorage
-              if (newDeletedIds.size > deletedExampleItemIds.size) {
-                await AsyncStorage.setItem("deletedExamplePantryItems", JSON.stringify(Array.from(newDeletedIds)));
-                setDeletedExampleItemIds(newDeletedIds);
-              }
-
-              // Remove all expired items from local state regardless
-              const updatedItems = items.filter(item => {
-                const expirationDays = calculateExpirationDays(item.expirationDate);
-                return expirationDays >= 0; // Keep only non-expired items
-              });
-              setItems(updatedItems);
+              await batch.commit();
               setShowExpiredItems(false);
 
               Alert.alert("Success", `Removed ${expiredItems.length} expired item${expiredItems.length !== 1 ? 's' : ''}`);
@@ -455,16 +388,8 @@ export default function PantryItemDetailScreen({ onLogout, theme }: PantryItemDe
               // If it's a Firestore item, delete using _firestoreId
               const itemIndex = items.findIndex(item => item.id === itemId);
               if (itemIndex !== -1 && items[itemIndex]._firestoreId) {
-                // Mark that user has deleted Firestore items (prevents example data from reappearing)
-                setHasUserAddedItems(true);
                 await deleteDoc(pantryDoc(userId, items[itemIndex]._firestoreId!));
                 console.log("Item deleted from Firestore:", items[itemIndex]._firestoreId);
-              } else {
-                // It's an example item - mark it as deleted in AsyncStorage
-                const newDeletedIds = new Set(deletedExampleItemIds);
-                newDeletedIds.add(itemId as number);
-                setDeletedExampleItemIds(newDeletedIds);
-                await AsyncStorage.setItem("deletedExamplePantryItems", JSON.stringify(Array.from(newDeletedIds)));
               }
             } catch (error) {
               console.error("Error deleting item:", error);
