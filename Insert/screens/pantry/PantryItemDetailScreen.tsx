@@ -436,6 +436,214 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
     const [showAdvanced, setShowAdvanced] = useState(false);
     const [permission, requestPermission] = useCameraPermissions();
     const scanLockRef = useRef(false);
+
+    // ── Receipt scanner state ──────────────────────────────────────────────
+    type ReceiptItem = {
+      id: string;
+      name: string;
+      quantity: string;
+      unit: string;
+      type: string;
+      location: string;
+      expirationDays: number;
+      checked: boolean;
+    };
+    const [showReceiptCamera, setShowReceiptCamera] = useState(false);
+    const [receiptProcessing, setReceiptProcessing] = useState(false);
+    const [receiptStep, setReceiptStep] = useState<'idle' | 'ocr' | 'lookup'>('idle');
+    const [receiptLookupProgress, setReceiptLookupProgress] = useState(0);
+    const [receiptLookupTotal, setReceiptLookupTotal] = useState(0);
+    const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([]);
+    const [showReceiptReview, setShowReceiptReview] = useState(false);
+    const cameraRef = useRef<any>(null);
+
+    const openReceiptCamera = async () => {
+      if (!permission?.granted) {
+        const result = await requestPermission();
+        if (!result.granted) {
+          Alert.alert("Camera Permission", "Camera access is required to scan receipts.");
+          return;
+        }
+      }
+      setShowReceiptCamera(true);
+    };
+
+    /** Parse raw OCR text from a receipt → candidate product name lines */
+    const parseReceiptLines = (rawText: string): string[] => {
+      const SKIP = /total|subtotal|tax|hst|gst|pst|change|balance|cash|credit|debit|visa|mastercard|amex|approval|auth|store|receipt|thank|welcome|member|loyalty|points|savings|discount|coupon|void|refund|return|service|date|time|reg|cashier|operator|tel|phone|address|www\.|\.com|invoice|order|trans|^\d+$/i;
+      const PRICE = /^\$?[\d,]+\.\d{2}$|^\d{1,2}\/\d{1,2}\/\d{2,4}$|\b\d{12,}\b/;
+      return rawText
+        .split('\n')
+        .map(l => l.replace(/[*|\\/#@<>{}[\]]/g, '').trim())
+        .filter(l => l.length >= 3 && l.length <= 60)
+        .filter(l => !SKIP.test(l))
+        .filter(l => !PRICE.test(l.trim()))
+        // must contain at least one letter
+        .filter(l => /[a-zA-Z]/.test(l))
+        // strip trailing price if present e.g. "Chicken Breast  4.99"
+        .map(l => l.replace(/\s+\$?[\d,]+\.\d{2}\s*[A-Z]?\s*$/, '').trim())
+        .filter(l => l.length >= 3)
+        // dedupe
+        .filter((v, i, a) => a.indexOf(v) === i)
+        .slice(0, 30); // safety cap
+    };
+
+    /** Search Open Food Facts by name → best-match product info */
+    const lookupItemByName = async (name: string): Promise<Partial<ReceiptItem>> => {
+      try {
+        const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(name)}&action=process&json=1&page_size=1&fields=product_name,categories_tags,product_quantity,product_quantity_unit,quantity`;
+        const resp = await fetch(url);
+        if (!resp.ok) return {};
+        const data = await resp.json();
+        const p = data.products?.[0];
+        if (!p) return {};
+
+        const allTags: string[] = p.categories_tags || [];
+        const categoryMap: Record<string, string> = {
+          dairy: "dairy", milk: "dairy", cheese: "dairy", yogurt: "dairy", butter: "dairy",
+          meat: "meat", beef: "meat", chicken: "meat", pork: "meat", fish: "meat", seafood: "meat",
+          fruits: "produce", vegetables: "produce", fresh: "produce", produce: "produce",
+          frozen: "frozen", "ice-cream": "frozen",
+          beverages: "beverages", drinks: "beverages", juices: "beverages",
+          breads: "bakery", pastries: "bakery", bakery: "bakery",
+        };
+        let mappedType = "pantry";
+        for (const tag of allTags) {
+          const clean = tag.replace(/^en:/, "").toLowerCase();
+          const hit = Object.entries(categoryMap).find(([key]) => clean.includes(key));
+          if (hit) { mappedType = hit[1]; break; }
+        }
+
+        let unit = "pcs";
+        let quantity = "1";
+        if (p.product_quantity && p.product_quantity_unit) {
+          quantity = String(p.product_quantity);
+          unit = p.product_quantity_unit.toLowerCase();
+        } else if (p.quantity) {
+          const m = String(p.quantity).match(/^([\d.]+)\s*([a-zA-Z]+)/);
+          if (m) { quantity = m[1]; unit = m[2].toLowerCase(); }
+        }
+        return { type: mappedType, quantity, unit };
+      } catch {
+        return {};
+      }
+    };
+
+    const captureAndProcessReceipt = async () => {
+      if (!cameraRef.current) return;
+      try {
+        setReceiptProcessing(true);
+        setReceiptStep('ocr');
+
+        // Take photo
+        const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.7 });
+        setShowReceiptCamera(false);
+
+        // OCR via ocr.space free API
+        const formBody = new URLSearchParams({
+          apikey: 'K88888888888888', // free demo key — user can replace
+          base64Image: `data:image/jpeg;base64,${photo.base64}`,
+          language: 'eng',
+          isOverlayRequired: 'false',
+        }).toString();
+
+        const ocrResp = await fetch('https://api.ocr.space/parse/image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: formBody,
+        });
+        const ocrData = await ocrResp.json();
+        const rawText: string = ocrData.ParsedResults?.[0]?.ParsedText || '';
+        if (!rawText) {
+          Alert.alert("Couldn't read receipt", "No text was detected. Try better lighting and hold the camera steady.");
+          setReceiptProcessing(false);
+          setReceiptStep('idle');
+          return;
+        }
+
+        const lines = parseReceiptLines(rawText);
+        if (lines.length === 0) {
+          Alert.alert("No items found", "The receipt text was detected but no product lines could be extracted.");
+          setReceiptProcessing(false);
+          setReceiptStep('idle');
+          return;
+        }
+
+        // Look up each item on Open Food Facts
+        setReceiptStep('lookup');
+        setReceiptLookupTotal(lines.length);
+        setReceiptLookupProgress(0);
+
+        const results: ReceiptItem[] = [];
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          const info = await lookupItemByName(line);
+          const foundType = info.type ?? 'pantry';
+          const foundTypeObj = itemTypes.find(t => t.value === foundType);
+          results.push({
+            id: `receipt-${i}`,
+            name: line,
+            quantity: info.quantity ?? '1',
+            unit: info.unit ?? 'pcs',
+            type: foundType,
+            location: foundTypeObj?.location ?? 'Pantry',
+            expirationDays: foundTypeObj?.expirationDays ?? 7,
+            checked: true,
+          });
+          setReceiptLookupProgress(i + 1);
+          // small delay to avoid hammering the API
+          await new Promise(r => setTimeout(r, 120));
+        }
+
+        setReceiptItems(results);
+        setReceiptProcessing(false);
+        setReceiptStep('idle');
+        setShowReceiptReview(true);
+      } catch (err) {
+        console.error('Receipt processing error:', err);
+        Alert.alert("Error", "Failed to process receipt. Please try again.");
+        setReceiptProcessing(false);
+        setReceiptStep('idle');
+        setShowReceiptCamera(false);
+      }
+    };
+
+    const addReceiptItemsToPantry = async () => {
+      const toAdd = receiptItems.filter(ri => ri.checked);
+      if (toAdd.length === 0) {
+        Alert.alert("Nothing selected", "Check at least one item to add.");
+        return;
+      }
+      try {
+        if (userId) {
+          const batch = writeBatch(db);
+          toAdd.forEach(ri => {
+            const ref = doc(pantryCol(userId));
+            const expDate = new Date(Date.now() + ri.expirationDays * 86400000).toISOString();
+            batch.set(ref, {
+              type: ri.type,
+              name: ri.name,
+              quantity: parseFloat(ri.quantity) || 1,
+              unit: ri.unit,
+              location: ri.location,
+              dateAdded: new Date().toISOString(),
+              expirationDate: expDate,
+              userId,
+              createdAt: Date.now(),
+            });
+          });
+          await batch.commit();
+        }
+        setShowReceiptReview(false);
+        setReceiptItems([]);
+        setShowAddItemModal(false);
+        Alert.alert("Added!", `${toAdd.length} item${toAdd.length !== 1 ? 's' : ''} added to your pantry.`);
+      } catch (err) {
+        console.error('Batch add error:', err);
+        Alert.alert("Error", "Failed to add items. Please try again.");
+      }
+    };
+    // ── end receipt scanner state ──────────────────────────────────────────
     const [itemTypes, setItemTypes] = useState([
       { label: "Produce",   value: "produce",   icon: "leaf-outline" as const,          expirationDays: 7,   location: "Fridge"  },
       { label: "Dairy",     value: "dairy",     icon: "water-outline" as const,         expirationDays: 14,  location: "Fridge"  },
@@ -713,6 +921,179 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
           </Modal>
         )}
 
+        {/* ── Receipt Camera Modal ── */}
+        {showReceiptCamera && (
+          <Modal visible={showReceiptCamera} animationType="slide" onRequestClose={() => setShowReceiptCamera(false)}>
+            <View style={{ flex: 1, backgroundColor: "#000" }}>
+              <CameraView ref={cameraRef} style={{ flex: 1 }} facing="back" />
+              {/* Overlay guide */}
+              <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "center", alignItems: "center", pointerEvents: "none" }}>
+                <View style={{ width: Dimensions.get("window").width * 0.88, height: Dimensions.get("window").height * 0.55, borderRadius: 12, borderWidth: 2, borderColor: "rgba(255,255,255,0.7)", backgroundColor: "transparent" }} />
+                <Text style={{ color: "#fff", marginTop: 14, fontSize: 13, fontWeight: "500", textAlign: "center" }}>
+                  Fit the receipt inside the frame
+                </Text>
+              </View>
+              {/* Cancel */}
+              <TouchableOpacity
+                onPress={() => setShowReceiptCamera(false)}
+                style={{ position: "absolute", top: 56, left: 20, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10 }}
+              >
+                <Text style={{ color: "#fff", fontWeight: "600" }}>Cancel</Text>
+              </TouchableOpacity>
+              {/* Capture */}
+              <TouchableOpacity
+                onPress={captureAndProcessReceipt}
+                style={{ position: "absolute", bottom: 48, alignSelf: "center", width: 72, height: 72, borderRadius: 36, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", borderWidth: 4, borderColor: "rgba(255,255,255,0.4)" }}
+              >
+                <Ionicons name="camera" size={32} color="#222" />
+              </TouchableOpacity>
+            </View>
+          </Modal>
+        )}
+
+        {/* ── Receipt Processing Overlay ── */}
+        {receiptProcessing && (
+          <Modal visible={receiptProcessing} transparent animationType="fade">
+            <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.65)", alignItems: "center", justifyContent: "center" }}>
+              <View style={{ backgroundColor: surfaceBg, borderRadius: 20, padding: 28, alignItems: "center", width: 260 }}>
+                <ActivityIndicator size="large" color={themeColors.accentColor} />
+                <Text style={{ color: themeColors.textColor, fontWeight: "700", fontSize: 16, marginTop: 16 }}>
+                  {receiptStep === 'ocr' ? 'Reading receipt…' : `Looking up items… (${receiptLookupProgress}/${receiptLookupTotal})`}
+                </Text>
+                <Text style={{ color: mutedText, fontSize: 13, marginTop: 6, textAlign: "center" }}>
+                  {receiptStep === 'ocr' ? 'Extracting text with OCR' : 'Fetching product info'}
+                </Text>
+                {receiptStep === 'lookup' && receiptLookupTotal > 0 && (
+                  <View style={{ width: "100%", height: 4, backgroundColor: mutedBorder, borderRadius: 2, marginTop: 14 }}>
+                    <View style={{ height: 4, borderRadius: 2, backgroundColor: themeColors.accentColor, width: `${(receiptLookupProgress / receiptLookupTotal) * 100}%` }} />
+                  </View>
+                )}
+              </View>
+            </View>
+          </Modal>
+        )}
+
+        {/* ── Receipt Review Modal ── */}
+        {showReceiptReview && (
+          <Modal visible={showReceiptReview} animationType="slide" onRequestClose={() => setShowReceiptReview(false)}>
+            <View style={{ flex: 1, backgroundColor: themeColors.backgroundColor }}>
+              {/* Header */}
+              <View style={{ backgroundColor: isDark ? '#1c1c1c' : '#fff', borderBottomWidth: 1, borderBottomColor: mutedBorder, paddingTop: 52, paddingBottom: 12, paddingHorizontal: 16, flexDirection: "row", alignItems: "center" }}>
+                <TouchableOpacity onPress={() => setShowReceiptReview(false)} style={{ marginRight: 12 }}>
+                  <Ionicons name="chevron-back" size={24} color={themeColors.accentColor} />
+                </TouchableOpacity>
+                <Text style={{ flex: 1, fontSize: 18, fontWeight: "700", color: themeColors.textColor }}>Review Receipt Items</Text>
+                <Text style={{ color: mutedText, fontSize: 13 }}>{receiptItems.filter(r => r.checked).length}/{receiptItems.length}</Text>
+              </View>
+
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 120 }}>
+                <Text style={{ color: mutedText, fontSize: 13, marginBottom: 16 }}>
+                  Uncheck items you don't want. Edit names, quantities, and categories as needed.
+                </Text>
+                {receiptItems.map((ri, idx) => {
+                  const foundTypeObj = itemTypes.find(t => t.value === ri.type);
+                  return (
+                    <View key={ri.id} style={{ backgroundColor: isDark ? "#2a2a2a" : "#fff", borderRadius: 14, marginBottom: 12, overflow: "hidden", borderWidth: 1.5, borderColor: ri.checked ? themeColors.accentColor : mutedBorder }}>
+                      {/* Row header: checkbox + name */}
+                      <TouchableOpacity
+                        onPress={() => setReceiptItems(prev => prev.map((r, i) => i === idx ? { ...r, checked: !r.checked } : r))}
+                        style={{ flexDirection: "row", alignItems: "center", padding: 14, gap: 12 }}
+                        activeOpacity={0.7}
+                      >
+                        <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: ri.checked ? themeColors.accentColor : mutedBorder, backgroundColor: ri.checked ? themeColors.accentColor : "transparent", alignItems: "center", justifyContent: "center" }}>
+                          {ri.checked && <Ionicons name="checkmark" size={14} color="#fff" />}
+                        </View>
+                        <TextInput
+                          style={{ flex: 1, fontSize: 15, fontWeight: "600", color: themeColors.textColor }}
+                          value={ri.name}
+                          onChangeText={text => setReceiptItems(prev => prev.map((r, i) => i === idx ? { ...r, name: text } : r))}
+                          placeholder="Item name"
+                          placeholderTextColor={mutedText}
+                        />
+                        <TouchableOpacity
+                          onPress={() => setReceiptItems(prev => prev.filter((_, i) => i !== idx))}
+                          style={{ padding: 4 }}
+                        >
+                          <Ionicons name="trash-outline" size={18} color={isDark ? "#666" : "#ccc"} />
+                        </TouchableOpacity>
+                      </TouchableOpacity>
+
+                      {ri.checked && (
+                        <View style={{ paddingHorizontal: 14, paddingBottom: 14, gap: 10 }}>
+                          {/* Quantity + Unit */}
+                          <View style={{ flexDirection: "row", gap: 10 }}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ fontSize: 11, fontWeight: "600", color: mutedText, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Qty</Text>
+                              <TextInput
+                                style={{ borderWidth: 1.5, borderColor: mutedBorder, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, fontSize: 15, color: themeColors.textColor, backgroundColor: inputBg }}
+                                value={ri.quantity}
+                                onChangeText={text => setReceiptItems(prev => prev.map((r, i) => i === idx ? { ...r, quantity: text } : r))}
+                                keyboardType="decimal-pad"
+                              />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ fontSize: 11, fontWeight: "600", color: mutedText, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Unit</Text>
+                              <TextInput
+                                style={{ borderWidth: 1.5, borderColor: mutedBorder, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, fontSize: 15, color: themeColors.textColor, backgroundColor: inputBg }}
+                                value={ri.unit}
+                                onChangeText={text => setReceiptItems(prev => prev.map((r, i) => i === idx ? { ...r, unit: text } : r))}
+                              />
+                            </View>
+                          </View>
+                          {/* Category chips */}
+                          <View>
+                            <Text style={{ fontSize: 11, fontWeight: "600", color: mutedText, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Category</Text>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                              <View style={{ flexDirection: "row", gap: 6 }}>
+                                {itemTypes.map(t => {
+                                  const sel = ri.type === t.value;
+                                  return (
+                                    <TouchableOpacity
+                                      key={t.value}
+                                      onPress={() => {
+                                        const newType = itemTypes.find(it => it.value === t.value);
+                                        setReceiptItems(prev => prev.map((r, i) => i === idx ? { ...r, type: t.value, location: newType?.location ?? r.location, expirationDays: newType?.expirationDays ?? r.expirationDays } : r));
+                                      }}
+                                      style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1.5, flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: sel ? themeColors.accentColor : "transparent", borderColor: sel ? themeColors.accentColor : mutedBorder }}
+                                    >
+                                      <Ionicons name={t.icon} size={12} color={sel ? "#fff" : themeColors.textColor} />
+                                      <Text style={{ color: sel ? "#fff" : themeColors.textColor, fontSize: 12, fontWeight: sel ? "600" : "400" }}>{t.label}</Text>
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                              </View>
+                            </ScrollView>
+                          </View>
+                          {/* Location + Expiry hint */}
+                          <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                            <Ionicons name="location-outline" size={13} color={mutedText} />
+                            <Text style={{ fontSize: 12, color: mutedText }}>{ri.location}</Text>
+                            <Text style={{ color: mutedBorder }}>·</Text>
+                            <Ionicons name="time-outline" size={13} color={mutedText} />
+                            <Text style={{ fontSize: 12, color: mutedText }}>~{ri.expirationDays}d shelf life</Text>
+                          </View>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+
+              {/* Bottom action bar */}
+              <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: isDark ? "#1c1c1c" : "#fff", borderTopWidth: 1, borderTopColor: mutedBorder, padding: 16, paddingBottom: Platform.OS === "ios" ? 36 : 16 }}>
+                <TouchableOpacity
+                  onPress={addReceiptItemsToPantry}
+                  style={{ backgroundColor: receiptItems.filter(r => r.checked).length > 0 ? themeColors.accentColor : (isDark ? "#333" : "#d0d0d0"), borderRadius: 14, paddingVertical: 16, alignItems: "center" }}
+                >
+                  <Text style={{ color: receiptItems.filter(r => r.checked).length > 0 ? "#fff" : mutedText, fontWeight: "700", fontSize: 16 }}>
+                    Add {receiptItems.filter(r => r.checked).length} Item{receiptItems.filter(r => r.checked).length !== 1 ? 's' : ''} to Pantry
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        )}
+
         <KeyboardAvoidingView
           style={{ flex: 1, justifyContent: "flex-end" }}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -742,23 +1123,39 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
               </TouchableOpacity>
             </View>
 
-            {/* Scan button */}
-            <TouchableOpacity
-              onPress={openScanner}
-              style={{
-                flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-                borderWidth: 1.5, borderColor: themeColors.accentColor, borderRadius: 12,
-                paddingVertical: 12, marginBottom: 16,
-                backgroundColor: isDark ? "#1a2e1a" : "#f0faf0",
-              }}
-            >
-              {lookingUp
-                ? <ActivityIndicator size="small" color={themeColors.accentColor} />
-                : <Ionicons name="barcode-outline" size={20} color={themeColors.accentColor} />}
-              <Text style={{ color: themeColors.accentColor, fontWeight: "600", fontSize: 15 }}>
-                {lookingUp ? "Looking up barcode…" : scannedBarcode ? "Scan Again" : "Scan Barcode"}
-              </Text>
-            </TouchableOpacity>
+            {/* Scan buttons row */}
+            <View style={{ flexDirection: "row", gap: 10, marginBottom: 16 }}>
+              {/* Barcode */}
+              <TouchableOpacity
+                onPress={openScanner}
+                style={{
+                  flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                  borderWidth: 1.5, borderColor: themeColors.accentColor, borderRadius: 12,
+                  paddingVertical: 12,
+                  backgroundColor: isDark ? "#1a2e1a" : "#f0faf0",
+                }}
+              >
+                {lookingUp
+                  ? <ActivityIndicator size="small" color={themeColors.accentColor} />
+                  : <Ionicons name="barcode-outline" size={20} color={themeColors.accentColor} />}
+                <Text style={{ color: themeColors.accentColor, fontWeight: "600", fontSize: 14 }}>
+                  {lookingUp ? "Looking up…" : scannedBarcode ? "Scan Again" : "Barcode"}
+                </Text>
+              </TouchableOpacity>
+              {/* Receipt */}
+              <TouchableOpacity
+                onPress={openReceiptCamera}
+                style={{
+                  flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                  borderWidth: 1.5, borderColor: themeColors.accentColor, borderRadius: 12,
+                  paddingVertical: 12,
+                  backgroundColor: isDark ? "#1a2e1a" : "#f0faf0",
+                }}
+              >
+                <Ionicons name="receipt-outline" size={20} color={themeColors.accentColor} />
+                <Text style={{ color: themeColors.accentColor, fontWeight: "600", fontSize: 14 }}>Receipt</Text>
+              </TouchableOpacity>
+            </View>
 
             {scannedBarcode && !lookingUp && (
               <View style={{
