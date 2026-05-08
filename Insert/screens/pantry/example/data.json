@@ -1,1 +1,304 @@
-{ "pantryItems": [] }
+{
+    "pantryItems": [
+        {
+            "id": 1,
+            "type": "Milk",
+            "name": "Fairlife 2% Reduced Fat",
+            "quantity": 1,
+            "unit": "L",
+            "location": "Fridge",
+            "dateAdded": "2025-01-07",
+            "expirationDate": "2025-01-21"
+        },
+        {
+            "id": 2,
+            "type": "Yogurt",
+            "name": "Dannon Greek Yogurt Vanilla",
+            "quantity": 500,
+            "unit": "g",
+            "location": "Fridge",
+            "dateAdded": "2025-01-08",
+            "expirationDate": "2025-01-21"
+        },
+        {
+            "id": 3,
+            "type": "Cheddar Cheese",
+            "name": "Kraft Extra Sharp Cheddar",
+            "quantity": 400,
+            "unit": "g",
+            "location": "Fridge",
+            "dateAdded": "2025-01-06",
+            "expirationDate": "2025-01-20"
+        },
+        {
+            "id": 4,
+            "type": "Baked Beans",
+            "name": "Heinz Baked Beans in Tomato Sauce",
+            "quantity": 420,
+            "unit": "g",
+            "location": "Pantry",
+            "dateAdded": "2025-01-07",
+            "expirationDate": "2026-12-21"
+        },
+        {
+            "id": 5,
+            "type": "Tomato Sauce",
+            "name": "Ragu Chunky Garden Style",
+            "quantity": 500,
+            "unit": "g",
+            "location": "Pantry",
+            "dateAdded": "2025-01-09",
+            "expirationDate": "2026-12-25"
+        },
+        {
+            "id": 6,
+            "type": "Tuna",
+            "name": "StarKist Chunk Light Tuna in Water",
+            "quantity": 200,
+            "unit": "g",
+            "location": "Pantry",
+            "dateAdded": "2025-01-08",
+            "expirationDate": "2026-12-23"
+        },
+        {
+            "id": 7,
+            "type": "Carrots",
+            "name": "Fresh Organic Carrots",
+            "quantity": 500,
+            "unit": "g",
+            "location": "Fridge",
+            "dateAdded": "2025-01-06",
+            "expirationDate": "2025-01-27"
+        },
+        {
+            "id": 8,
+            "type": "Broccoli",
+            "name": "Fresh Crown Broccoli",
+            "quantity": 400,
+            "unit": "g",
+            "location": "Fridge",
+            "dateAdded": "2025-01-09",
+            "expirationDate": "2025-01-18"
+        },
+        {
+            "id": 9,
+            "type": "Spinach",
+            "name": "Fresh Baby Spinach Bag",
+            "quantity": 200,
+            "unit": "g",
+            "location": "Fridge",
+            "dateAdded": "2025-01-07",
+            "expirationDate": "2025-01-17"
+        },
+        {
+            "id": 10,
+            "type": "Potatoes",
+            "name": "Russet Potatoes",
+            "quantity": 2,
+            "unit": "kg",
+            "location": "Pantry",
+            "dateAdded": "2025-01-08",
+            "expirationDate": "2025-02-05"
+        },
+        {
+            "id": 11,
+            "type": "Onions",
+            "name": "Yellow Sweet Onions",
+            "quantity": 1,
+            "unit": "kg",
+            "location": "Pantry",
+            "dateAdded": "2025-01-06",
+            "expirationDate": "2025-02-03"
+        },
+        {
+            "id": 12,
+            "type": "Butter",
+            "name": "Land O Lakes Unsalted Butter",
+            "quantity": 250,
+            "unit": "g",
+            "location": "Fridge",
+            "dateAdded": "2025-01-09",
+            "expirationDate": "2025-01-23"
+        },
+        {
+            "id": 13,
+            "type": "Bread",
+            "name": "Sara Lee Whole Wheat Bread",
+            "quantity": 700,
+            "unit": "g",
+            "location": "Pantry",
+            "dateAdded": "2025-01-07",
+            "expirationDate": "2025-01-14"
+        },
+        {
+            "id": 14,
+            "type": "Pasta",
+            "name": "Barilla Spaghetti",
+            "quantity": 500,
+            "unit": "g",
+            "location": "Pantry",
+            "dateAdded": "2025-01-08",
+            "expirationDate": "2026-12-22"
+        },
+        {
+            "id": 15,
+            "type": "Rice",
+            "name": "Uncle Ben's Long Grain White Rice",
+            "quantity": 1,
+            "unit": "kg",
+            "location": "Pantry",
+            "dateAdded": "2025-01-06",
+            "expirationDate": "2028-01-06"
+        },
+        {
+            "id": 16,
+            "type": "Chicken Breast",
+            "name": "Perdue Boneless Skinless Chicken Breast",
+            "quantity": 600,
+            "unit": "g",
+            "location": "Fridge",
+            "dateAdded": "2025-01-09",
+            "expirationDate": "2025-01-16"
+        },
+        {
+            "id": 17,
+            "type": "Ground Beef",
+            "name": "80/20 Ground Beef",
+            "quantity": 500,
+            "unit": "g",
+            "location": "Fridge",
+            "dateAdded": "2025-01-07",
+            "expirationDate": "2025-01-14"
+        },
+        {
+            "id": 18,
+            "type": "Eggs",
+            "name": "Eggland's Best Large Brown Eggs",
+            "quantity": 720,
+            "unit": "g",
+            "location": "Fridge",
+            "dateAdded": "2025-01-08",
+            "expirationDate": "2025-01-22"
+        },
+        {
+            "id": 19,
+            "type": "Bell Peppers",
+            "name": "Fresh Tri-Color Bell Peppers",
+            "quantity": 400,
+            "unit": "g",
+            "location": "Fridge",
+            "dateAdded": "2025-01-06",
+            "expirationDate": "2025-01-22"
+        },
+        {
+            "id": 20,
+            "type": "Lettuce",
+            "name": "Fresh Romaine Lettuce Head",
+            "quantity": 300,
+            "unit": "g",
+            "location": "Fridge",
+            "dateAdded": "2025-01-09",
+            "expirationDate": "2025-01-19"
+        },
+        {
+            "id": 21,
+            "type": "Chicken Soup",
+            "name": "Campbell's Condensed Chicken Noodle Soup",
+            "quantity": 400,
+            "unit": "g",
+            "location": "Pantry",
+            "dateAdded": "2025-01-07",
+            "expirationDate": "2026-12-21"
+        },
+        {
+            "id": 22,
+            "type": "Olive Oil",
+            "name": "Colavita Extra Virgin Olive Oil",
+            "quantity": 500,
+            "unit": "ml",
+            "location": "Pantry",
+            "dateAdded": "2025-01-08",
+            "expirationDate": "2026-12-23"
+        },
+        {
+            "id": 23,
+            "type": "Apples",
+            "name": "Honeycrisp Apples",
+            "quantity": 1,
+            "unit": "kg",
+            "location": "Fridge",
+            "dateAdded": "2025-01-06",
+            "expirationDate": "2025-01-27"
+        },
+        {
+            "id": 24,
+            "type": "Bananas",
+            "name": "Fresh Yellow Bananas Bunch",
+            "quantity": 600,
+            "unit": "g",
+            "location": "Pantry",
+            "dateAdded": "2025-01-09",
+            "expirationDate": "2025-01-14"
+        },
+        {
+            "id": 25,
+            "type": "Orange Juice",
+            "name": "Tropicana Pure Premium Orange Juice",
+            "quantity": 1,
+            "unit": "L",
+            "location": "Fridge",
+            "dateAdded": "2025-01-07",
+            "expirationDate": "2025-01-21"
+        },
+        {
+            "id": 26,
+            "type": "Flour",
+            "name": "Gold Medal All-Purpose Flour",
+            "quantity": 1,
+            "unit": "kg",
+            "location": "Pantry",
+            "dateAdded": "2025-01-08",
+            "expirationDate": "2026-12-23"
+        },
+        {
+            "id": 27,
+            "type": "Sugar",
+            "name": "Domino Granulated White Sugar",
+            "quantity": 1,
+            "unit": "kg",
+            "location": "Pantry",
+            "dateAdded": "2025-01-06",
+            "expirationDate": "2028-01-06"
+        },
+        {
+            "id": 28,
+            "type": "Hummus",
+            "name": "Sabra Roasted Garlic Hummus",
+            "quantity": 300,
+            "unit": "g",
+            "location": "Fridge",
+            "dateAdded": "2025-01-09",
+            "expirationDate": "2025-01-23"
+        },
+        {
+            "id": 29,
+            "type": "Greek Yogurt",
+            "name": "Fage Total Greek Yogurt Plain",
+            "quantity": 400,
+            "unit": "g",
+            "location": "Fridge",
+            "dateAdded": "2025-01-07",
+            "expirationDate": "2025-01-20"
+        },
+        {
+            "id": 30,
+            "type": "Salmon",
+            "name": "Wild-Caught Atlantic Salmon Fillet",
+            "quantity": 400,
+            "unit": "g",
+            "location": "Fridge",
+            "dateAdded": "2025-01-08",
+            "expirationDate": "2025-01-15"
+        }
+    ]
+}
