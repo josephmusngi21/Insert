@@ -59,6 +59,7 @@ export default function Index() {
     backgroundColor: "#f5f5f5",
   });
   const [userAllergies, setUserAllergies] = useState<string[]>([]);
+  const [showPantryAdd, setShowPantryAdd] = useState(false);
   const [moreSubScreenActive, setMoreSubScreenActive] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
 
@@ -195,7 +196,7 @@ export default function Index() {
             <RecipeListScreen onRecipeSelect={handleRecipeSelect} theme={theme} userAllergies={userAllergies} showRecipeForm={showRecipeForm} setShowRecipeForm={setShowRecipeForm} />
           </View>
           <View style={{ width: SCREEN_WIDTH }}>
-            <PantryItemDetailScreen theme={theme} />
+            <PantryItemDetailScreen theme={theme} showAddItemModal={showPantryAdd} setShowAddItemModal={setShowPantryAdd} />
           </View>
           <View style={{ width: SCREEN_WIDTH }}>
             <ShoppingListScreen theme={theme} />
@@ -240,7 +241,7 @@ export default function Index() {
                 return (
                   <TouchableOpacity
                     key={tab.name}
-                    onPress={() => {}}
+                    onPress={() => setShowPantryAdd(true)}
                     style={[styles.centerButton, { backgroundColor: "transparent", borderColor: theme.accentColor }]}
                   >
                     <Ionicons name="add" size={32} color={theme.accentColor} />
