@@ -1,5 +1,5 @@
 import { useState, useCallback, useLayoutEffect } from "react";
-import { Text, View, TouchableOpacity, Dimensions } from "react-native";
+import { Text, View, TouchableOpacity, Dimensions, Modal, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring, runOnJS, cancelAnimation } from "react-native-reanimated";
@@ -60,6 +60,8 @@ export default function Index() {
   });
   const [userAllergies, setUserAllergies] = useState<string[]>([]);
   const [showPantryAdd, setShowPantryAdd] = useState(false);
+  const [showShoppingAdd, setShowShoppingAdd] = useState(false);
+  const [showAddChoice, setShowAddChoice] = useState(false);
   const [moreSubScreenActive, setMoreSubScreenActive] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
 
@@ -78,6 +80,31 @@ export default function Index() {
   const rowStyle    = useAnimatedStyle(() => ({ transform: [{ translateX: translateX.value }] }));
   const detailStyle = useAnimatedStyle(() => ({ transform: [{ translateX: detailOffset.value }] }));
 
+  const choiceSheetY = useSharedValue(0);
+  const choiceSheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: Math.max(0, choiceSheetY.value) }] }));
+  const closeChoiceSheet = () => { choiceSheetY.value = 0; setShowAddChoice(false); };
+  const returnToAddChoiceFromRecipe = () => {
+    setShowRecipeForm(false);
+    setTimeout(() => setShowAddChoice(true), 120);
+  };
+  const returnToAddChoiceFromPantry = () => {
+    setShowPantryAdd(false);
+    setTimeout(() => setShowAddChoice(true), 120);
+  };
+  const returnToAddChoiceFromShopping = () => {
+    setShowShoppingAdd(false);
+    setTimeout(() => setShowAddChoice(true), 120);
+  };
+  const choiceSwipeDown = Gesture.Pan()
+    .activeOffsetY([15, 9999])
+    .failOffsetX([-20, 20])
+    .onUpdate(e => { 'worklet'; choiceSheetY.value = e.translationY > 0 ? e.translationY : e.translationY * 0.08; })
+    .onEnd(e => {
+      'worklet';
+      if (e.translationY > 60 || e.velocityY > 400) runOnJS(closeChoiceSheet)();
+      else choiceSheetY.value = withSpring(0, { damping: 20, stiffness: 200 });
+    });
+
   useLayoutEffect(() => {
     moreSubSV.value = moreSubScreenActive ? 1 : 0;
   }, [moreSubScreenActive]);
@@ -85,7 +112,7 @@ export default function Index() {
   const handleCloseDetail = useCallback(() => {
     setDetailVisible(false);
     isDetailSV.value = 0;
-    setCurrentScreen(swipeableTabs[tabIndexSV.value] as Screen);
+    setCurrentScreen('recipes');
   }, []);
 
   const handleLogout = useCallback(() => {
@@ -156,8 +183,10 @@ export default function Index() {
       if ((dx < -THRESHOLD || fastLeft) && startIdx < TABS_LEN - 1) targetIdx = startIdx + 1;
       else if ((dx > THRESHOLD || fastRight) && startIdx > 0)        targetIdx = startIdx - 1;
       tabIndexSV.value = targetIdx;
+      const nextScreen = targetIdx === 0 && detailVisible ? 'recipeDetail' : swipeableTabs[targetIdx];
+      isDetailSV.value = nextScreen === 'recipeDetail' ? 1 : 0;
       translateX.value = withTiming(-targetIdx * SCREEN_WIDTH, { duration: 220 }, () => {
-        runOnJS(setCurrentScreen)(swipeableTabs[targetIdx]);
+        runOnJS(setCurrentScreen)(nextScreen);
       });
     });
 
@@ -166,14 +195,11 @@ export default function Index() {
   }
 
   const switchToTab = (idx: number) => {
-    if (detailVisible) {
-      setDetailVisible(false);
-      isDetailSV.value = 0;
-      detailOffset.value = SCREEN_WIDTH;
-    }
     tabIndexSV.value = idx;
+    const nextScreen = idx === 0 && detailVisible ? 'recipeDetail' : swipeableTabs[idx];
+    isDetailSV.value = nextScreen === 'recipeDetail' ? 1 : 0;
     translateX.value = withTiming(-idx * SCREEN_WIDTH, { duration: 220 });
-    setCurrentScreen(swipeableTabs[idx]);
+    setCurrentScreen(nextScreen);
   };
 
   type TabDef = { name: Screen; icon: IoniconsName; activeIcon: IoniconsName; label: string; isCenter?: boolean };
@@ -193,13 +219,30 @@ export default function Index() {
         {/* Permanent row — all 4 tabs always mounted, positions never change */}
         <Animated.View style={[{ flex: 1, flexDirection: 'row', width: SCREEN_WIDTH * TABS_LEN }, rowStyle]}>
           <View style={{ width: SCREEN_WIDTH }}>
-            <RecipeListScreen onRecipeSelect={handleRecipeSelect} theme={theme} userAllergies={userAllergies} showRecipeForm={showRecipeForm} setShowRecipeForm={setShowRecipeForm} />
+            <RecipeListScreen
+              onRecipeSelect={handleRecipeSelect}
+              theme={theme}
+              userAllergies={userAllergies}
+              showRecipeForm={showRecipeForm}
+              setShowRecipeForm={setShowRecipeForm}
+              onBackToAddChoice={returnToAddChoiceFromRecipe}
+            />
           </View>
           <View style={{ width: SCREEN_WIDTH }}>
-            <PantryItemDetailScreen theme={theme} showAddItemModal={showPantryAdd} setShowAddItemModal={setShowPantryAdd} />
+            <PantryItemDetailScreen
+              theme={theme}
+              showAddItemModal={showPantryAdd}
+              setShowAddItemModal={setShowPantryAdd}
+              onBackToAddChoice={returnToAddChoiceFromPantry}
+            />
           </View>
           <View style={{ width: SCREEN_WIDTH }}>
-            <ShoppingListScreen theme={theme} />
+            <ShoppingListScreen
+              theme={theme}
+              showAddItemModal={showShoppingAdd}
+              setShowAddItemModal={setShowShoppingAdd}
+              onBackToAddChoice={returnToAddChoiceFromShopping}
+            />
           </View>
           <View style={{ width: SCREEN_WIDTH }}>
             <MoreScreen
@@ -214,9 +257,24 @@ export default function Index() {
           </View>
         </Animated.View>
 
-        {/* Recipe detail — absolute overlay, slides in/out from right */}
+        {/* Recipe detail — kept mounted, but only visible/interactive on Recipes */}
         {detailVisible && (
-          <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.backgroundColor }, detailStyle]}>
+          <Animated.View
+            pointerEvents={currentScreen === 'recipeDetail' ? 'auto' : 'none'}
+            style={[
+              {
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: theme.backgroundColor,
+                opacity: currentScreen === 'recipeDetail' ? 1 : 0,
+                zIndex: currentScreen === 'recipeDetail' ? 20 : -1,
+              },
+              detailStyle,
+            ]}
+          >
             <RecipeDetailScreen
               recipeId={selectedRecipeId}
               onBack={() => {
@@ -241,7 +299,7 @@ export default function Index() {
                 return (
                   <TouchableOpacity
                     key={tab.name}
-                    onPress={() => setShowPantryAdd(true)}
+                    onPress={() => setShowAddChoice(true)}
                     style={[styles.centerButton, { backgroundColor: "transparent", borderColor: theme.accentColor }]}
                   >
                     <Ionicons name="add" size={32} color={theme.accentColor} />
@@ -268,6 +326,74 @@ export default function Index() {
             })}
           </View>
         )}
+
+        {/* Add Choice Sheet */}
+        <Modal visible={showAddChoice} transparent animationType="slide" onRequestClose={closeChoiceSheet}>
+          <TouchableOpacity
+            style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }}
+            activeOpacity={1}
+            onPress={closeChoiceSheet}
+          >
+            <TouchableOpacity activeOpacity={1}>
+              <GestureDetector gesture={choiceSwipeDown}>
+                <Animated.View style={[{
+                  backgroundColor: theme.mode === "dark" ? "#1e1e1e" : "#fff",
+                  borderTopLeftRadius: 24, borderTopRightRadius: 24,
+                  paddingTop: 12, paddingHorizontal: 20,
+                  paddingBottom: Platform.OS === "ios" ? 44 : 28,
+                }, choiceSheetStyle]}>
+                  <View style={{ width: 40, height: 4, backgroundColor: "#ddd", borderRadius: 2, alignSelf: "center", marginBottom: 20 }} />
+                <Text style={{ fontSize: 13, fontWeight: "700", color: theme.mode === "dark" ? "#888" : "#aaa", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 14 }}>What would you like to add?</Text>
+                <TouchableOpacity
+                  onPress={() => { closeChoiceSheet(); setTimeout(() => setShowRecipeForm(true), 150); }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 16, backgroundColor: theme.mode === "dark" ? "#2a2a2a" : "#f8f8f8", borderRadius: 16, padding: 18, marginBottom: 12 }}
+                >
+                  <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: theme.accentColor + "22", alignItems: "center", justifyContent: "center" }}>
+                    <Ionicons name="restaurant-outline" size={24} color={theme.accentColor} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: "700", color: theme.textColor }}>Add Recipe</Text>
+                    <Text style={{ fontSize: 13, color: theme.mode === "dark" ? "#888" : "#999", marginTop: 2 }}>Import from a URL or fill in manually</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={theme.mode === "dark" ? "#555" : "#ccc"} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => { closeChoiceSheet(); setTimeout(() => setShowPantryAdd(true), 150); }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 16, backgroundColor: theme.mode === "dark" ? "#2a2a2a" : "#f8f8f8", borderRadius: 16, padding: 18 }}
+                >
+                  <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: theme.accentColor + "22", alignItems: "center", justifyContent: "center" }}>
+                    <Ionicons name="basket-outline" size={24} color={theme.accentColor} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: "700", color: theme.textColor }}>Add Pantry Item</Text>
+                    <Text style={{ fontSize: 13, color: theme.mode === "dark" ? "#888" : "#999", marginTop: 2 }}>Scan barcode or add manually</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={theme.mode === "dark" ? "#555" : "#ccc"} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    closeChoiceSheet();
+                    setTimeout(() => {
+                      switchToTab(2);
+                      setShowShoppingAdd(true);
+                    }, 150);
+                  }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 16, backgroundColor: theme.mode === "dark" ? "#2a2a2a" : "#f8f8f8", borderRadius: 16, padding: 18, marginTop: 12 }}
+                >
+                  <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: theme.accentColor + "22", alignItems: "center", justifyContent: "center" }}>
+                    <Ionicons name="cart-outline" size={24} color={theme.accentColor} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: "700", color: theme.textColor }}>Add Shopping Items</Text>
+                    <Text style={{ fontSize: 13, color: theme.mode === "dark" ? "#888" : "#999", marginTop: 2 }}>Add multiple items quickly with dropdowns</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={theme.mode === "dark" ? "#555" : "#ccc"} />
+                </TouchableOpacity>
+              </Animated.View>
+              </GestureDetector>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
 
       </View>
     </GestureDetector>
