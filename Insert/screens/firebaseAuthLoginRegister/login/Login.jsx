@@ -173,8 +173,8 @@ export default function Login({ onLoginSuccess, compact = false }) {
 
           {compact && (
             <View style={styles.compactHeader}>
-              <Text style={styles.compactTitle}>Sign in to continue</Text>
-              <Text style={styles.compactDescription}>Pick up where you left off in your pantry.</Text>
+              <Text style={styles.compactTitle}>Sign in</Text>
+              <Text style={styles.compactDescription}>Access your pantry, recipes, and shopping list.</Text>
             </View>
           )}
 

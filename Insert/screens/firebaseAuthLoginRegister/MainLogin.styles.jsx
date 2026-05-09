@@ -27,13 +27,13 @@ const styles = StyleSheet.create({
     content: {
         flex: 1,
         justifyContent: 'center',
-        paddingHorizontal: 20,
-        paddingVertical: 28,
+        paddingHorizontal: 18,
+        paddingVertical: 24,
     },
     welcomeCard: {
         backgroundColor: '#ffffff',
-        borderRadius: 24,
-        padding: 24,
+        borderRadius: 22,
+        padding: 22,
         borderWidth: 1,
         borderColor: '#d9e8da',
         shadowColor: '#0c2a0e',
@@ -50,8 +50,8 @@ const styles = StyleSheet.create({
         marginBottom: 10,
     },
     welcomeTitle: {
-        fontSize: 29,
-        lineHeight: 36,
+        fontSize: 30,
+        lineHeight: 37,
         fontWeight: '800',
         color: '#133217',
         marginBottom: 12,
@@ -64,12 +64,13 @@ const styles = StyleSheet.create({
     },
     featureList: {
         marginBottom: 24,
-        gap: 8,
+        gap: 10,
     },
     featureItem: {
         color: '#2c5531',
         fontSize: 14,
         lineHeight: 20,
+        paddingLeft: 2,
     },
     primaryButton: {
         backgroundColor: '#2f7a38',
@@ -114,8 +115,8 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingHorizontal: 18,
-        paddingTop: 16,
-        paddingBottom: 8,
+        paddingTop: 14,
+        paddingBottom: 10,
     },
     backAction: {
         color: '#2f6e37',
@@ -158,8 +159,8 @@ const styles = StyleSheet.create({
     },
     formContainer: {
         flex: 1,
-        paddingHorizontal: 8,
-        paddingBottom: 8,
+        paddingHorizontal: 10,
+        paddingBottom: 10,
     },
 });
 

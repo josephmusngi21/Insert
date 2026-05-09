@@ -31,9 +31,9 @@ export default function MainLogin({ onLoginSuccess }: MainLoginProps) {
       </Text>
 
       <View style={styles.featureList}>
-        <Text style={styles.featureItem}>- Track ingredients by location and freshness</Text>
-        <Text style={styles.featureItem}>- Build recipe ideas from what you already have</Text>
-        <Text style={styles.featureItem}>- Keep your shopping list in one place</Text>
+        <Text style={styles.featureItem}>Track ingredients by location and freshness</Text>
+        <Text style={styles.featureItem}>Build recipe ideas from what you already have</Text>
+        <Text style={styles.featureItem}>Keep your shopping list in one place</Text>
       </View>
 
       <TouchableOpacity style={styles.primaryButton} onPress={() => setActiveScreen('login')}>

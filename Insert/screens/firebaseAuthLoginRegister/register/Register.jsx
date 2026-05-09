@@ -37,9 +37,6 @@ import { auth } from "../firebase/config";
 import { ensureUserProfile } from "../firebase/userDataService";
 import styles from "./styles";
 
-// API base URL from environment variables with fallback for development
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.0.17:3000';
-
 /**
  * Register - Main user registration component
  * 
@@ -185,8 +182,8 @@ export default function Register({ compact = false, onRegistered }) {
 
                     {compact && (
                         <View style={styles.compactHeader}>
-                            <Text style={styles.compactTitle}>Create your account</Text>
-                            <Text style={styles.compactDescription}>Get started with your pantry profile in under a minute.</Text>
+                            <Text style={styles.compactTitle}>Create account</Text>
+                            <Text style={styles.compactDescription}>Set up your pantry workspace in less than a minute.</Text>
                         </View>
                     )}
 
