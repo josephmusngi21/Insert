@@ -1,5 +1,5 @@
 /**
- * Preferences Screen - Manage expiration durations for item types
+ * Preferences Screen - Measurement, safety, and expiration settings
  */
 
 import { useState, useEffect } from "react";
@@ -8,6 +8,7 @@ import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
+import { PreferredWeightUnit, UnitDisplayMode } from "@/screens/utils/unitUtils";
 import styles from "./PreferencesScreen.styles";
 
 interface ItemTypePreference {
@@ -38,6 +39,10 @@ export default function PreferencesScreen({ onBack, theme }: PreferencesScreenPr
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const [preferredWeightUnit, setPreferredWeightUnit] = useState<PreferredWeightUnit>("g");
+  const [unitDisplayMode, setUnitDisplayMode] = useState<UnitDisplayMode>("converted");
+  const [confirmBeforeAddToShopping, setConfirmBeforeAddToShopping] = useState(true);
+  const [showExpiredByDefault, setShowExpiredByDefault] = useState(false);
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
 
@@ -52,7 +57,23 @@ export default function PreferencesScreen({ onBack, theme }: PreferencesScreenPr
 
         if (docSnap.exists()) {
           const savedPrefs = docSnap.data().itemTypes || [];
-          setPreferences(savedPrefs);
+          const savedUnit = docSnap.data().preferredWeightUnit;
+          const savedDisplayMode = docSnap.data().unitDisplayMode;
+          const savedConfirm = docSnap.data().confirmBeforeAddToShopping;
+          const savedShowExpired = docSnap.data().showExpiredByDefault;
+          if (savedPrefs.length > 0) setPreferences(savedPrefs);
+          if (savedUnit === "g" || savedUnit === "lb") {
+            setPreferredWeightUnit(savedUnit);
+          }
+          if (savedDisplayMode === "converted" || savedDisplayMode === "as_is") {
+            setUnitDisplayMode(savedDisplayMode);
+          }
+          if (typeof savedConfirm === "boolean") {
+            setConfirmBeforeAddToShopping(savedConfirm);
+          }
+          if (typeof savedShowExpired === "boolean") {
+            setShowExpiredByDefault(savedShowExpired);
+          }
         }
       } catch (error) {
         console.error("Error loading preferences:", error);
@@ -82,6 +103,10 @@ export default function PreferencesScreen({ onBack, theme }: PreferencesScreenPr
       const userRef = doc(db, "users", userId, "settings", "preferences");
       await setDoc(userRef, {
         itemTypes: preferences,
+        preferredWeightUnit,
+        unitDisplayMode,
+        confirmBeforeAddToShopping,
+        showExpiredByDefault,
         lastUpdated: new Date().toISOString(),
       });
 
@@ -110,6 +135,10 @@ export default function PreferencesScreen({ onBack, theme }: PreferencesScreenPr
               { name: "pantry", displayName: "Pantry Items & Dry Goods", expirationDays: 30 },
             ];
             setPreferences(defaults);
+            setPreferredWeightUnit("g");
+            setUnitDisplayMode("converted");
+            setConfirmBeforeAddToShopping(true);
+            setShowExpiredByDefault(false);
             setHasChanges(true);
           },
         },
@@ -129,12 +158,155 @@ export default function PreferencesScreen({ onBack, theme }: PreferencesScreenPr
       )}
 
       <ScrollView contentContainerStyle={styles.contentContainer}>
-        <Text style={[styles.title, { color: themeColors.textColor }]}>Expiration Durations</Text>
+        <Text style={[styles.title, { color: themeColors.textColor }]}>Preferences</Text>
         <Text style={[styles.subtitle, { color: themeColors.mode === "dark" ? "#aaa" : "#666" }]}>
-          Set how many days items last before they expire
+          Customize how quantities, shopping safety, and pantry behavior work
         </Text>
 
         <View style={[styles.preferencesContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
+          <View
+            style={[
+              styles.preferenceItem,
+              {
+                backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9",
+                borderBottomColor: themeColors.mode === "dark" ? "#555" : "#e0e0e0",
+              },
+            ]}
+          >
+            <View style={styles.itemInfo}>
+              <Text style={[styles.sectionHeading, { color: themeColors.textColor }]}>Measurement Display</Text>
+              <Text style={[styles.editHint, { color: themeColors.mode === "dark" ? "#999" : "#888" }]}>Choose if units stay original or convert to one unit</Text>
+              <View style={styles.unitChipRow}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setUnitDisplayMode("as_is");
+                    setHasChanges(true);
+                  }}
+                  style={[
+                    styles.unitChip,
+                    {
+                      borderColor: unitDisplayMode === "as_is" ? themeColors.accentColor : (themeColors.mode === "dark" ? "#666" : "#ddd"),
+                      backgroundColor: unitDisplayMode === "as_is" ? themeColors.accentColor + "22" : "transparent",
+                    },
+                  ]}
+                >
+                  <Text style={{ color: unitDisplayMode === "as_is" ? themeColors.accentColor : themeColors.textColor, fontWeight: "700" }}>Display As-Is</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    setUnitDisplayMode("converted");
+                    setHasChanges(true);
+                  }}
+                  style={[
+                    styles.unitChip,
+                    {
+                      borderColor: unitDisplayMode === "converted" ? themeColors.accentColor : (themeColors.mode === "dark" ? "#666" : "#ddd"),
+                      backgroundColor: unitDisplayMode === "converted" ? themeColors.accentColor + "22" : "transparent",
+                    },
+                  ]}
+                >
+                  <Text style={{ color: unitDisplayMode === "converted" ? themeColors.accentColor : themeColors.textColor, fontWeight: "700" }}>Convert Units</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={[styles.itemType, { color: themeColors.textColor, marginTop: 8 }]}>Preferred Converted Unit</Text>
+              <Text style={[styles.editHint, { color: themeColors.mode === "dark" ? "#999" : "#888" }]}>Used when Convert Units is selected (supports g, kg, oz, lb, ml, l, tsp, tbsp, cups)</Text>
+              <View style={styles.unitChipRow}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setPreferredWeightUnit("g");
+                    setHasChanges(true);
+                  }}
+                  style={[
+                    styles.unitChip,
+                    {
+                      borderColor: preferredWeightUnit === "g" ? themeColors.accentColor : (themeColors.mode === "dark" ? "#666" : "#ddd"),
+                      backgroundColor: preferredWeightUnit === "g" ? themeColors.accentColor + "22" : "transparent",
+                    },
+                  ]}
+                >
+                  <Text style={{ color: preferredWeightUnit === "g" ? themeColors.accentColor : themeColors.textColor, fontWeight: "700" }}>Grams (g)</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    setPreferredWeightUnit("lb");
+                    setHasChanges(true);
+                  }}
+                  style={[
+                    styles.unitChip,
+                    {
+                      borderColor: preferredWeightUnit === "lb" ? themeColors.accentColor : (themeColors.mode === "dark" ? "#666" : "#ddd"),
+                      backgroundColor: preferredWeightUnit === "lb" ? themeColors.accentColor + "22" : "transparent",
+                    },
+                  ]}
+                >
+                  <Text style={{ color: preferredWeightUnit === "lb" ? themeColors.accentColor : themeColors.textColor, fontWeight: "700" }}>Pounds (lb)</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+
+          <View
+            style={[
+              styles.preferenceItem,
+              {
+                backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9",
+                borderBottomColor: themeColors.mode === "dark" ? "#555" : "#e0e0e0",
+              },
+            ]}
+          >
+            <View style={styles.itemInfo}>
+              <Text style={[styles.sectionHeading, { color: themeColors.textColor }]}>Safety & Behavior</Text>
+
+              <TouchableOpacity
+                onPress={() => {
+                  setConfirmBeforeAddToShopping(prev => !prev);
+                  setHasChanges(true);
+                }}
+                style={[styles.toggleRow, { borderColor: themeColors.mode === "dark" ? "#555" : "#e0e0e0", backgroundColor: themeColors.mode === "dark" ? "#3b3b3b" : "#fff" }]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.itemType, { color: themeColors.textColor }]}>Confirm Before Add to Shopping</Text>
+                  <Text style={[styles.editHint, { color: themeColors.mode === "dark" ? "#999" : "#888" }]}>Prevents accidental taps from adding items</Text>
+                </View>
+                <View style={[styles.togglePill, { backgroundColor: confirmBeforeAddToShopping ? themeColors.accentColor : (themeColors.mode === "dark" ? "#666" : "#ccc") }]}>
+                  <Text style={styles.togglePillText}>{confirmBeforeAddToShopping ? "ON" : "OFF"}</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  setShowExpiredByDefault(prev => !prev);
+                  setHasChanges(true);
+                }}
+                style={[styles.toggleRow, { borderColor: themeColors.mode === "dark" ? "#555" : "#e0e0e0", backgroundColor: themeColors.mode === "dark" ? "#3b3b3b" : "#fff" }]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.itemType, { color: themeColors.textColor }]}>Expand Expired Section by Default</Text>
+                  <Text style={[styles.editHint, { color: themeColors.mode === "dark" ? "#999" : "#888" }]}>Auto-opens expired items every time you open Pantry</Text>
+                </View>
+                <View style={[styles.togglePill, { backgroundColor: showExpiredByDefault ? themeColors.accentColor : (themeColors.mode === "dark" ? "#666" : "#ccc") }]}>
+                  <Text style={styles.togglePillText}>{showExpiredByDefault ? "ON" : "OFF"}</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View
+            style={[
+              styles.preferenceItem,
+              {
+                backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9",
+                borderBottomColor: themeColors.mode === "dark" ? "#555" : "#e0e0e0",
+              },
+            ]}
+          >
+            <View style={styles.itemInfo}>
+              <Text style={[styles.sectionHeading, { color: themeColors.textColor }]}>Expiration Durations</Text>
+              <Text style={[styles.editHint, { color: themeColors.mode === "dark" ? "#999" : "#888" }]}>Set how many days items last before they expire</Text>
+            </View>
+          </View>
+
           {preferences.map((pref, index) => (
             <View
               key={pref.name}
@@ -224,7 +396,7 @@ export default function PreferencesScreen({ onBack, theme }: PreferencesScreenPr
             How it works
           </Text>
           <Text style={[styles.infoText, { color: themeColors.mode === "dark" ? "#aaa" : "#666" }]}>
-            When you add new items to your pantry, the expiration date will be automatically calculated based on these durations. Items are marked as expiring soon (yellow) when within 3 days, and expired (red) when the date has passed.
+            Convert Units mode normalizes mixed units (including tsp, tbsp, cups, ml, and liters) into your preferred display unit. Display As-Is keeps original units untouched. Shopping confirmation and expired section behavior can also be customized here.
           </Text>
         </View>
       </ScrollView>
