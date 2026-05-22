@@ -6,8 +6,8 @@
 import { useState, useEffect } from "react";
 import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { onSnapshot, deleteDoc, doc } from "firebase/firestore";
-import { cookHistoryCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
+import { onSnapshot, deleteDoc, doc, addDoc, serverTimestamp, getDoc, updateDoc } from "firebase/firestore";
+import { cookHistoryCol, recipesDoc, socialPostsCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 
@@ -17,6 +17,11 @@ interface CookEntry {
   recipeName: string;
   cookedAt: number;
   ingredients: { name: string; quantity: string; unit: string }[];
+  recipeIngredientsDetailed?: { name: string; quantity: string; unit: string }[];
+  recipeInstructions?: string[];
+  recipeImageUrl?: string;
+  stepPhotos?: { stepIndex: number; url: string }[];
+  sharedAt?: number;
 }
 
 interface CookHistoryScreenProps {
@@ -58,6 +63,7 @@ export default function CookHistoryScreen({ theme }: CookHistoryScreenProps) {
   const [entries, setEntries] = useState<CookEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [sharingIds, setSharingIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!userId) { setLoading(false); return; }
@@ -95,6 +101,71 @@ export default function CookHistoryScreen({ theme }: CookHistoryScreenProps) {
               Alert.alert("Error", "Could not delete entry.");
             }
           }
+        },
+      ]
+    );
+  };
+
+  const shareCookToSocial = async (entry: CookEntry) => {
+    if (!userId || sharingIds.has(entry.id)) return;
+
+    Alert.alert(
+      "Share to Social?",
+      `Post your cook of "${entry.recipeName}" to Social?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Share",
+          onPress: async () => {
+            setSharingIds(prev => new Set(prev).add(entry.id));
+            try {
+              const recipeSnap = await getDoc(recipesDoc(userId, entry.recipeId));
+              const recipeData = recipeSnap.exists() ? recipeSnap.data() : null;
+              const email = auth.currentUser?.email || "";
+              const displayName = auth.currentUser?.displayName || email.split("@")[0] || "Insert Cook";
+              const handleRoot = displayName.toLowerCase().replace(/[^a-z0-9]/g, "") || "insertcook";
+
+              const detailedIngredients = entry.recipeIngredientsDetailed || entry.ingredients;
+              const instructions = entry.recipeInstructions || (recipeData?.instructions || []);
+              const imageUrl = entry.recipeImageUrl || recipeData?.imageUrl || recipeData?.photoUrl || "";
+              const stepPhotos = entry.stepPhotos || [];
+
+              await addDoc(socialPostsCol(), {
+                userId,
+                recipeOwnerId: recipeData?.userId || userId,
+                userDisplayName: displayName,
+                userHandle: `@${handleRoot}`,
+                recipeId: entry.recipeId,
+                recipeName: entry.recipeName,
+                recipeImageUrl: imageUrl,
+                note: `Cooked on ${formatDate(entry.cookedAt)} at ${formatTime(entry.cookedAt)}.`,
+                ingredients: detailedIngredients.map((i) => i.name),
+                recipeIngredientsDetailed: detailedIngredients,
+                recipeInstructions: instructions,
+                cookedAt: entry.cookedAt,
+                stepPhotos,
+                likes: [],
+                createdAt: serverTimestamp(),
+                sharedAt: serverTimestamp(),
+                sourceCookHistoryId: entry.id,
+              });
+
+              await updateDoc(doc(cookHistoryCol(userId), entry.id), {
+                sharedAt: Date.now(),
+              });
+
+              Alert.alert("Shared to Social", `"${entry.recipeName}" was shared with your cook photos and timestamps.`);
+            } catch (err) {
+              console.error("Could not share cook history entry:", err);
+              Alert.alert("Share failed", "Could not share this cook to Social right now.");
+            } finally {
+              setSharingIds(prev => {
+                const next = new Set(prev);
+                next.delete(entry.id);
+                return next;
+              });
+            }
+          },
         },
       ]
     );
@@ -203,8 +274,37 @@ export default function CookHistoryScreen({ theme }: CookHistoryScreenProps) {
                       <Ionicons name="time-outline" size={12} color={mutedText} />
                       <Text style={{ fontSize: 12, color: mutedText }}>{formatTime(entry.cookedAt)} · {timeAgo(entry.cookedAt)}</Text>
                     </View>
+                    {entry.sharedAt ? (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
+                        <Ionicons name="share-social-outline" size={12} color={mutedText} />
+                        <Text style={{ fontSize: 12, color: mutedText }}>Shared {formatTime(entry.sharedAt)} · {timeAgo(entry.sharedAt)}</Text>
+                      </View>
+                    ) : null}
                   </View>
-                  <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={mutedText} />
+                  <View style={{ alignItems: "flex-end", gap: 8 }}>
+                    {!entry.sharedAt ? (
+                      <TouchableOpacity
+                        onPress={() => shareCookToSocial(entry)}
+                        disabled={sharingIds.has(entry.id)}
+                        style={{
+                          backgroundColor: tc.accentColor,
+                          borderRadius: 999,
+                          paddingHorizontal: 12,
+                          paddingVertical: 7,
+                          opacity: sharingIds.has(entry.id) ? 0.65 : 1,
+                        }}
+                      >
+                        <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>
+                          {sharingIds.has(entry.id) ? "Sharing" : "Share to Social"}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: tc.accentColor + "18" }}>
+                        <Text style={{ color: tc.accentColor, fontSize: 12, fontWeight: "700" }}>Shared</Text>
+                      </View>
+                    )}
+                    <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={mutedText} />
+                  </View>
                 </View>
 
                 {/* Expanded ingredients */}
@@ -223,7 +323,7 @@ export default function CookHistoryScreen({ theme }: CookHistoryScreenProps) {
                       ))}
                     </View>
                     <Text style={{ fontSize: 11, color: mutedText, marginTop: 10, fontStyle: "italic" }}>
-                      Long-press to delete this entry
+                      Tap Share to Social to post this cook, or long-press to delete this entry
                     </Text>
                   </View>
                 )}
