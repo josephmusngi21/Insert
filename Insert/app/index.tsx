@@ -1,4 +1,4 @@
-import { useState, useCallback, useLayoutEffect, useEffect } from "react";
+import { useState, useCallback, useLayoutEffect, useEffect, useMemo, memo } from "react";
 import { Text, View, TouchableOpacity, Dimensions, Modal, Platform, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
@@ -36,6 +36,24 @@ type QuickSwitchAccount = {
 };
 
 type Screen = 'recipes' | 'pantry' | 'social' | 'shopping' | 'more' | 'recipeDetail';
+const SWIPEABLE_TABS: Screen[] = ['recipes', 'pantry', 'social', 'shopping', 'more'];
+const TABS_LEN = SWIPEABLE_TABS.length;
+
+type TabDef = {
+  name: 'kitchen' | 'social' | 'add' | 'shopping' | 'more';
+  icon: IoniconsName;
+  activeIcon: IoniconsName;
+  label: string;
+  isCenter?: boolean;
+};
+
+const TABS: TabDef[] = [
+  { name: 'kitchen', icon: 'restaurant-outline', activeIcon: 'restaurant', label: 'Kitchen' },
+  { name: 'social', icon: 'people-outline', activeIcon: 'people', label: 'Social' },
+  { name: 'add', icon: 'add', activeIcon: 'add', label: '', isCenter: true },
+  { name: 'shopping', icon: 'cart-outline', activeIcon: 'cart', label: 'Shopping' },
+  { name: 'more', icon: 'grid-outline', activeIcon: 'grid', label: 'More' },
+];
 
 interface TabIconProps {
   icon: IoniconsName;
@@ -46,7 +64,7 @@ interface TabIconProps {
   isDark?: boolean;
 }
 
-const TabIcon: React.FC<TabIconProps> = ({ icon, activeIcon, label, isActive, accentColor = "#FF8A3D", isDark = false }) => (
+const TabIcon: React.FC<TabIconProps> = memo(({ icon, activeIcon, label, isActive, accentColor = "#FF8A3D", isDark = false }) => (
   <View style={styles.tabIcon}>
     <View style={[styles.tabIconPill, isActive && { backgroundColor: accentColor + "22" }]}>
       <Ionicons
@@ -63,7 +81,7 @@ const TabIcon: React.FC<TabIconProps> = ({ icon, activeIcon, label, isActive, ac
       {label}
     </Text>
   </View>
-);
+));
 
 export default function Index() {
   const auth = getAuth();
@@ -81,6 +99,7 @@ export default function Index() {
     backgroundColor: "#F8F8F8",
   });
   const [userAllergies, setUserAllergies] = useState<string[]>([]);
+  const [userDietaryRestrictions, setUserDietaryRestrictions] = useState<string[]>([]);
   const [userEmail, setUserEmail] = useState("user@example.com");
   const [userDisplayName, setUserDisplayName] = useState("Insert User");
   const [userId, setUserId] = useState<string | null>(null);
@@ -93,10 +112,6 @@ export default function Index() {
   const [moreSubScreenActive, setMoreSubScreenActive] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
   const [showPantryShortcut, setShowPantryShortcut] = useState(true);
-
-  // All swipeable tabs in a permanent row — no re-mounting, no ghost screens
-  const swipeableTabs: Screen[] = ['recipes', 'pantry', 'social', 'shopping', 'more'];
-  const TABS_LEN = swipeableTabs.length;
 
   // Row position: translateX = -tabIdx * SCREEN_WIDTH
   const translateX   = useSharedValue(0);
@@ -126,7 +141,7 @@ export default function Index() {
   };
 
   const getSwipeTabIndex = (name: Exclude<Screen, 'recipeDetail'>) => {
-    return swipeableTabs.indexOf(name);
+    return SWIPEABLE_TABS.indexOf(name);
   };
   const choiceSwipeDown = Gesture.Pan()
     .activeOffsetY([15, 9999])
@@ -152,6 +167,7 @@ export default function Index() {
         setUserEmail("user@example.com");
         setUserDisplayName("Insert User");
         setUserAllergies([]);
+        setUserDietaryRestrictions([]);
         return;
       }
 
@@ -173,7 +189,11 @@ export default function Index() {
       const allergies = Array.isArray(snap.data()?.allergies)
         ? snap.data()?.allergies.filter((value: unknown): value is string => typeof value === "string")
         : [];
+      const dietaryRestrictions = Array.isArray(snap.data()?.dietaryRestrictions)
+        ? snap.data()?.dietaryRestrictions.filter((value: unknown): value is string => typeof value === "string")
+        : [];
       setUserAllergies(allergies);
+      setUserDietaryRestrictions(dietaryRestrictions);
       if (typeof snap.data()?.displayName === "string" && snap.data()?.displayName) {
         setUserDisplayName(snap.data()?.displayName);
       }
@@ -208,6 +228,13 @@ export default function Index() {
     setUserAllergies(nextAllergies);
     if (userId) {
       void updateUserProfile(userId, { allergies: nextAllergies });
+    }
+  }, [userId]);
+
+  const handleDietaryRestrictionsChange = useCallback((nextDietaryRestrictions: string[]) => {
+    setUserDietaryRestrictions(nextDietaryRestrictions);
+    if (userId) {
+      void updateUserProfile(userId, { dietaryRestrictions: nextDietaryRestrictions });
     }
   }, [userId]);
 
@@ -285,9 +312,12 @@ export default function Index() {
     })();
   }, [auth, isAdminUser, quickSwitchAccounts]);
 
-  const quickSwitchTargetsForCurrentUser = quickSwitchAccounts
-    .filter((account) => account.email.toLowerCase() !== userEmail.trim().toLowerCase())
-    .map((account) => ({ label: account.label, email: account.email }));
+  const quickSwitchTargetsForCurrentUser = useMemo(
+    () => quickSwitchAccounts
+      .filter((account) => account.email.toLowerCase() !== userEmail.trim().toLowerCase())
+      .map((account) => ({ label: account.label, email: account.email })),
+    [quickSwitchAccounts, userEmail]
+  );
 
   const handleRecipeSelect = useCallback((recipeId: string) => {
     setSelectedRecipeId(recipeId);
@@ -350,7 +380,7 @@ export default function Index() {
       if ((dx < -THRESHOLD || fastLeft) && startIdx < TABS_LEN - 1) targetIdx = startIdx + 1;
       else if ((dx > THRESHOLD || fastRight) && startIdx > 0)        targetIdx = startIdx - 1;
       tabIndexSV.value = targetIdx;
-      const nextScreen = targetIdx === 0 && detailVisible ? 'recipeDetail' : swipeableTabs[targetIdx];
+      const nextScreen = targetIdx === 0 && detailVisible ? 'recipeDetail' : SWIPEABLE_TABS[targetIdx];
       isDetailSV.value = nextScreen === 'recipeDetail' ? 1 : 0;
       runOnJS(syncScreenState)(nextScreen);
       translateX.value = withSpring(-targetIdx * SCREEN_WIDTH, TAB_SPRING);
@@ -373,7 +403,7 @@ export default function Index() {
 
   const switchToTab = (idx: number) => {
     tabIndexSV.value = idx;
-    const nextScreen = idx === 0 && detailVisible ? 'recipeDetail' : swipeableTabs[idx];
+    const nextScreen = idx === 0 && detailVisible ? 'recipeDetail' : SWIPEABLE_TABS[idx];
     isDetailSV.value = nextScreen === 'recipeDetail' ? 1 : 0;
     setShowPantryShortcut(false);
     syncScreenState(nextScreen);
@@ -391,22 +421,6 @@ export default function Index() {
     translateX.value = withSpring(-recipesIdx * SCREEN_WIDTH, TAB_SPRING);
   };
 
-  type TabDef = {
-    name: 'kitchen' | 'social' | 'add' | 'shopping' | 'more';
-    icon: IoniconsName;
-    activeIcon: IoniconsName;
-    label: string;
-    isCenter?: boolean;
-  };
-
-  const tabs: TabDef[] = [
-    { name: 'kitchen', icon: 'restaurant-outline', activeIcon: 'restaurant', label: 'Kitchen' },
-    { name: 'social', icon: 'people-outline', activeIcon: 'people', label: 'Social' },
-    { name: 'add', icon: 'add', activeIcon: 'add', label: '', isCenter: true },
-    { name: 'shopping', icon: 'cart-outline', activeIcon: 'cart', label: 'Shopping' },
-    { name: 'more', icon: 'grid-outline', activeIcon: 'grid', label: 'More' },
-  ];
-
   return (
     <GestureDetector gesture={swipeGesture}>
       <View style={{ flex: 1, overflow: 'hidden' }}>
@@ -418,6 +432,7 @@ export default function Index() {
               onRecipeSelect={handleRecipeSelect}
               theme={theme}
               userAllergies={userAllergies}
+              userDietaryRestrictions={userDietaryRestrictions}
               showRecipeForm={showRecipeForm}
               setShowRecipeForm={setShowRecipeForm}
               onBackToAddChoice={returnToAddChoiceFromRecipe}
@@ -454,6 +469,8 @@ export default function Index() {
               theme={theme}
               userAllergies={userAllergies}
               onAllergiesChange={handleAllergiesChange}
+              userDietaryRestrictions={userDietaryRestrictions}
+              onDietaryRestrictionsChange={handleDietaryRestrictionsChange}
               onThemeChange={setTheme}
               onSubScreenChange={setMoreSubScreenActive}
               isAdminUser={isAdminUser}
@@ -518,7 +535,7 @@ export default function Index() {
 
         {!moreSubScreenActive && (
           <View style={[styles.bottomTabContainer, { backgroundColor: theme.mode === "dark" ? "#222" : "#fff", borderTopColor: theme.mode === "dark" ? "#444" : "#eee" }]}>
-            {tabs.map((tab) => {
+            {TABS.map((tab) => {
               const isKitchen = tab.name === 'kitchen';
               const tabScreenName = isKitchen ? 'recipes' : (tab.name as Exclude<Screen, 'recipeDetail'>);
               const tabInRowIdx = getSwipeTabIndex(tabScreenName);
