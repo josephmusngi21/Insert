@@ -5,7 +5,7 @@ export default StyleSheet.create({
     flex: 1,
   },
   header: {
-    paddingVertical: 14,
+    paddingVertical: 16,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
   },
@@ -20,11 +20,12 @@ export default StyleSheet.create({
     gap: 8,
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: "700",
+    letterSpacing: 0.2,
   },
   addHeaderButton: {
-    borderRadius: 10,
+    borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 7,
     flexDirection: "row",
@@ -38,7 +39,7 @@ export default StyleSheet.create({
   },
   clearButton: {
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 7,
     flexDirection: "row",
@@ -72,7 +73,7 @@ export default StyleSheet.create({
     marginTop: 12,
     marginBottom: 2,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
     gap: 8,
@@ -89,7 +90,7 @@ export default StyleSheet.create({
   input: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
@@ -103,7 +104,7 @@ export default StyleSheet.create({
   addButton: {
     width: 42,
     height: 42,
-    borderRadius: 12,
+    borderRadius: 14,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -123,14 +124,14 @@ export default StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 12,
     paddingVertical: 11,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderLeftWidth: 3,
     gap: 12,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
     elevation: 2,
   },
   checkboxContainer: {
@@ -154,7 +155,7 @@ export default StyleSheet.create({
     flex: 1,
   },
   itemName: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "600",
     marginBottom: 5,
   },
@@ -199,8 +200,8 @@ export default StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.45)",
   },
   addModalCard: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 24,
@@ -221,7 +222,7 @@ export default StyleSheet.create({
     paddingHorizontal: 14,
     minHeight: 46,
     minWidth: 96,
-    borderRadius: 12,
+    borderRadius: 999,
   },
   modalBackText: {
     fontSize: 14,
@@ -240,7 +241,7 @@ export default StyleSheet.create({
   },
   draftRow: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 10,
   },
   draftRowTop: {
