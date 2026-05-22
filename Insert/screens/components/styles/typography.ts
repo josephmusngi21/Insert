@@ -5,10 +5,10 @@
 
 export const typography = {
   // Sizes
-  sizeLg:    28,
-  sizeMd:    17,
-  sizeSm:    15,
-  sizeBase:  14,
+  sizeLg:    30,
+  sizeMd:    18,
+  sizeSm:    16,
+  sizeBase:  15,
   sizeXs:    12,
   sizeLabel: 11,
 
@@ -19,6 +19,6 @@ export const typography = {
   weightRegular: '400' as const,
 
   // Line heights
-  lineHeightBody:    22,
+  lineHeightBody:    24,
   lineHeightCompact: 18,
 };
