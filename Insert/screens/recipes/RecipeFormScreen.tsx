@@ -1,26 +1,23 @@
-/**
- * Recipe Form Screen - Add or edit recipes
- * Handles title, description, ingredients, steps, and dietary tags
+﻿/**
+ * Recipe Form Screen - Add recipes
+ * Bottom-sheet modal with URL import + single-page manual form
  */
 
-import { useState } from "react";
-import { View, Text, TextInput, ScrollView, Button, TouchableOpacity, Alert, ActivityIndicator } from "react-native";
+import { useState, useMemo, useCallback, memo, useEffect } from "react";
+import {
+  View, Text, TextInput, ScrollView, TouchableOpacity,
+  Modal, Platform, Dimensions, ActivityIndicator, Alert,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
-import { addDoc } from "firebase/firestore";
-import { recipesCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
+import { addDoc, updateDoc } from "firebase/firestore";
+import { recipesCol, recipesDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import { parseAllRecipesFromUrl, ParsedRecipe } from "@/screens/utils/recipeImport";
-import styles from "./RecipeFormScreen.styles";
 
-type Ingredient = {
-  id: number;
-  name: string;
-  quantity: string;
-  unit: string;
-};
+const SCREEN_HEIGHT = Dimensions.get("window").height;
 
+type Ingredient = { id: number; name: string; quantity: string; unit: string };
 type RecipeFormData = {
   name: string;
   description: string;
@@ -31,66 +28,140 @@ type RecipeFormData = {
   instructions: string[];
 };
 
-interface ThemeColors {
-  mode: "light" | "dark" | "custom";
-  textColor: string;
-  accentColor: string;
-  backgroundColor: string;
-}
+const COOKING_UNITS = ["pcs", "g", "kg", "ml", "L", "oz", "lb", "tsp", "tbsp", "cup"];
+const DIFFICULTIES = ["easy", "medium", "hard"] as const;
 
 interface RecipeFormScreenProps {
+  visible: boolean;
   onRecipeSaved?: (recipe: RecipeFormData) => void;
   onCancel?: () => void;
+  onBack?: () => void;
   theme?: ThemeColors;
+  editRecipeId?: string;
+  initialData?: RecipeFormData;
+  existingRecipeNames?: string[];
 }
 
-const COOKING_UNITS = [
-  "ml", "L", "g", "kg", "oz", "lb", "tsp", "tbsp", "cup"
-];
+const BLANK_FORM: RecipeFormData = {
+  name: "",
+  description: "",
+  servings: "",
+  cookTime: "",
+  difficulty: "easy",
+  ingredients: [{ id: 1, name: "", quantity: "", unit: "" }],
+  instructions: [""],
+};
 
-export default function RecipeFormScreen({ onRecipeSaved, onCancel, theme }: RecipeFormScreenProps) {
-  const themeColors = theme || {
-    mode: "light",
-    textColor: "#333",
-    accentColor: "#4CAF50",
-    backgroundColor: "#f5f5f5",
-  };
-  const [step, setStep] = useState<"name" | "description" | "servings" | "cookTime" | "difficulty" | "ingredients" | "instructions" | "review">("name");
-  const [formData, setFormData] = useState<RecipeFormData>({
-    name: "",
-    description: "",
-    servings: "",
-    cookTime: "",
-    difficulty: "easy",
-    ingredients: [{ id: 1, name: "", quantity: "", unit: "" }],
-    instructions: [""],
-  });
-  const [currentIngredientId, setCurrentIngredientId] = useState(2);
+export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel, onBack, theme, editRecipeId, initialData, existingRecipeNames = [] }: RecipeFormScreenProps) {
+  const tc = theme || { mode: "light" as const, textColor: "#333", accentColor: "#4CAF50", backgroundColor: "#f5f5f5" };
+  const isDark = tc.mode === "dark";
+  const surfaceBg = isDark ? "#1e1e1e" : "#fff";
+  const inputBg = isDark ? "#2a2a2a" : "#fafafa";
+  const mutedBorder = isDark ? "#444" : "#e0e0e0";
+  const mutedText = isDark ? "#aaa" : "#666";
+  const chipInactive = isDark ? "#333" : "#f0f0f0";
+  const sectionBg = isDark ? "#252525" : "#f8f8f8";
+
+  const isEditMode = !!editRecipeId;
+  const [formData, setFormData] = useState<RecipeFormData>(initialData ?? BLANK_FORM);
+  const [nextIngId, setNextIngId] = useState(2);
   const [importUrl, setImportUrl] = useState("");
   const [isImporting, setIsImporting] = useState(false);
-  // Picker state — shown when a URL has multiple recipes
   const [pickerRecipes, setPickerRecipes] = useState<ParsedRecipe[] | null>(null);
   const [pickerSelected, setPickerSelected] = useState<Set<number>>(new Set());
 
-  const handleNameChange = (text: string) => {
-    setFormData({ ...formData, name: text });
+  // When opening in edit mode, seed the form with initialData
+  useEffect(() => {
+    if (visible && isEditMode && initialData) {
+      setFormData(initialData);
+      setNextIngId((initialData.ingredients?.length ?? 1) + 1);
+    } else if (!visible) {
+      // Fully reset when modal hides (if not edit mode reset is already handled)
+    }
+  }, [visible, isEditMode]);
+
+  const auth = getAuth();
+  const userId = auth.currentUser?.uid || "";
+
+  const labelStyle = {
+    fontSize: 12, fontWeight: "600" as const, color: mutedText,
+    marginBottom: 6, textTransform: "uppercase" as const, letterSpacing: 0.6,
+  };
+  const inputStyle = {
+    borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+    fontSize: 15, color: tc.textColor, backgroundColor: inputBg,
+    borderColor: mutedBorder,
   };
 
-  const handleImportFromUrl = async () => {
+  const resetForm = () => {
+    setFormData(BLANK_FORM);
+    setNextIngId(2);
+    setImportUrl("");
+    setPickerRecipes(null);
+    setPickerSelected(new Set());
+  };
+
+  // Close without any check — call after confirmation or when form is blank
+  const doClose = () => {
+    resetForm();
+    onCancel?.();
+  };
+
+  // Close with unsaved-data guard (used by X button, backdrop, and swipe gesture)
+  const handleClose = (goBack = false) => {
+    const hasData = !!(  
+      formData.name.trim() ||
+      formData.description.trim() ||
+      importUrl.trim() ||
+      formData.ingredients.some(i => i.name.trim()) ||
+      formData.instructions.some(s => s.trim())
+    );
+    if (hasData) {
+      Alert.alert(
+        "Discard Recipe?",
+        "You have unsaved changes. Closing will lose your progress.",
+        [
+          { text: "Keep Editing", style: "cancel" },
+          {
+            text: "Discard",
+            style: "destructive",
+            onPress: () => {
+              if (goBack && onBack) {
+                resetForm();
+                onBack();
+                return;
+              }
+              doClose();
+            },
+          },
+        ]
+      );
+    } else {
+      if (goBack && onBack) {
+        resetForm();
+        onBack();
+      } else {
+        doClose();
+      }
+    }
+  };
+
+  const handleRequestClose = () => handleClose(false);
+  const handleBackAction = () => handleClose(true);
+
+  // URL import
+  const handleImport = async () => {
     if (!importUrl.trim()) {
-      Alert.alert("No URL", "Please paste a recipe URL first.");
+      Alert.alert("No URL", "Paste a recipe URL first.");
       return;
     }
     setIsImporting(true);
     try {
       const parsed = await parseAllRecipesFromUrl(importUrl.trim());
       setImportUrl("");
-
       if (parsed.length === 1) {
-        // Single recipe — fill form directly
-        applyParsedRecipe(parsed[0]);
+        applyParsed(parsed[0]);
       } else {
-        // Multiple recipes — show picker
         setPickerRecipes(parsed);
         setPickerSelected(new Set(parsed.map((_, i) => i)));
       }
@@ -101,763 +172,489 @@ export default function RecipeFormScreen({ onRecipeSaved, onCancel, theme }: Rec
     }
   };
 
-  const applyParsedRecipe = (parsed: ParsedRecipe) => {
-    const ingredients = parsed.ingredients.map((ing, idx) => ({
-      id: idx + 1,
-      name: ing.name,
-      quantity: ing.quantity,
-      unit: ing.unit,
-    }));
+  const applyParsed = (p: ParsedRecipe) => {
+    const ings = p.ingredients.map((ing, i) => ({ id: i + 1, name: ing.name, quantity: ing.quantity, unit: ing.unit }));
     setFormData({
-      name: parsed.name,
-      description: parsed.description,
-      servings: parsed.servings,
-      cookTime: parsed.cookTime,
-      difficulty: parsed.difficulty,
-      ingredients: ingredients.length > 0 ? ingredients : [{ id: 1, name: "", quantity: "", unit: "" }],
-      instructions: parsed.instructions.length > 0 ? parsed.instructions : [""],
+      name: p.name,
+      description: p.description,
+      servings: p.servings,
+      cookTime: p.cookTime,
+      difficulty: p.difficulty,
+      ingredients: ings.length > 0 ? ings : [{ id: 1, name: "", quantity: "", unit: "" }],
+      instructions: p.instructions.length > 0 ? p.instructions : [""],
     });
-    setCurrentIngredientId(ingredients.length + 1);
+    setNextIngId(ings.length + 1);
     setPickerRecipes(null);
-    setStep("review");
   };
 
+  // Ingredients
+  const addIngredient = useCallback(() => {
+    setFormData(f => ({ ...f, ingredients: [...f.ingredients, { id: nextIngId, name: "", quantity: "", unit: "" }] }));
+    setNextIngId(n => n + 1);
+  }, [nextIngId]);
+
+  const updateIngredient = useCallback((id: number, field: keyof Ingredient, value: string) => {
+    setFormData(f => ({ ...f, ingredients: f.ingredients.map(i => i.id === id ? { ...i, [field]: value } : i) }));
+  }, []);
+
+  const removeIngredient = useCallback((id: number) => {
+    setFormData(f => ({ ...f, ingredients: f.ingredients.length > 1 ? f.ingredients.filter(i => i.id !== id) : f.ingredients }));
+  }, []);
+
+  // Instructions
+  const addInstruction = useCallback(() => setFormData(f => ({ ...f, instructions: [...f.instructions, ""] })), []);
+  const updateInstruction = useCallback((idx: number, val: string) => {
+    setFormData(f => { const a = [...f.instructions]; a[idx] = val; return { ...f, instructions: a }; });
+  }, []);
+  const removeInstruction = useCallback((idx: number) => {
+    setFormData(f => ({ ...f, instructions: f.instructions.length > 1 ? f.instructions.filter((_, i) => i !== idx) : f.instructions }));
+  }, []);
+
+  // Form field handlers
+  const handleSetName = useCallback((t: string) => setFormData(f => ({ ...f, name: t })), []);
+  const handleSetDescription = useCallback((t: string) => setFormData(f => ({ ...f, description: t })), []);
+  const handleSetServings = useCallback((t: string) => setFormData(f => ({ ...f, servings: t })), []);
+  const handleSetCookTime = useCallback((t: string) => setFormData(f => ({ ...f, cookTime: t })), []);
+  const handleSetDifficulty = useCallback((level: string) => setFormData(f => ({ ...f, difficulty: level })), []);
+  const handleSetImportUrl = useCallback((url: string) => setImportUrl(url), []);
+
+  // Save / Update
+  const handleSave = async () => {
+    if (!formData.name.trim()) {
+      Alert.alert("Missing Name", "Please enter a recipe name.");
+      return;
+    }
+    const blankIngs = formData.ingredients.filter(i => !i.name.trim());
+    if (blankIngs.length > 0) {
+      Alert.alert("Incomplete Ingredients", "Each ingredient needs at least a name. Remove blank rows.");
+      return;
+    }
+    const validInst = formData.instructions.filter(s => s.trim());
+    if (validInst.length === 0) {
+      Alert.alert("Missing Instructions", "Add at least one cooking step.");
+      return;
+    }
+    const finalData = { ...formData, instructions: validInst };
+
+    // Duplicate check — only for new recipes, run before any async work
+    if (!isEditMode && existingRecipeNames.some(n => n.trim().toLowerCase() === finalData.name.trim().toLowerCase())) {
+      Alert.alert(
+        "Recipe Already Exists",
+        `"${finalData.name}" is already in your recipes. Save a copy anyway?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Save Anyway", onPress: () => { onRecipeSaved?.(finalData); resetForm(); } },
+        ]
+      );
+      return;
+    }
+
+    if (isEditMode && editRecipeId && userId) {
+      try {
+        await updateDoc(recipesDoc(userId, editRecipeId), {
+          name: finalData.name,
+          description: finalData.description || "",
+          servings: finalData.servings,
+          cookTime: finalData.cookTime,
+          difficulty: finalData.difficulty,
+          ingredients: finalData.ingredients,
+          instructions: finalData.instructions,
+        });
+        onRecipeSaved?.(finalData);
+        resetForm();
+      } catch (err) {
+        Alert.alert("Update Failed", "Could not save changes. Try again.");
+      }
+    } else {
+      onRecipeSaved?.(finalData);
+      resetForm();
+    }
+  };
+
+  // Multi-recipe picker confirm
   const handlePickerConfirm = async () => {
-    if (pickerSelected.size === 0) {
-      Alert.alert("Nothing selected", "Please select at least one recipe.");
-      return;
-    }
-
+    if (pickerSelected.size === 0) { Alert.alert("Nothing selected", "Select at least one recipe."); return; }
     const selected = pickerRecipes!.filter((_, i) => pickerSelected.has(i));
-
-    if (selected.length === 1) {
-      // Single selection → fill form
-      applyParsedRecipe(selected[0]);
-      return;
-    }
-
-    // Multiple selections → save directly to Firestore, then close form
-    const auth = getAuth();
-    const uid = auth.currentUser?.uid || "";
-    if (!uid) {
-      Alert.alert("Not signed in", "Please sign in to save recipes.");
-      return;
-    }
-
+    if (selected.length === 1) { applyParsed(selected[0]); return; }
+    if (!userId) { Alert.alert("Not signed in"); return; }
     setIsImporting(true);
-    let saved = 0;
-    let failed = 0;
-    for (const recipe of selected) {
+    let saved = 0, skipped = 0, failed = 0;
+    const existingLower = existingRecipeNames.map(n => n.trim().toLowerCase());
+    for (const r of selected) {
+      // Skip if a recipe with the same name already exists
+      if (existingLower.includes(r.name.trim().toLowerCase())) { skipped++; continue; }
       try {
         await addDoc(recipesCol(userId), {
-          userId: uid,
-          name: recipe.name,
-          description: recipe.description || "",
-          servings: recipe.servings,
-          cookTime: recipe.cookTime,
-          difficulty: recipe.difficulty,
-          ingredients: recipe.ingredients,
-          instructions: recipe.instructions,
+          userId, name: r.name, description: r.description || "",
+          servings: r.servings, cookTime: r.cookTime, difficulty: r.difficulty,
+          ingredients: r.ingredients, instructions: r.instructions,
         });
         saved++;
-      } catch {
-        failed++;
-      }
+      } catch { failed++; }
     }
     setIsImporting(false);
     setPickerRecipes(null);
-
-    const msg = failed > 0
-      ? `${saved} recipe${saved !== 1 ? "s" : ""} saved, ${failed} failed.`
-      : `${saved} recipe${saved !== 1 ? "s" : ""} saved successfully!`;
-    Alert.alert("Import Complete", msg, [{ text: "Done", onPress: onCancel }]);
+    const parts = [];
+    if (saved > 0) parts.push(`${saved} saved`);
+    if (skipped > 0) parts.push(`${skipped} skipped (already exists)`);
+    if (failed > 0) parts.push(`${failed} failed`);
+    Alert.alert("Import Complete", parts.join(", ") + ".", [{ text: "Done", onPress: doClose }]);
   };
 
-  const handleDescriptionChange = (text: string) => {
-    setFormData({ ...formData, description: text });
-  };
+  const allFilled = !!formData.name.trim();
 
-  const handleServingsChange = (text: string) => {
-    setFormData({ ...formData, servings: text });
-  };
-
-  const handleCookTimeChange = (text: string) => {
-    setFormData({ ...formData, cookTime: text });
-  };
-
-  const handleAddIngredient = () => {
-    const newIngredient: Ingredient = {
-      id: currentIngredientId,
-      name: "",
-      quantity: "",
-      unit: "",
-    };
-    setFormData({
-      ...formData,
-      ingredients: [...formData.ingredients, newIngredient],
-    });
-    setCurrentIngredientId(currentIngredientId + 1);
-  };
-
-  const handleIngredientChange = (id: number, field: string, value: string) => {
-    setFormData({
-      ...formData,
-      ingredients: formData.ingredients.map((ing) =>
-        ing.id === id ? { ...ing, [field]: value } : ing
-      ),
-    });
-  };
-
-  const handleRemoveIngredient = (id: number) => {
-    if (formData.ingredients.length > 1) {
-      setFormData({
-        ...formData,
-        ingredients: formData.ingredients.filter((ing) => ing.id !== id),
-      });
-    }
-  };
-
-  const handleAddInstruction = () => {
-    setFormData({
-      ...formData,
-      instructions: [...formData.instructions, ""],
-    });
-  };
-
-  const handleInstructionChange = (index: number, value: string) => {
-    const newInstructions = [...formData.instructions];
-    newInstructions[index] = value;
-    setFormData({ ...formData, instructions: newInstructions });
-  };
-
-  const handleRemoveInstruction = (index: number) => {
-    if (formData.instructions.length > 1) {
-      setFormData({
-        ...formData,
-        instructions: formData.instructions.filter((_, i) => i !== index),
-      });
-    }
-  };
-
-  const handleSaveRecipe = () => {
-    console.log("Attempting to save recipe...");
-    
-    // Validate recipe name
-    if (!formData.name || !formData.name.trim()) {
-      console.log("Missing recipe name");
-      Alert.alert("Missing Recipe Name", "Please enter a recipe name");
-      setStep("name");
-      return;
-    }
-
-    // Validate description (optional, but if provided shouldn't be blank)
-    if (formData.description && !formData.description.trim()) {
-      console.log("Description is blank but was started");
-      Alert.alert("Incomplete Description", "Please complete the description or leave it empty");
-      setStep("description");
-      return;
-    }
-
-    // Servings is now optional - defaults to "--"
-    // Cook time is now optional - defaults to "--"
-
-    // Validate ingredients - must have name, quantity, and unit
-    const invalidIngredients = formData.ingredients.filter(
-      (ing) => !ing.name.trim() || !ing.quantity.trim() || !ing.unit.trim()
-    );
-    if (invalidIngredients.length > 0) {
-      console.log("Invalid ingredients:", invalidIngredients);
-      Alert.alert(
-        "Incomplete Ingredients",
-        "All ingredients must have a name, quantity, and unit. Please fill in or remove blank ingredients."
-      );
-      setStep("ingredients");
-      return;
-    }
-
-    // Validate instructions - at least 1 instruction with text (allow single instruction)
-    const validInstructions = formData.instructions.filter((inst) => inst.trim());
-    if (validInstructions.length === 0) {
-      console.log("Missing instructions");
-      Alert.alert(
-        "Missing Instructions",
-        "Please add at least one cooking instruction"
-      );
-      setStep("instructions");
-      return;
-    }
-
-    console.log("All validations passed, showing confirmation");
-    
-    // Show unified confirmation dialog
-    const servingsDisplay = formData.servings.trim() || "--";
-    const cookTimeDisplay = formData.cookTime.trim() || "--";
-    
-    const recipePreview = `Recipe: ${formData.name}
-Servings: ${servingsDisplay}
-Cook Time: ${cookTimeDisplay} minutes
-Difficulty: ${formData.difficulty}
-Ingredients: ${formData.ingredients.length} items
-Instructions: ${validInstructions.length} steps`;
-
-    Alert.alert(
-      "Save Recipe?",
-      recipePreview,
-      [
-        {
-          text: "Keep Editing",
-          onPress: () => console.log("Continue editing"),
-          style: "cancel",
-        },
-        {
-          text: "Discard",
-          onPress: onCancel,
-          style: "destructive",
-        },
-        {
-          text: "Save & Close",
-          onPress: () => {
-            console.log("Saving recipe...");
-            onRecipeSaved?.(formData);
-            onCancel?.();
-          },
-          style: "default",
-        },
-      ]
-    );
-  };
-
-  const nextStep = () => {
-    const steps: Array<"name" | "description" | "servings" | "cookTime" | "difficulty" | "ingredients" | "instructions" | "review"> = [
-      "name",
-      "description",
-      "servings",
-      "cookTime",
-      "difficulty",
-      "ingredients",
-      "instructions",
-      "review",
-    ];
-    const currentIndex = steps.indexOf(step);
-
-    // Validate current step before moving to next
-    if (step === "name") {
-      if (!formData.name || !formData.name.trim()) {
-        Alert.alert("Missing Recipe Name", "Please enter a recipe name");
-        return;
-      }
-    }
-
-    if (step === "description") {
-      if (formData.description && !formData.description.trim()) {
-        Alert.alert("Incomplete Description", "Please complete the description or leave it empty");
-        return;
-      }
-    }
-
-    // Servings is now optional - no validation needed
-
-    // Cook time is now optional - no validation needed
-
-    if (step === "ingredients") {
-      const blankIngredients = formData.ingredients.filter(
-        (ing) => !ing.name.trim() || !ing.quantity.trim() || !ing.unit.trim()
-      );
-      if (blankIngredients.length > 0) {
-        Alert.alert(
-          "Incomplete Ingredients",
-          "Please fill in all ingredient fields (name, quantity, and unit) or remove blank ingredients."
-        );
-        return;
-      }
-    }
-
-    if (step === "instructions") {
-      const validInstructions = formData.instructions.filter((inst) => inst.trim());
-      if (validInstructions.length === 0) {
-        Alert.alert(
-          "Missing Instructions",
-          "Please add at least one cooking instruction"
-        );
-        return;
-      }
-    }
-
-    if (currentIndex < steps.length - 1) {
-      setStep(steps[currentIndex + 1]);
-    }
-  };
-
-  const prevStep = () => {
-    const steps: Array<"name" | "description" | "servings" | "cookTime" | "difficulty" | "ingredients" | "instructions" | "review"> = [
-      "name",
-      "description",
-      "servings",
-      "cookTime",
-      "difficulty",
-      "ingredients",
-      "instructions",
-      "review",
-    ];
-    const currentIndex = steps.indexOf(step);
-    if (currentIndex > 0) {
-      setStep(steps[currentIndex - 1]);
-    }
-  };
-
-  const StepIndicator = () => {
-    const steps = ["Name", "Description", "Servings", "Cook Time", "Difficulty", "Ingredients", "Instructions", "Review"];
-    const currentIndex = ["name", "description", "servings", "cookTime", "difficulty", "ingredients", "instructions", "review"].indexOf(step);
-
-    return (
-      <View style={styles.stepIndicator}>
-        {steps.map((s, i) => (
-          <View
-            key={i}
-            style={[
-              styles.stepDot,
-              i <= currentIndex ? { backgroundColor: themeColors.accentColor } : styles.stepDotInactive,
-            ]}
-          >
-            <Text style={styles.stepDotText}>{i + 1}</Text>
-          </View>
-        ))}
-      </View>
-    );
-  };
-
-  // ── Recipe Picker (multiple recipes found) ──────────────────────────────
-  if (pickerRecipes) {
-    const numSelected = pickerSelected.size;
-    const allSelected = numSelected === pickerRecipes.length;
-    const toggleAll = () => {
-      if (allSelected) setPickerSelected(new Set());
-      else setPickerSelected(new Set(pickerRecipes.map((_, i) => i)));
-    };
-    const toggleOne = (i: number) => {
-      const next = new Set(pickerSelected);
-      if (next.has(i)) next.delete(i); else next.add(i);
-      setPickerSelected(next);
-    };
-
-    return (
-      <ScrollView
-        style={[styles.container, { backgroundColor: themeColors.backgroundColor }]}
-        contentContainerStyle={styles.contentContainer}
-      >
-        {/* Header */}
-        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
-          <TouchableOpacity onPress={() => setPickerRecipes(null)} style={{ marginRight: 10 }}>
-            <Ionicons name="chevron-back" size={22} color={themeColors.accentColor} />
-          </TouchableOpacity>
-          <Text style={[styles.header, { marginBottom: 0, flex: 1, color: themeColors.textColor }]}>
-            {pickerRecipes.length} Recipes Found
-          </Text>
-        </View>
-        <Text style={{ color: themeColors.mode === "dark" ? "#aaa" : "#666", fontSize: 14, marginBottom: 16, lineHeight: 20 }}>
-          Select one to review in the form, or select multiple to save them all at once.
-        </Text>
-
-        {/* Select All toggle */}
-        <TouchableOpacity
-          onPress={toggleAll}
-          style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}
-        >
-          <View style={{
-            width: 22, height: 22, borderRadius: 6, borderWidth: 2,
-            borderColor: themeColors.accentColor,
-            backgroundColor: allSelected ? themeColors.accentColor : "transparent",
-            alignItems: "center", justifyContent: "center", marginRight: 8,
-          }}>
-            {allSelected && <Ionicons name="checkmark" size={13} color="#fff" />}
-          </View>
-          <Text style={{ color: themeColors.textColor, fontSize: 14, fontWeight: "600" }}>
-            {allSelected ? "Deselect All" : "Select All"}
-          </Text>
-        </TouchableOpacity>
-
-        {/* Recipe cards */}
-        {pickerRecipes.map((recipe, i) => {
-          const selected = pickerSelected.has(i);
-          return (
-            <TouchableOpacity
-              key={i}
-              onPress={() => toggleOne(i)}
-              style={[
-                styles.stepContainer,
-                {
-                  backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff",
-                  borderWidth: 2,
-                  borderColor: selected ? themeColors.accentColor : "transparent",
-                  marginBottom: 12,
-                }
-              ]}
-              activeOpacity={0.8}
-            >
-              <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-                <View style={{
-                  width: 22, height: 22, borderRadius: 6, borderWidth: 2,
-                  borderColor: selected ? themeColors.accentColor : (themeColors.mode === "dark" ? "#666" : "#ccc"),
-                  backgroundColor: selected ? themeColors.accentColor : "transparent",
-                  alignItems: "center", justifyContent: "center",
-                  marginRight: 10, marginTop: 2, flexShrink: 0,
-                }}>
-                  {selected && <Ionicons name="checkmark" size={13} color="#fff" />}
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={handleRequestClose} presentationStyle="overFullScreen" statusBarTranslucent>
+      {/* Multi-recipe picker sub-screen */}
+      {pickerRecipes && (
+        <Modal visible={!!pickerRecipes} animationType="slide" onRequestClose={() => setPickerRecipes(null)}>
+          <View style={{ flex: 1, backgroundColor: tc.backgroundColor }}>
+            <View style={{ backgroundColor: isDark ? "#1c1c1c" : "#fff", borderBottomWidth: 1, borderBottomColor: mutedBorder, paddingTop: 52, paddingBottom: 12, paddingHorizontal: 16, flexDirection: "row", alignItems: "center" }}>
+              <TouchableOpacity onPress={() => setPickerRecipes(null)} style={{ marginRight: 12 }}>
+                <Ionicons name="chevron-back" size={24} color={tc.accentColor} />
+              </TouchableOpacity>
+              <Text style={{ flex: 1, fontSize: 18, fontWeight: "700", color: tc.textColor }}>
+                {pickerRecipes.length} Recipes Found
+              </Text>
+            </View>
+            <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120 }}>
+              <Text style={{ color: mutedText, fontSize: 14, marginBottom: 16, lineHeight: 20 }}>
+                Select one to edit it, or select multiple to save them all at once.
+              </Text>
+              <TouchableOpacity
+                onPress={() => pickerSelected.size === pickerRecipes.length ? setPickerSelected(new Set()) : setPickerSelected(new Set(pickerRecipes.map((_, i) => i)))}
+                style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}
+              >
+                <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: tc.accentColor, backgroundColor: pickerSelected.size === pickerRecipes.length ? tc.accentColor : "transparent", alignItems: "center", justifyContent: "center", marginRight: 10 }}>
+                  {pickerSelected.size === pickerRecipes.length && <Ionicons name="checkmark" size={13} color="#fff" />}
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.reviewTitle, { color: themeColors.textColor, marginBottom: 6 }]} numberOfLines={2}>
-                    {recipe.name || "Untitled Recipe"}
+                <Text style={{ color: tc.textColor, fontWeight: "600" }}>{pickerSelected.size === pickerRecipes.length ? "Deselect All" : "Select All"}</Text>
+              </TouchableOpacity>
+              {pickerRecipes.map((r, i) => {
+                const sel = pickerSelected.has(i);
+                return (
+                  <TouchableOpacity
+                    key={i}
+                    onPress={() => { const s = new Set(pickerSelected); sel ? s.delete(i) : s.add(i); setPickerSelected(s); }}
+                    style={{ backgroundColor: isDark ? "#2a2a2a" : "#fff", borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 2, borderColor: sel ? tc.accentColor : mutedBorder, flexDirection: "row", alignItems: "flex-start", gap: 12 }}
+                  >
+                    <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: sel ? tc.accentColor : mutedBorder, backgroundColor: sel ? tc.accentColor : "transparent", alignItems: "center", justifyContent: "center", marginTop: 2, flexShrink: 0 }}>
+                      {sel && <Ionicons name="checkmark" size={13} color="#fff" />}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, fontWeight: "700", color: tc.textColor, marginBottom: 4 }} numberOfLines={2}>{r.name || "Untitled"}</Text>
+                      {r.description ? <Text style={{ fontSize: 13, color: mutedText, marginBottom: 6 }} numberOfLines={2}>{r.description}</Text> : null}
+                      <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
+                        {r.servings ? <Text style={{ fontSize: 12, color: mutedText }}>{r.servings} servings</Text> : null}
+                        {r.cookTime ? <Text style={{ fontSize: 12, color: mutedText }}>{r.cookTime} min</Text> : null}
+                        <Text style={{ fontSize: 12, color: mutedText }}>{r.ingredients.length} ingredients · {r.instructions.length} steps</Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: isDark ? "#1c1c1c" : "#fff", borderTopWidth: 1, borderTopColor: mutedBorder, padding: 16, paddingBottom: Platform.OS === "ios" ? 36 : 16, flexDirection: "row", gap: 10 }}>
+              <TouchableOpacity onPress={() => setPickerRecipes(null)} style={{ flex: 1, borderRadius: 12, paddingVertical: 14, alignItems: "center", backgroundColor: chipInactive }}>
+                <Text style={{ color: tc.textColor, fontWeight: "600" }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handlePickerConfirm}
+                disabled={pickerSelected.size === 0 || isImporting}
+                style={{ flex: 2, borderRadius: 12, paddingVertical: 14, alignItems: "center", backgroundColor: pickerSelected.size === 0 ? mutedBorder : tc.accentColor, opacity: isImporting ? 0.7 : 1 }}
+              >
+                {isImporting
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={{ color: "#fff", fontWeight: "700" }}>
+                      {pickerSelected.size === 0 ? "Select a Recipe" : pickerSelected.size === 1 ? "Edit in Form" : `Save All ${pickerSelected.size}`}
+                    </Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      <View style={{ flex: 1, justifyContent: "flex-end" }}>
+        {/* Backdrop */}
+        <TouchableOpacity
+          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.45)" }}
+          activeOpacity={1}
+          onPress={handleRequestClose}
+        />
+
+        <View style={{
+          backgroundColor: surfaceBg,
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
+          paddingHorizontal: 20,
+          paddingTop: 12,
+          paddingBottom: 0,
+          height: SCREEN_HEIGHT * 0.88,
+          maxHeight: SCREEN_HEIGHT * 0.93,
+        }}>
+
+          {/* Header */}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <TouchableOpacity
+              onPress={handleBackAction}
+              hitSlop={{ top: 16, bottom: 16, left: 20, right: 20 }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                borderRadius: 12,
+                minHeight: 46,
+                minWidth: 96,
+              }}
+            >
+              <Ionicons name="chevron-back" size={24} color={tc.accentColor} />
+              <Text style={{ fontSize: 15, fontWeight: "600", color: tc.accentColor }}>Back</Text>
+            </TouchableOpacity>
+            <Text style={{ fontSize: 22, fontWeight: "700", color: tc.textColor, flex: 1, textAlign: "center", marginLeft: -56 }}>{isEditMode ? "Edit Recipe" : "Add Recipe"}</Text>
+            <TouchableOpacity onPress={handleRequestClose} style={{ padding: 6 }}>
+              <Ionicons name="close" size={22} color="#999" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingBottom: 120 }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="always"
+            scrollEventThrottle={16}
+            keyboardDismissMode="none"
+            contentInset={{ bottom: 40 }}
+            automaticallyAdjustKeyboardInsets={true}
+            nestedScrollEnabled={true}
+          >
+            {/* URL Import — hidden in edit mode */}
+            {!isEditMode ? (
+              <>
+                <View style={{ backgroundColor: isDark ? "#1a2e1a" : "#f0faf0", borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1.5, borderColor: tc.accentColor + "55" }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <Ionicons name="link" size={16} color={tc.accentColor} />
+                    <Text style={{ fontWeight: "700", fontSize: 14, color: tc.textColor }}>Import from a Website</Text>
+                  </View>
+                  <Text style={{ fontSize: 12, color: mutedText, marginBottom: 10, lineHeight: 18 }}>
+                    AllRecipes, Food Network, Simply Recipes, Serious Eats, Epicurious, and most recipe blogs.
                   </Text>
-                  {recipe.description ? (
-                    <Text style={[styles.reviewText, { color: themeColors.mode === "dark" ? "#bbb" : "#666" }]} numberOfLines={2}>
-                      {recipe.description}
-                    </Text>
-                  ) : null}
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
-                    {recipe.servings ? (
-                      <Text style={{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#888" }}>
-                        {recipe.servings} servings
-                      </Text>
-                    ) : null}
-                    {recipe.cookTime ? (
-                      <Text style={{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#888" }}>
-                        {recipe.cookTime} min
-                      </Text>
-                    ) : null}
-                    <Text style={{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#888" }}>
-                      {recipe.ingredients.length} ingredients
-                    </Text>
-                    <Text style={{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#888" }}>
-                      {recipe.instructions.length} steps
-                    </Text>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TextInput
+                      style={{ flex: 1, borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: tc.textColor, backgroundColor: inputBg, borderColor: mutedBorder }}
+                      placeholder="https://www.allrecipes.com/recipe/..."
+                      placeholderTextColor={isDark ? "#555" : "#bbb"}
+                      value={importUrl}
+                      onChangeText={handleSetImportUrl}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      keyboardType="url"
+                      returnKeyType="go"
+                      onSubmitEditing={handleImport}
+                      editable={!isImporting}
+                      blurOnSubmit={false}
+                    />
+                    <TouchableOpacity
+                      onPress={handleImport}
+                      disabled={isImporting}
+                      style={{ backgroundColor: tc.accentColor, borderRadius: 10, paddingHorizontal: 16, alignItems: "center", justifyContent: "center", opacity: isImporting ? 0.7 : 1 }}
+                    >
+                      {isImporting
+                        ? <ActivityIndicator size="small" color="#fff" />
+                        : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Import</Text>}
+                    </TouchableOpacity>
                   </View>
                 </View>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-
-        {/* Action buttons */}
-        <View style={[styles.navigationButtons, { marginTop: 8 }]}>
-          <TouchableOpacity
-            onPress={() => setPickerRecipes(null)}
-            style={[styles.importButton, { backgroundColor: themeColors.mode === "dark" ? "#555" : "#e0e0e0", flex: 1 }]}
-          >
-            <Text style={[styles.importButtonText, { color: themeColors.mode === "dark" ? "#fff" : "#333" }]}>Cancel</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={handlePickerConfirm}
-            disabled={numSelected === 0 || isImporting}
-            style={[styles.importButton, {
-              backgroundColor: numSelected === 0 ? "#ccc" : themeColors.accentColor,
-              flex: 2,
-              opacity: isImporting ? 0.7 : 1,
-            }]}
-          >
-            {isImporting
-              ? <ActivityIndicator size="small" color="#fff" />
-              : <Text style={styles.importButtonText}>
-                  {numSelected === 0
-                    ? "Select a Recipe"
-                    : numSelected === 1
-                    ? "Review in Form"
-                    : `Save All ${numSelected} Recipes`}
-                </Text>
-            }
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    );
-  }
-  return (
-    <ScrollView style={[styles.container, { backgroundColor: themeColors.backgroundColor }]} contentContainerStyle={styles.contentContainer}>
-      <Text style={[styles.header, { color: themeColors.textColor }]}>Add New Recipe</Text>
-
-      {/* Import from URL card */}
-      <View style={[styles.importCard, { borderColor: themeColors.accentColor + "55", backgroundColor: themeColors.mode === "dark" ? "#1e2e1e" : "#f0faf0" }]}>
-        <View style={styles.importCardHeader}>
-          <Ionicons name="link" size={18} color={themeColors.accentColor} />
-          <Text style={[styles.importCardTitle, { color: themeColors.textColor }]}>Import from a Website</Text>
-        </View>
-        <Text style={[styles.importCardSubtitle, { color: themeColors.mode === "dark" ? "#aaa" : "#666" }]}>
-          Paste a URL from AllRecipes, Food Network, Simply Recipes, Serious Eats, Epicurious, or any recipe blog.
-        </Text>
-        <View style={styles.importRow}>
-          <TextInput
-            style={[styles.importInput, {
-              color: themeColors.textColor,
-              borderColor: themeColors.mode === "dark" ? "#555" : "#d0d0d0",
-              backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff",
-            }]}
-            placeholder="https://www.allrecipes.com/recipe/..."
-            placeholderTextColor={themeColors.mode === "dark" ? "#666" : "#bbb"}
-            value={importUrl}
-            onChangeText={setImportUrl}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-            returnKeyType="go"
-            onSubmitEditing={handleImportFromUrl}
-            editable={!isImporting}
-          />
-          <TouchableOpacity
-            style={[styles.importButton, { backgroundColor: themeColors.accentColor, opacity: isImporting ? 0.7 : 1 }]}
-            onPress={handleImportFromUrl}
-            disabled={isImporting}
-          >
-            {isImporting
-              ? <ActivityIndicator size="small" color="#fff" />
-              : <Text style={styles.importButtonText}>Import</Text>
-            }
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Divider */}
-      <View style={styles.dividerRow}>
-        <View style={[styles.dividerLine, { backgroundColor: themeColors.mode === "dark" ? "#444" : "#e0e0e0" }]} />
-        <Text style={[styles.dividerText, { color: themeColors.mode === "dark" ? "#777" : "#aaa" }]}>or fill in manually</Text>
-        <View style={[styles.dividerLine, { backgroundColor: themeColors.mode === "dark" ? "#444" : "#e0e0e0" }]} />
-      </View>
-
-      <StepIndicator />
-
-      {step === "name" && (
-        <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
-          <Text style={[styles.label, { color: themeColors.textColor }]}>Recipe Name</Text>
-          <TextInput
-            style={[styles.input, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
-            placeholder="Enter recipe name (e.g., Spaghetti Carbonara)"
-            placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
-            value={formData.name}
-            onChangeText={handleNameChange}
-          />
-        </View>
-      )}
-
-      {step === "description" && (
-        <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
-          <Text style={[styles.label, { color: themeColors.textColor }]}>Description</Text>
-          <TextInput
-            style={[styles.input, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9", height: 100, textAlignVertical: "top" }]}
-            placeholder="Enter a brief description of your recipe"
-            placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
-            value={formData.description}
-            onChangeText={handleDescriptionChange}
-            multiline
-            maxLength={500}
-          />
-          <Text style={[styles.charCount, { color: themeColors.mode === "dark" ? "#999" : "#999" }]}>
-            {formData.description.length}/500
-          </Text>
-        </View>
-      )}
-
-      {step === "servings" && (
-        <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
-          <Text style={[styles.label, { color: themeColors.textColor }]}>Servings</Text>
-          <TextInput
-            style={[styles.input, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
-            placeholder="Number of servings"
-            placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
-            keyboardType="numeric"
-            value={formData.servings}
-            onChangeText={handleServingsChange}
-          />
-        </View>
-      )}
-
-      {step === "cookTime" && (
-        <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
-          <Text style={[styles.label, { color: themeColors.textColor }]}>Cook Time (minutes)</Text>
-          <TextInput
-            style={[styles.input, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
-            placeholder="Enter cook time in minutes"
-            placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
-            keyboardType="numeric"
-            value={formData.cookTime}
-            onChangeText={handleCookTimeChange}
-          />
-        </View>
-      )}
-
-      {step === "difficulty" && (
-        <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
-          <Text style={[styles.label, { color: themeColors.textColor }]}>Difficulty Level</Text>
-          <View style={styles.difficultyButtons}>
-            {["easy", "medium", "hard"].map((level) => (
-              <TouchableOpacity
-                key={level}
-                style={[
-                  styles.difficultyButton,
-                  formData.difficulty === level && { backgroundColor: themeColors.accentColor },
-                  formData.difficulty !== level && { borderColor: themeColors.mode === "dark" ? "#666" : "#ddd" },
-                ]}
-                onPress={() => setFormData({ ...formData, difficulty: level })}
-              >
-                <Text style={[styles.difficultyButtonText, { color: formData.difficulty === level ? "#fff" : themeColors.textColor }]}>{level.charAt(0).toUpperCase() + level.slice(1)}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      )}
-
-      {step === "ingredients" && (
-        <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
-          <Text style={[styles.label, { color: themeColors.textColor }]}>Ingredients</Text>
-          {formData.ingredients.map((ingredient, index) => (
-            <View key={ingredient.id}>
-              <View style={styles.ingredientRow}>
-                <TextInput
-                  style={[styles.input, styles.ingredientInput, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
-                  placeholder="Ingredient name"
-                  placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
-                  value={ingredient.name}
-                  onChangeText={(text) => handleIngredientChange(ingredient.id, "name", text)}
-                />
-                <TextInput
-                  style={[styles.input, styles.quantityInput, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
-                  placeholder="Qty"
-                  placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
-                  keyboardType="decimal-pad"
-                  value={ingredient.quantity}
-                  onChangeText={(text) => handleIngredientChange(ingredient.id, "quantity", text)}
-                />
-                {formData.ingredients.length > 1 && (
-                  <TouchableOpacity
-                    style={[styles.deleteButton, { backgroundColor: "#f44336" }]}
-                    onPress={() => handleRemoveIngredient(ingredient.id)}
-                  >
-                    <Text style={styles.deleteButtonText}>✕</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-              
-              {/* Quick Unit Buttons */}
-              <View style={{ marginBottom: 12 }}>
-                <Text style={[{ color: themeColors.mode === "dark" ? "#aaa" : "#666", fontSize: 12, marginBottom: 8, marginHorizontal: 4 }]}>
-                  Quick units:
-                </Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginHorizontal: 4 }}>
-                  {COOKING_UNITS.map(unit => (
-                    <TouchableOpacity
-                      key={unit}
-                      onPress={() => handleIngredientChange(ingredient.id, "unit", unit)}
-                      style={[{ 
-                        paddingHorizontal: 11, 
-                        paddingVertical: 7, 
-                        borderRadius: 6, 
-                        backgroundColor: ingredient.unit === unit ? themeColors.accentColor : (themeColors.mode === "dark" ? "#555" : "#ddd")
-                      }]}
-                    >
-                      <Text style={[{ color: ingredient.unit === unit ? "#fff" : themeColors.textColor, fontSize: 12, fontWeight: "500" }]}>
-                        {unit}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                  <View style={{ flex: 1, height: 1, backgroundColor: mutedBorder }} />
+                  <Text style={{ color: mutedText, fontSize: 12 }}>or fill in manually</Text>
+                  <View style={{ flex: 1, height: 1, backgroundColor: mutedBorder }} />
                 </View>
+              </>
+            ) : null}
+            {/* Name */}
+            <Text style={labelStyle}>Recipe Name *</Text>
+            <TextInput
+              style={{ ...inputStyle, borderColor: formData.name ? tc.accentColor : mutedBorder, marginBottom: 16, fontSize: 16, fontWeight: "600" }}
+              placeholder="e.g. Spaghetti Carbonara"
+              placeholderTextColor={isDark ? "#555" : "#bbb"}
+              value={formData.name}
+              onChangeText={handleSetName}
+              autoCapitalize="words"
+              blurOnSubmit={false}
+            />
+
+            {/* Description */}
+            <Text style={labelStyle}>Description (optional)</Text>
+            <TextInput
+              style={{ ...inputStyle, height: 72, textAlignVertical: "top", marginBottom: 16 }}
+              placeholder="Brief description of the dish..."
+              placeholderTextColor={isDark ? "#555" : "#bbb"}
+              value={formData.description}
+              onChangeText={handleSetDescription}
+              multiline
+              maxLength={300}
+              blurOnSubmit={false}
+            />
+
+            {/* Servings + Cook Time */}
+            <View style={{ flexDirection: "row", gap: 12, marginBottom: 16 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={labelStyle}>Servings</Text>
+                <TextInput
+                  style={inputStyle}
+                  placeholder="e.g. 4"
+                  placeholderTextColor={isDark ? "#555" : "#bbb"}
+                  value={formData.servings}
+                  onChangeText={handleSetServings}
+                  keyboardType="numeric"
+                  blurOnSubmit={false}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={labelStyle}>Cook Time (min)</Text>
+                <TextInput
+                  style={inputStyle}
+                  placeholder="e.g. 30"
+                  placeholderTextColor={isDark ? "#555" : "#bbb"}
+                  value={formData.cookTime}
+                  onChangeText={handleSetCookTime}
+                  keyboardType="numeric"
+                  blurOnSubmit={false}
+                />
               </View>
             </View>
-          ))}
-          <Button title="Add Ingredient" color={themeColors.accentColor} onPress={handleAddIngredient} />
-        </View>
-      )}
 
-      {step === "instructions" && (
-        <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
-          <Text style={[styles.label, { color: themeColors.textColor }]}>Instructions</Text>
-          {formData.instructions.map((instruction, index) => (
-            <View key={index} style={styles.instructionRow}>
-              <Text style={[styles.instructionNumber, { color: themeColors.accentColor }]}>{index + 1}</Text>
-              <TextInput
-                style={[styles.input, styles.instructionInput, { color: themeColors.textColor, borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}
-                placeholder={`Step ${index + 1}`}
-                placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
-                multiline
-                value={instruction}
-                onChangeText={(text) => handleInstructionChange(index, text)}
-              />
-              {formData.instructions.length > 1 && (
-                <TouchableOpacity
-                  style={[styles.deleteButton, { backgroundColor: "#f44336" }]}
-                  onPress={() => handleRemoveInstruction(index)}
-                >
-                  <Text style={styles.deleteButtonText}>✕</Text>
-                </TouchableOpacity>
-              )}
+            {/* Difficulty */}
+            <Text style={labelStyle}>Difficulty</Text>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
+              {DIFFICULTIES.map(level => {
+                const sel = formData.difficulty === level;
+                const colors: Record<string, string> = { easy: "#4CAF50", medium: "#FF9800", hard: "#F44336" };
+                return (
+                  <TouchableOpacity
+                    key={level}
+                    onPress={() => handleSetDifficulty(level)}
+                    style={{ flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: "center", borderWidth: 1.5, backgroundColor: sel ? colors[level] : "transparent", borderColor: sel ? colors[level] : mutedBorder }}
+                  >
+                    <Text style={{ fontWeight: "700", fontSize: 13, color: sel ? "#fff" : mutedText, textTransform: "capitalize" }}>{level}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-          ))}
-          <Button title="Add Step" color={themeColors.accentColor} onPress={handleAddInstruction} />
-        </View>
-      )}
 
-      {step === "review" && (
-        <View style={[styles.stepContainer, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}>
-          <Text style={[styles.label, { color: themeColors.textColor }]}>Review Recipe</Text>
-          <View style={[styles.reviewCard, { backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9" }]}>
-            <Text style={[styles.reviewTitle, { color: themeColors.textColor }]}>{formData.name}</Text>
-            {formData.description && (
-              <Text style={[styles.reviewText, { color: themeColors.mode === "dark" ? "#ddd" : "#666", marginBottom: 12, fontStyle: "italic" }]}>
-                {formData.description}
-              </Text>
-            )}
-            <Text style={[styles.reviewInfo, { color: themeColors.textColor }]}>Servings: {formData.servings || "--"}</Text>
-            <Text style={[styles.reviewInfo, { color: themeColors.textColor }]}>Cook Time: {formData.cookTime || "--"} {formData.cookTime ? "min" : ""}</Text>
-            <Text style={[styles.reviewInfo, { color: themeColors.textColor }]}>Difficulty: {formData.difficulty}</Text>
+            {/* Ingredients */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <Text style={{ fontSize: 14, fontWeight: "700", color: tc.textColor }}>Ingredients</Text>
+              <TouchableOpacity onPress={addIngredient} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Ionicons name="add-circle-outline" size={18} color={tc.accentColor} />
+                <Text style={{ color: tc.accentColor, fontWeight: "600", fontSize: 13 }}>Add</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={{ backgroundColor: sectionBg, borderRadius: 14, padding: 12, marginBottom: 20, gap: 12 }}>
+              {formData.ingredients.map((ing, idx) => (
+                <View key={ing.id}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: tc.accentColor + "33", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <Text style={{ fontSize: 11, fontWeight: "700", color: tc.accentColor }}>{idx + 1}</Text>
+                    </View>
+                    <TextInput
+                      style={{ flex: 1, borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: tc.textColor, backgroundColor: inputBg, borderColor: ing.name ? tc.accentColor : mutedBorder }}
+                      placeholder="Ingredient name"
+                      placeholderTextColor={isDark ? "#555" : "#bbb"}
+                      value={ing.name}
+                      onChangeText={t => updateIngredient(ing.id, "name", t)}
+                      blurOnSubmit={false}
+                    />
+                    <TextInput
+                      style={{ width: 60, borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 8, fontSize: 14, color: tc.textColor, backgroundColor: inputBg, borderColor: mutedBorder, textAlign: "center" }}
+                      placeholder="Qty"
+                      placeholderTextColor={isDark ? "#555" : "#bbb"}
+                      value={ing.quantity}
+                      onChangeText={t => updateIngredient(ing.id, "quantity", t)}
+                      keyboardType="decimal-pad"
+                      blurOnSubmit={false}
+                    />
+                    {formData.ingredients.length > 1 && (
+                      <TouchableOpacity onPress={() => removeIngredient(ing.id)} style={{ padding: 4 }}>
+                        <Ionicons name="trash-outline" size={16} color={isDark ? "#666" : "#ccc"} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginLeft: 30 }} keyboardShouldPersistTaps="handled">
+                    <View style={{ flexDirection: "row", gap: 6, paddingBottom: 2 }}>
+                      {COOKING_UNITS.map(u => {
+                        const sel = ing.unit === u;
+                        return (
+                          <TouchableOpacity
+                            key={u}
+                            onPress={() => updateIngredient(ing.id, "unit", u)}
+                            style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 7, backgroundColor: sel ? tc.accentColor : chipInactive }}
+                          >
+                            <Text style={{ fontSize: 12, fontWeight: sel ? "700" : "400", color: sel ? "#fff" : tc.textColor }}>{u}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
+                  {idx < formData.ingredients.length - 1 && <View style={{ height: 1, backgroundColor: mutedBorder, marginTop: 10 }} />}
+                </View>
+              ))}
+            </View>
 
-            <Text style={[styles.reviewSubtitle, { color: themeColors.textColor }]}>Ingredients:</Text>
-            {formData.ingredients.map((ing) => (
-              <Text key={ing.id} style={[styles.reviewText, { color: themeColors.mode === "dark" ? "#ddd" : "#666" }]}>
-                • {ing.name} - {ing.quantity} {ing.unit}
-              </Text>
-            ))}
+            {/* Instructions */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                      <Text style={{ fontSize: 14, fontWeight: "700", color: tc.textColor }}>Instructions</Text>
+              <TouchableOpacity onPress={addInstruction} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Ionicons name="add-circle-outline" size={18} color={tc.accentColor} />
+                <Text style={{ color: tc.accentColor, fontWeight: "600", fontSize: 13 }}>Add Step</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={{ backgroundColor: sectionBg, borderRadius: 14, padding: 12, marginBottom: 24, gap: 10 }}>
+              {formData.instructions.map((inst, idx) => (
+                <View key={idx} style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+                  <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: tc.accentColor, alignItems: "center", justifyContent: "center", marginTop: 8, flexShrink: 0 }}>
+                    <Text style={{ fontSize: 12, fontWeight: "700", color: "#fff" }}>{idx + 1}</Text>
+                  </View>
+                  <TextInput
+                    style={{ flex: 1, borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: tc.textColor, backgroundColor: inputBg, borderColor: inst.trim() ? tc.accentColor : mutedBorder, minHeight: 50, textAlignVertical: "top" }}
+                    placeholder={`Step ${idx + 1}...`}
+                    placeholderTextColor={isDark ? "#555" : "#bbb"}
+                    value={inst}
+                    onChangeText={t => updateInstruction(idx, t)}
+                    multiline
+                    blurOnSubmit={false}
+                  />
+                  {formData.instructions.length > 1 && (
+                    <TouchableOpacity onPress={() => removeInstruction(idx)} style={{ padding: 4, marginTop: 10 }}>
+                      <Ionicons name="trash-outline" size={16} color={isDark ? "#666" : "#ccc"} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+            </View>
 
-            <Text style={[styles.reviewSubtitle, { color: themeColors.textColor }]}>Instructions:</Text>
-            {formData.instructions.map((inst, index) => (
-              <Text key={index} style={[styles.reviewText, { color: themeColors.mode === "dark" ? "#ddd" : "#666" }]}>
-                {index + 1}. {inst}
-              </Text>
-            ))}
+          </ScrollView>
+
+          <View style={{
+            marginHorizontal: -20,
+            paddingHorizontal: 20,
+            paddingTop: 10,
+            paddingBottom: Platform.OS === "ios" ? 34 : 18,
+            borderTopWidth: 1,
+            borderTopColor: mutedBorder,
+            backgroundColor: surfaceBg,
+          }}>
+            <TouchableOpacity
+              onPress={handleSave}
+              style={{ backgroundColor: allFilled ? tc.accentColor : (isDark ? "#333" : "#d0d0d0"), borderRadius: 14, paddingVertical: 16, alignItems: "center" }}
+            >
+              <Text style={{ color: allFilled ? "#fff" : mutedText, fontWeight: "700", fontSize: 16 }}>{isEditMode ? "Update Recipe" : "Save Recipe"}</Text>
+            </TouchableOpacity>
           </View>
         </View>
-      )}
-
-      <View style={styles.navigationButtons}>
-        {step !== "name" && (
-          <Button title="← Back" color={themeColors.accentColor} onPress={prevStep} />
-        )}
-        {step !== "review" && (
-          <Button title="Next →" color={themeColors.accentColor} onPress={nextStep} />
-        )}
-        {step === "review" && (
-          <Button title="Save Recipe" onPress={handleSaveRecipe} color={themeColors.accentColor} />
-        )}
       </View>
-
-      {onCancel && (
-        <Button 
-          title="Cancel" 
-          onPress={() => {
-            Alert.alert(
-              "Cancel Recipe",
-              "Are you sure you want to cancel? Any unsaved changes will be lost.",
-              [
-                {
-                  text: "Keep Editing",
-                  onPress: () => console.log("Continue editing"),
-                  style: "cancel",
-                },
-                {
-                  text: "Discard",
-                  onPress: onCancel,
-                  style: "destructive",
-                },
-              ]
-            );
-          }} 
-          color="#f44336" 
-        />
-      )}
-    </ScrollView>
+    </Modal>
   );
-}
+});
