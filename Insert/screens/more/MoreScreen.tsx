@@ -3,33 +3,43 @@
  */
 
 import { View, Text, ScrollView, TouchableOpacity } from "react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring, runOnJS } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import { Dimensions } from "react-native";
+import { getAuth } from "firebase/auth";
+import { collection, doc, onSnapshot, query, orderBy, limit, updateDoc } from "firebase/firestore";
+import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import ThemeCustomizerScreen from "@/screens/settings/ThemeCustomizerScreen";
-import AllergiesScreen from "@/screens/more/AllergiesScreen";
 import LocationsScreen from "@/screens/more/LocationsScreen";
 import PreferencesScreen from "@/screens/more/PreferencesScreen";
 import PrivacyPolicy from "@/screens/misc/PrivacyPolicy";
 import TermsOfService from "@/screens/misc/TermsOfService";
 import AboutScreen from "@/screens/misc/AboutScreen";
 import CookHistoryScreen from "@/screens/more/CookHistoryScreen";
+import FriendsScreen from "./FriendsScreen";
+import SettingsScreen from "@/screens/profile/SettingsScreen";
+import { friendRequestsCol, outgoingFriendRequestsCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import styles from "./MoreScreen.styles";
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-type SubScreen = 'theme' | 'allergies' | 'locations' | 'preferences' | 'privacy' | 'terms' | 'about' | 'cookHistory' | null;
+type SubScreen = 'theme' | 'account' | 'friends' | 'locations' | 'preferences' | 'privacy' | 'terms' | 'about' | 'cookHistory' | null;
 
 interface MoreScreenProps {
   userEmail?: string;
+  userDisplayName?: string;
   onLogout?: () => void;
   theme?: ThemeColors;
   userAllergies?: string[];
   onAllergiesChange?: (allergies: string[]) => void;
   onThemeChange?: (theme: ThemeColors) => void;
   onSubScreenChange?: (active: boolean) => void;
+  isAdminUser?: boolean;
+  isSwitchingUser?: boolean;
+  quickSwitchTargets?: Array<{ label: string; email: string }>;
+  onQuickSwitchUser?: (email: string) => void;
 }
 
 interface MenuItem {
@@ -48,14 +58,26 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function MoreScreen({
   userEmail = "user@example.com",
+  userDisplayName = "",
   onLogout,
   theme,
   userAllergies = [],
   onAllergiesChange,
   onThemeChange,
   onSubScreenChange,
+  isAdminUser = false,
+  isSwitchingUser = false,
+  quickSwitchTargets = [],
+  onQuickSwitchUser,
 }: MoreScreenProps) {
   const [subScreen, setSubScreen] = useState<SubScreen>(null);
+  const [incomingRequestCount, setIncomingRequestCount] = useState(0);
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const [recipeSaveNotificationCount, setRecipeSaveNotificationCount] = useState(0);
+  const [recentRecipeSaveNotifications, setRecentRecipeSaveNotifications] = useState<Array<{ id: string; message: string }>>([]);
+  const [unreadRecipeSaveNotifications, setUnreadRecipeSaveNotifications] = useState<Array<{ id: string; message: string }>>([]);
+  const [showAllUnreadNotifications, setShowAllUnreadNotifications] = useState(false);
+  const [markingNotificationsRead, setMarkingNotificationsRead] = useState(false);
   const slideOffset = useSharedValue(SCREEN_WIDTH);
   const subStyle = useAnimatedStyle(() => ({ transform: [{ translateX: slideOffset.value }] }));
   const mainParallaxStyle = useAnimatedStyle(() => ({
@@ -81,14 +103,15 @@ export default function MoreScreen({
 
   // Same gesture pattern as recipe detail in index.tsx
   const swipeBack = Gesture.Pan()
-    .activeOffsetX([12, 999])
-    .failOffsetY([-15, 15])
+    .hitSlop({ left: 0, width: 28 })
+    .activeOffsetX([28, 999])
+    .failOffsetY([-10, 10])
     .onUpdate((e) => {
       const raw = e.translationX;
       slideOffset.value = raw > 0 ? raw : raw * 0.08;
     })
     .onEnd((e) => {
-      if (e.translationX > SCREEN_WIDTH * 0.18 || e.velocityX > 400) {
+      if (e.translationX > SCREEN_WIDTH * 0.3 || e.velocityX > 700) {
         slideOffset.value = withTiming(SCREEN_WIDTH, { duration: 220 }, () => runOnJS(doCloseSub)());
       } else {
         slideOffset.value = withSpring(0, { damping: 20, stiffness: 200 });
@@ -103,11 +126,84 @@ export default function MoreScreen({
   };
 
   const isDark = themeColors.mode === "dark";
-  const initials = userEmail.slice(0, 2).toUpperCase();
+  const initialsSource = userDisplayName.trim() || userEmail;
+  const initials = initialsSource.slice(0, 2).toUpperCase();
+  const auth = getAuth();
+  const userId = auth.currentUser?.uid || "";
+
+  useEffect(() => {
+    if (!userId) return;
+
+    const incomingQ = query(friendRequestsCol(userId), orderBy("createdAt", "desc"), limit(40));
+    const outgoingQ = query(outgoingFriendRequestsCol(userId), orderBy("createdAt", "desc"), limit(40));
+
+    const unsubIncoming = onSnapshot(incomingQ, (snapshot) => {
+      const count = snapshot.docs.filter((docSnap) => (docSnap.data()?.status || "pending") === "pending").length;
+      setIncomingRequestCount(count);
+    });
+
+    const unsubOutgoing = onSnapshot(outgoingQ, (snapshot) => {
+      const count = snapshot.docs.filter((docSnap) => (docSnap.data()?.status || "pending") === "pending").length;
+      setPendingRequestCount(count);
+    });
+
+    return () => {
+      unsubIncoming();
+      unsubOutgoing();
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    const notificationsQ = query(collection(db, "users", userId, "notifications"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(notificationsQ, (snapshot) => {
+      const recipeSaveNotifications = snapshot.docs
+        .map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as { type?: string; read?: boolean; seen?: boolean; message?: string }) }))
+        .filter((notification) => notification.type === "recipe_saved");
+      const unread = recipeSaveNotifications.filter((notification) => notification.read !== true && notification.seen !== true);
+
+      setRecipeSaveNotificationCount(unread.length);
+      setUnreadRecipeSaveNotifications(
+        unread.map((notification) => ({
+          id: notification.id,
+          message: notification.message || "Your recipe was saved by another user.",
+        }))
+      );
+      setRecentRecipeSaveNotifications(
+        recipeSaveNotifications.slice(0, 1).map((notification) => ({
+          id: notification.id,
+          message: notification.message || "Your recipe was saved by another user.",
+        }))
+      );
+    });
+
+    return () => unsubscribe();
+  }, [userId]);
+
+  const markRecipeSaveNotificationsRead = async () => {
+    if (!userId || unreadRecipeSaveNotifications.length === 0 || markingNotificationsRead) return;
+
+    setMarkingNotificationsRead(true);
+
+    try {
+      await Promise.all(
+        unreadRecipeSaveNotifications.map((notification) =>
+          updateDoc(doc(db, "users", userId, "notifications", notification.id), { read: true, seen: true })
+        )
+      );
+      setShowAllUnreadNotifications(false);
+    } catch {
+      // Keep silent to avoid interrupting the user flow.
+    } finally {
+      setMarkingNotificationsRead(false);
+    }
+  };
 
   const subTitles: Record<string, string> = {
     theme: 'Customize Theme',
-    allergies: 'Allergies',
+    account: 'Account Settings',
+    friends: 'Friends',
     locations: 'Locations',
     preferences: 'Preferences',
     privacy: 'Privacy Policy',
@@ -121,22 +217,21 @@ export default function MoreScreen({
       title: "PERSONALIZE",
       items: [
         { icon: "color-palette-outline",     label: "Customize Theme",  sub: "Colors, fonts, and dark mode",      subScreen: 'theme' },
-        { icon: "leaf-outline",              label: "Allergies",         sub: "Manage your dietary restrictions",  subScreen: 'allergies' },
         { icon: "location-outline",          label: "Locations",         sub: "Track your regular stores",         subScreen: 'locations' },
         { icon: "options-outline",           label: "Preferences",       sub: "App defaults and behavior",         subScreen: 'preferences' },
       ],
     },
     {
-      title: "COOKING",
+      title: "SOCIAL",
       items: [
-        { icon: "flame-outline",             label: "Cook History",      sub: "All recipes you've cooked",         subScreen: 'cookHistory' },
+        { icon: "people-outline",            label: "Friends",           sub: "See friends and their public recipes", subScreen: 'friends' },
       ],
     },
     {
       title: "ACCOUNT",
       items: [
-        { icon: "person-outline",            label: "Account Settings",  sub: "Coming soon",  subScreen: null },
-        { icon: "help-circle-outline",       label: "Help & Support",    sub: "Coming soon",  subScreen: null },
+        { icon: "person-outline",            label: "Account Settings",  sub: "Profile, allergies, and account info",  subScreen: 'account' },
+        { icon: "flame-outline",             label: "Cook History",      sub: "All recipes you've cooked",         subScreen: 'cookHistory' },
       ],
     },
     {
@@ -171,8 +266,86 @@ export default function MoreScreen({
           <Text style={styles.avatarText}>{initials}</Text>
         </View>
         <View style={styles.userInfo}>
-          <Text style={[styles.userNameLabel, { color: themeColors.textColor }]}>My Account</Text>
+          <Text style={[styles.userNameLabel, { color: themeColors.textColor }]}>{userDisplayName.trim() || "My Account"}</Text>
           <Text style={[styles.userEmailText, { color: isDark ? "#aaa" : "#888" }]}>{userEmail}</Text>
+          <View style={styles.notificationsWrap}>
+            <View style={styles.notificationsHeader}>
+              <Text style={[styles.notificationsTitle, { color: themeColors.textColor }]}>Recipe Saves</Text>
+              <View style={styles.notificationsBadge}>
+                <Text style={styles.notificationsBadgeText}>{recipeSaveNotificationCount}</Text>
+              </View>
+              {recipeSaveNotificationCount > 0 && (
+                <TouchableOpacity disabled={markingNotificationsRead} onPress={markRecipeSaveNotificationsRead}>
+                  <Text style={[styles.notificationsMarkRead, { color: themeColors.accentColor }, markingNotificationsRead && { opacity: 0.65 }]}>
+                    {markingNotificationsRead ? "Marking..." : "Mark all read"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {recipeSaveNotificationCount > 0 && (
+              <TouchableOpacity
+                onPress={() => setShowAllUnreadNotifications((previous) => !previous)}
+                style={[styles.notificationsExpandButton, { borderColor: isDark ? "#3d3d3d" : "#e1e1e1", backgroundColor: isDark ? "#292929" : "#fafafa" }]}
+              >
+                <Text style={[styles.notificationsExpandButtonText, { color: themeColors.textColor }]}>
+                  {showAllUnreadNotifications ? "Hide unread" : `View unread (${recipeSaveNotificationCount})`}
+                </Text>
+                <Ionicons
+                  name={showAllUnreadNotifications ? "chevron-up" : "chevron-down"}
+                  size={13}
+                  color={isDark ? "#aaa" : "#666"}
+                />
+              </TouchableOpacity>
+            )}
+
+            {showAllUnreadNotifications && recipeSaveNotificationCount > 0 && (
+              <View style={styles.notificationsUnreadList}>
+                {unreadRecipeSaveNotifications.map((notification) => (
+                  <Text key={`unread-${notification.id}`} style={[styles.notificationsItem, { color: isDark ? "#dedede" : "#444" }]}>
+                    {notification.message}
+                  </Text>
+                ))}
+              </View>
+            )}
+
+            <Text style={[styles.notificationsRecentLabel, { color: isDark ? "#a8a8a8" : "#787878" }]}>Recent</Text>
+            {recentRecipeSaveNotifications.length === 0 ? (
+              <Text style={[styles.notificationsEmpty, { color: isDark ? "#9a9a9a" : "#7a7a7a" }]}>No recent recipe-save notifications.</Text>
+            ) : (
+              recentRecipeSaveNotifications.map((notification) => (
+                <Text key={notification.id} style={[styles.notificationsItem, { color: isDark ? "#cfcfcf" : "#555" }]} numberOfLines={2}>
+                  {notification.message}
+                </Text>
+              ))
+            )}
+          </View>
+          {isAdminUser && quickSwitchTargets.length > 0 && (
+            <View style={styles.adminSwitcherWrap}>
+              <Text style={[styles.adminSwitcherTitle, { color: themeColors.textColor }]}>Admin Quick Switch</Text>
+              <Text style={[styles.adminSwitcherHint, { color: isDark ? "#9a9a9a" : "#7a7a7a" }]}>
+                Testing only. Tap a user to switch account instantly.
+              </Text>
+              <View style={styles.adminSwitcherButtons}>
+                {quickSwitchTargets.map((target) => (
+                  <TouchableOpacity
+                    key={target.email}
+                    disabled={isSwitchingUser}
+                    onPress={() => onQuickSwitchUser?.(target.email)}
+                    style={[
+                      styles.adminSwitchButton,
+                      { borderColor: themeColors.accentColor, backgroundColor: themeColors.accentColor + "20" },
+                      isSwitchingUser && { opacity: 0.6 },
+                    ]}
+                  >
+                    <Text style={[styles.adminSwitchButtonText, { color: themeColors.accentColor }]}>
+                      {isSwitchingUser ? "Switching..." : target.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
         </View>
       </View>
 
@@ -208,6 +381,16 @@ export default function MoreScreen({
                     </Text>
                     <Text style={[styles.rowSub, { color: isDark ? "#555" : "#b0b0b0" }]}>{item.sub}</Text>
                   </View>
+                  {item.subScreen === "friends" && (incomingRequestCount > 0 || pendingRequestCount > 0) && (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginRight: 8 }}>
+                      <View style={{ borderRadius: 999, backgroundColor: "#e8f4ea", borderWidth: 1, borderColor: "#c9e6cf", paddingHorizontal: 8, paddingVertical: 4 }}>
+                        <Text style={{ color: "#2e7d32", fontSize: 11, fontWeight: "800" }}>In {incomingRequestCount}</Text>
+                      </View>
+                      <View style={{ borderRadius: 999, backgroundColor: "#fff4e5", borderWidth: 1, borderColor: "#f3dfbf", paddingHorizontal: 8, paddingVertical: 4 }}>
+                        <Text style={{ color: "#ad6800", fontSize: 11, fontWeight: "800" }}>Pending {pendingRequestCount}</Text>
+                      </View>
+                    </View>
+                  )}
                   {isDisabled ? (
                     <View style={styles.soonBadge}>
                       <Text style={styles.soonText}>Soon</Text>
@@ -267,18 +450,21 @@ export default function MoreScreen({
                 {subTitles[subScreen] ?? ''}
               </Text>
             </View>
-            {subScreen === 'allergies' && (
-              <AllergiesScreen
+            {subScreen === 'account' && (
+              <SettingsScreen
+                userEmail={userEmail}
                 userAllergies={userAllergies}
                 onAllergiesChange={(a) => onAllergiesChange?.(a)}
                 theme={themeColors}
               />
             )}
+            {subScreen === 'friends' && (
+              <FriendsScreen theme={themeColors} />
+            )}
             {subScreen === 'locations' && (
               <LocationsScreen
                 onBack={doCloseSub}
                 theme={themeColors}
-                showInternalHeader={false}
               />
             )}
             {subScreen === 'preferences' && (
