@@ -264,7 +264,6 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
         id: doc.id,
         ...doc.data()
       } as PendingItem));
-      console.log("Pending items updated:", items.length);
       setPendingItems(items);
     });
 
@@ -273,12 +272,11 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
       const firestoreItems = snapshot.docs.map(doc => {
         const data = doc.data();
         return {
-          id: Math.random(), // Use random ID for local state
+          id: doc.id,
           _firestoreId: doc.id, // Store actual Firestore doc ID
           ...data
         };
       }) as unknown as PantryItem[];
-      console.log("Pantry items from Firestore:", firestoreItems.length);
       
       setItems(firestoreItems);
       if (firestoreItems.length > 0) setHasUserAddedItems(true);
@@ -774,16 +772,12 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            const targetItem = items.find((item) => item.id === itemId);
             try {
               // Update local state immediately for UI feedback
               setItems((prev) => prev.filter((item) => item.id !== itemId));
 
-              // If it's a Firestore item, delete using _firestoreId
-              if (targetItem?._firestoreId) {
-                await deleteDoc(pantryDoc(userId, targetItem._firestoreId));
-                console.log("Item deleted from Firestore:", targetItem._firestoreId);
-              }
+              // IDs are stable Firestore doc IDs in local state.
+              await deleteDoc(pantryDoc(userId, String(itemId)));
             } catch (error) {
               console.error("Error deleting item:", error);
               Alert.alert("Error", "Failed to delete item");
@@ -792,7 +786,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
         }
       ]
     );
-  }, [items, userId]);
+  }, [userId]);
 
   const handlePantrySearchChange = useCallback((value: string) => {
     setPantrySearchQuery(value);
