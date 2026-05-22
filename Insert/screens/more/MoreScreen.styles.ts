@@ -45,10 +45,24 @@ export default StyleSheet.create({
   userInfo: {
     flex: 1,
   },
+  userTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
   userNameLabel: {
     fontSize: 16,
     fontWeight: "700",
     marginBottom: 2,
+  },
+  userCardToggle: {
+    borderWidth: 1,
+    borderRadius: 999,
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
   },
   userEmailText: {
     fontSize: 13,

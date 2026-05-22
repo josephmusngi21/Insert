@@ -34,6 +34,8 @@ interface MoreScreenProps {
   theme?: ThemeColors;
   userAllergies?: string[];
   onAllergiesChange?: (allergies: string[]) => void;
+  userDietaryRestrictions?: string[];
+  onDietaryRestrictionsChange?: (dietaryRestrictions: string[]) => void;
   onThemeChange?: (theme: ThemeColors) => void;
   onSubScreenChange?: (active: boolean) => void;
   isAdminUser?: boolean;
@@ -63,6 +65,8 @@ export default function MoreScreen({
   theme,
   userAllergies = [],
   onAllergiesChange,
+  userDietaryRestrictions = [],
+  onDietaryRestrictionsChange,
   onThemeChange,
   onSubScreenChange,
   isAdminUser = false,
@@ -78,6 +82,7 @@ export default function MoreScreen({
   const [unreadRecipeSaveNotifications, setUnreadRecipeSaveNotifications] = useState<Array<{ id: string; message: string }>>([]);
   const [showAllUnreadNotifications, setShowAllUnreadNotifications] = useState(false);
   const [markingNotificationsRead, setMarkingNotificationsRead] = useState(false);
+  const [isUserCardExpanded, setIsUserCardExpanded] = useState(false);
   const slideOffset = useSharedValue(SCREEN_WIDTH);
   const subStyle = useAnimatedStyle(() => ({ transform: [{ translateX: slideOffset.value }] }));
   const mainParallaxStyle = useAnimatedStyle(() => ({
@@ -266,9 +271,40 @@ export default function MoreScreen({
           <Text style={styles.avatarText}>{initials}</Text>
         </View>
         <View style={styles.userInfo}>
-          <Text style={[styles.userNameLabel, { color: themeColors.textColor }]}>{userDisplayName.trim() || "My Account"}</Text>
-          <Text style={[styles.userEmailText, { color: isDark ? "#aaa" : "#888" }]}>{userEmail}</Text>
-          <View style={styles.notificationsWrap}>
+          <View style={styles.userTopRow}>
+            <Text style={[styles.userNameLabel, { color: themeColors.textColor }]}>{userDisplayName.trim() || "My Account"}</Text>
+            <TouchableOpacity
+              onPress={() => {
+                setIsUserCardExpanded((previous) => {
+                  const next = !previous;
+                  if (!next) setShowAllUnreadNotifications(false);
+                  return next;
+                });
+              }}
+              style={[
+                styles.userCardToggle,
+                {
+                  borderColor: isDark ? "#474747" : "#dfdfdf",
+                  backgroundColor: isUserCardExpanded
+                    ? (isDark ? "#2e2e2e" : "#f1f1f1")
+                    : (isDark ? "#292929" : "#f8f8f8"),
+                },
+              ]}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel={isUserCardExpanded ? "Minimize user card" : "Expand user card"}
+            >
+              <Ionicons
+                name={isUserCardExpanded ? "remove" : "add"}
+                size={14}
+                color={isDark ? "#d2d2d2" : "#555"}
+              />
+            </TouchableOpacity>
+          </View>
+          <Text style={[styles.userEmailText, { color: isDark ? "#aaa" : "#888" }]} numberOfLines={1}>{userEmail}</Text>
+
+          {isUserCardExpanded && (
+            <View style={styles.notificationsWrap}>
             <View style={styles.notificationsHeader}>
               <Text style={[styles.notificationsTitle, { color: themeColors.textColor }]}>Recipe Saves</Text>
               <View style={styles.notificationsBadge}>
@@ -319,8 +355,9 @@ export default function MoreScreen({
                 </Text>
               ))
             )}
-          </View>
-          {isAdminUser && quickSwitchTargets.length > 0 && (
+            </View>
+          )}
+          {isUserCardExpanded && isAdminUser && quickSwitchTargets.length > 0 && (
             <View style={styles.adminSwitcherWrap}>
               <Text style={[styles.adminSwitcherTitle, { color: themeColors.textColor }]}>Admin Quick Switch</Text>
               <Text style={[styles.adminSwitcherHint, { color: isDark ? "#9a9a9a" : "#7a7a7a" }]}>
@@ -455,6 +492,8 @@ export default function MoreScreen({
                 userEmail={userEmail}
                 userAllergies={userAllergies}
                 onAllergiesChange={(a) => onAllergiesChange?.(a)}
+                userDietaryRestrictions={userDietaryRestrictions}
+                onDietaryRestrictionsChange={(d) => onDietaryRestrictionsChange?.(d)}
                 theme={themeColors}
               />
             )}
