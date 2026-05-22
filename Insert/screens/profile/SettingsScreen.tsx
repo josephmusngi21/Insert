@@ -13,15 +13,18 @@ import { ensureUserProfile, userDoc } from "@/screens/firebaseAuthLoginRegister/
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 
 const COMMON_ALLERGENS = ["Peanuts", "Tree Nuts", "Milk", "Eggs", "Fish", "Shellfish", "Soy", "Wheat", "Sesame", "Gluten"];
+const COMMON_DIETARY_RESTRICTIONS = ["Vegan", "Vegetarian", "Pescatarian", "Gluten-Free", "Dairy-Free", "Halal", "Kosher", "Low-Carb", "Keto"];
 
 interface SettingsScreenProps {
   userEmail?: string;
   userAllergies?: string[];
   onAllergiesChange?: (allergies: string[]) => void;
+  userDietaryRestrictions?: string[];
+  onDietaryRestrictionsChange?: (dietaryRestrictions: string[]) => void;
   theme?: ThemeColors;
 }
 
-export default function SettingsScreen({ userEmail, userAllergies = [], onAllergiesChange, theme }: SettingsScreenProps) {
+export default function SettingsScreen({ userEmail, userAllergies = [], onAllergiesChange, userDietaryRestrictions = [], onDietaryRestrictionsChange, theme }: SettingsScreenProps) {
   const auth = getAuth();
   const currentUser = auth.currentUser;
   const themeColors = theme || {
@@ -34,8 +37,10 @@ export default function SettingsScreen({ userEmail, userAllergies = [], onAllerg
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState(userEmail || currentUser?.email || "");
   const [customAllergen, setCustomAllergen] = useState("");
+  const [customDietaryRestriction, setCustomDietaryRestriction] = useState("");
   const [saving, setSaving] = useState(false);
   const [allergies, setAllergies] = useState<string[]>(userAllergies);
+  const [dietaryRestrictions, setDietaryRestrictions] = useState<string[]>(userDietaryRestrictions);
   const [isEditingDisplayName, setIsEditingDisplayName] = useState(false);
   const [displayNameDirty, setDisplayNameDirty] = useState(false);
 
@@ -47,17 +52,22 @@ export default function SettingsScreen({ userEmail, userAllergies = [], onAllerg
     const unsubscribe = onSnapshot(userDoc(uid), (snap) => {
       const data = snap.data();
       const nextAllergies = Array.isArray(data?.allergies) ? data.allergies.filter((value: unknown): value is string => typeof value === "string") : [];
+      const nextDietaryRestrictions = Array.isArray(data?.dietaryRestrictions)
+        ? data.dietaryRestrictions.filter((value: unknown): value is string => typeof value === "string")
+        : [];
       const remoteDisplayName = (data?.displayName as string) || currentUser.displayName || "";
       if (!isEditingDisplayName && !displayNameDirty) {
         setDisplayName(remoteDisplayName);
       }
       setEmail((data?.email as string) || currentUser.email || userEmail || "");
       setAllergies(nextAllergies);
+      setDietaryRestrictions(nextDietaryRestrictions);
       onAllergiesChange?.(nextAllergies);
+      onDietaryRestrictionsChange?.(nextDietaryRestrictions);
     });
 
     return () => unsubscribe();
-  }, [currentUser, displayNameDirty, isEditingDisplayName, onAllergiesChange, userEmail]);
+  }, [currentUser, displayNameDirty, isEditingDisplayName, onAllergiesChange, onDietaryRestrictionsChange, userEmail]);
 
   const saveProfile = async () => {
     const uid = currentUser?.uid;
@@ -71,6 +81,7 @@ export default function SettingsScreen({ userEmail, userAllergies = [], onAllerg
       await updateDoc(userDoc(uid), {
         displayName: displayName.trim(),
         allergies,
+        dietaryRestrictions,
         updatedAt: serverTimestamp(),
       });
       if (currentUser.displayName !== displayName.trim()) {
@@ -101,6 +112,22 @@ export default function SettingsScreen({ userEmail, userAllergies = [], onAllerg
     }
   };
 
+  const persistDietaryRestrictions = async (nextDietaryRestrictions: string[]) => {
+    const uid = currentUser?.uid;
+    setDietaryRestrictions(nextDietaryRestrictions);
+    onDietaryRestrictionsChange?.(nextDietaryRestrictions);
+    if (!uid) return;
+
+    try {
+      await updateDoc(userDoc(uid), {
+        dietaryRestrictions: nextDietaryRestrictions,
+        updatedAt: serverTimestamp(),
+      });
+    } catch {
+      Alert.alert("Could not save dietary restrictions", "Your changes could not be synced right now.");
+    }
+  };
+
   const toggleAllergen = (allergen: string) => {
     if (allergies.includes(allergen)) {
       void persistAllergies(allergies.filter((value) => value !== allergen));
@@ -125,6 +152,32 @@ export default function SettingsScreen({ userEmail, userAllergies = [], onAllerg
 
   const removeAllergen = (allergen: string) => {
     void persistAllergies(allergies.filter((value) => value !== allergen));
+  };
+
+  const toggleDietaryRestriction = (restriction: string) => {
+    if (dietaryRestrictions.includes(restriction)) {
+      void persistDietaryRestrictions(dietaryRestrictions.filter((value) => value !== restriction));
+    } else {
+      void persistDietaryRestrictions([...dietaryRestrictions, restriction]);
+    }
+  };
+
+  const addCustomDietaryRestriction = () => {
+    const trimmed = customDietaryRestriction.trim();
+    if (!trimmed) {
+      Alert.alert("Add a dietary restriction", "Type the dietary restriction first.");
+      return;
+    }
+    if (dietaryRestrictions.some((value) => value.toLowerCase() === trimmed.toLowerCase())) {
+      Alert.alert("Already added", "That dietary restriction is already in your profile.");
+      return;
+    }
+    setCustomDietaryRestriction("");
+    void persistDietaryRestrictions([...dietaryRestrictions, trimmed]);
+  };
+
+  const removeDietaryRestriction = (restriction: string) => {
+    void persistDietaryRestrictions(dietaryRestrictions.filter((value) => value !== restriction));
   };
 
   const cardBg = isDark ? "#2a2a2a" : "#ffffff";
@@ -249,6 +302,60 @@ export default function SettingsScreen({ userEmail, userAllergies = [], onAllerg
             style={{ flex: 1, backgroundColor: inputBg, borderColor, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, color: themeColors.textColor }}
           />
           <TouchableOpacity onPress={addCustomAllergen} style={{ backgroundColor: themeColors.accentColor, borderRadius: 14, paddingHorizontal: 16, justifyContent: "center" }}>
+            <Ionicons name="add" size={18} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={{ backgroundColor: cardBg, borderRadius: 20, padding: 16, borderWidth: 1, borderColor, marginBottom: 16 }}>
+        <Text style={{ color: themeColors.textColor, fontSize: 15, fontWeight: "700", marginBottom: 8 }}>Dietary Restrictions</Text>
+        <Text style={{ color: isDark ? "#aaa" : "#777", marginBottom: 12, lineHeight: 20 }}>
+          Like allergies, these are used when recipes are shared so you can get compatibility warnings early.
+        </Text>
+
+        {dietaryRestrictions.length > 0 ? (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+            {dietaryRestrictions.map((restriction) => (
+              <TouchableOpacity key={restriction} onPress={() => removeDietaryRestriction(restriction)} style={{ backgroundColor: "#6c63ff", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 }}>
+                <Text style={{ color: "#fff", fontWeight: "700" }}>{restriction} ✕</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : (
+          <Text style={{ color: isDark ? "#888" : "#888", marginBottom: 16 }}>No dietary restrictions saved yet.</Text>
+        )}
+
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+          {COMMON_DIETARY_RESTRICTIONS.map((restriction) => {
+            const selected = dietaryRestrictions.includes(restriction);
+            return (
+              <TouchableOpacity
+                key={restriction}
+                onPress={() => toggleDietaryRestriction(restriction)}
+                style={{
+                  borderRadius: 999,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  borderWidth: 1,
+                  borderColor: selected ? themeColors.accentColor : borderColor,
+                  backgroundColor: selected ? themeColors.accentColor : "transparent",
+                }}
+              >
+                <Text style={{ color: selected ? "#fff" : themeColors.textColor, fontWeight: "600" }}>{restriction}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <TextInput
+            value={customDietaryRestriction}
+            onChangeText={setCustomDietaryRestriction}
+            placeholder="Add custom dietary restriction"
+            placeholderTextColor={isDark ? "#666" : "#aaa"}
+            style={{ flex: 1, backgroundColor: inputBg, borderColor, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, color: themeColors.textColor }}
+          />
+          <TouchableOpacity onPress={addCustomDietaryRestriction} style={{ backgroundColor: themeColors.accentColor, borderRadius: 14, paddingHorizontal: 16, justifyContent: "center" }}>
             <Ionicons name="add" size={18} color="#fff" />
           </TouchableOpacity>
         </View>

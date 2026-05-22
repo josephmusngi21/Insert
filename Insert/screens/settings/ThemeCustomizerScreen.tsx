@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from "react-native";
+import { colors } from "@/screens/components/styles/colors";
 
 type ThemeMode = "light" | "dark" | "custom";
 
@@ -22,9 +23,9 @@ interface ThemeCustomizerScreenProps {
 
 const lightTheme: ThemeColors = {
   mode: "light",
-  textColor: "#333",
-  accentColor: "#4CAF50",
-  backgroundColor: "#f5f5f5",
+  textColor: colors.textPrimary,
+  accentColor: colors.accent,
+  backgroundColor: colors.bgLight,
 };
 
 const darkTheme: ThemeColors = {
