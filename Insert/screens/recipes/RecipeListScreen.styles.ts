@@ -3,7 +3,7 @@ import { StyleSheet } from "react-native";
 export default StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 50,
+    paddingTop: 52,
     paddingBottom: 80,
   },
   header: {
@@ -11,13 +11,14 @@ export default StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: "#e8e8e8",
   },
   title: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: "700",
+    letterSpacing: 0.2,
   },
   sectionLabel: {
     fontSize: 12,
@@ -29,18 +30,18 @@ export default StyleSheet.create({
   },
   searchSection: {
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
+    paddingTop: 14,
+    paddingBottom: 14,
     borderBottomWidth: 1,
   },
   searchInputWrap: {
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   searchIcon: {
     fontSize: 16,
@@ -64,7 +65,7 @@ export default StyleSheet.create({
   categoryChip: {
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 18,
+    borderRadius: 999,
     borderWidth: 1,
     flexDirection: "row",
     alignItems: "center",
@@ -83,7 +84,7 @@ export default StyleSheet.create({
   filterButton: {
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: 999,
     borderWidth: 1,
   },
   filterButtonText: {
@@ -106,25 +107,45 @@ export default StyleSheet.create({
     color: "#bbb",
   },
   recipeCard: {
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 18,
+    padding: 18,
     marginHorizontal: 16,
-    marginBottom: 10,
+    marginBottom: 12,
     marginTop: 10,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
+    shadowOpacity: 0.09,
+    shadowRadius: 10,
     elevation: 3,
   },
+  recipeTopRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 10,
+    alignItems: "flex-start",
+  },
+  recipeThumb: {
+    width: 92,
+    height: 92,
+    borderRadius: 14,
+  },
+  recipeThumbFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recipeTopContent: {
+    flex: 1,
+    paddingTop: 2,
+  },
   recipeName: {
-    fontSize: 17,
+    fontSize: 19,
     fontWeight: "700",
     marginBottom: 4,
   },
   recipeDescription: {
-    fontSize: 14,
+    fontSize: 15,
     marginBottom: 8,
+    color: "#6F6F6F",
   },
   recipeMetaRow: {
     flexDirection: "row",
@@ -146,12 +167,13 @@ export default StyleSheet.create({
     flexWrap: "wrap",
   },
   infoText: {
-    fontSize: 12,
+    fontSize: 13,
     marginRight: 12,
     marginBottom: 4,
+    color: "#6F6F6F",
   },
   ingredients: {
     fontSize: 12,
-    fontStyle: "italic",
+    color: "#6F6F6F",
   },
 });

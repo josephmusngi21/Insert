@@ -9,21 +9,27 @@ import {
   Modal, Platform, Dimensions, ActivityIndicator, Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { addDoc, updateDoc } from "firebase/firestore";
+import { Image } from "expo-image";
+import { addDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { recipesCol, recipesDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { storage } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import { parseAllRecipesFromUrl, ParsedRecipe } from "@/screens/utils/recipeImport";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 
-type Ingredient = { id: number; name: string; quantity: string; unit: string };
+type Ingredient = { id: number; name: string; quantity: string; unit: string; sourceText?: string };
 type RecipeFormData = {
   name: string;
   description: string;
+  imageUrl?: string;
+  sourceUrl?: string;
   servings: string;
   cookTime: string;
   difficulty: string;
+  visibility: "private" | "public";
   ingredients: Ingredient[];
   instructions: string[];
 };
@@ -45,9 +51,12 @@ interface RecipeFormScreenProps {
 const BLANK_FORM: RecipeFormData = {
   name: "",
   description: "",
+  imageUrl: "",
+  sourceUrl: "",
   servings: "",
   cookTime: "",
   difficulty: "easy",
+  visibility: "private",
   ingredients: [{ id: 1, name: "", quantity: "", unit: "" }],
   instructions: [""],
 };
@@ -66,6 +75,9 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
   const [formData, setFormData] = useState<RecipeFormData>(initialData ?? BLANK_FORM);
   const [nextIngId, setNextIngId] = useState(2);
   const [importUrl, setImportUrl] = useState("");
+  const [lastImportedUrl, setLastImportedUrl] = useState("");
+  const [importImageCandidates, setImportImageCandidates] = useState<string[]>([]);
+  const [expandedSourceIngredientIds, setExpandedSourceIngredientIds] = useState<Set<number>>(new Set());
   const [isImporting, setIsImporting] = useState(false);
   const [pickerRecipes, setPickerRecipes] = useState<ParsedRecipe[] | null>(null);
   const [pickerSelected, setPickerSelected] = useState<Set<number>>(new Set());
@@ -97,6 +109,9 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
     setFormData(BLANK_FORM);
     setNextIngId(2);
     setImportUrl("");
+    setLastImportedUrl("");
+    setImportImageCandidates([]);
+    setExpandedSourceIngredientIds(new Set());
     setPickerRecipes(null);
     setPickerSelected(new Set());
   };
@@ -155,12 +170,14 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
       Alert.alert("No URL", "Paste a recipe URL first.");
       return;
     }
+    const normalizedImportUrl = importUrl.trim();
     setIsImporting(true);
     try {
-      const parsed = await parseAllRecipesFromUrl(importUrl.trim());
+      const parsed = await parseAllRecipesFromUrl(normalizedImportUrl);
       setImportUrl("");
+      setLastImportedUrl(normalizedImportUrl);
       if (parsed.length === 1) {
-        applyParsed(parsed[0]);
+        applyParsed(parsed[0], normalizedImportUrl);
       } else {
         setPickerRecipes(parsed);
         setPickerSelected(new Set(parsed.map((_, i) => i)));
@@ -172,19 +189,37 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
     }
   };
 
-  const applyParsed = (p: ParsedRecipe) => {
-    const ings = p.ingredients.map((ing, i) => ({ id: i + 1, name: ing.name, quantity: ing.quantity, unit: ing.unit }));
+  const applyParsed = (p: ParsedRecipe, sourceUrl?: string) => {
+    const ings = p.ingredients.map((ing, i) => ({
+      id: i + 1,
+      name: ing.name,
+      quantity: ing.quantity,
+      unit: ing.unit,
+      sourceText: ing.sourceText || "",
+    }));
+    const candidates = Array.isArray(p.imageCandidates) ? p.imageCandidates.filter(Boolean) : [];
+    const selectedImage = p.imageUrl || candidates[0] || "";
+
+    setImportImageCandidates(candidates);
     setFormData({
       name: p.name,
       description: p.description,
+      imageUrl: selectedImage,
+      sourceUrl: sourceUrl || "",
       servings: p.servings,
       cookTime: p.cookTime,
       difficulty: p.difficulty,
+      visibility: "private",
       ingredients: ings.length > 0 ? ings : [{ id: 1, name: "", quantity: "", unit: "" }],
       instructions: p.instructions.length > 0 ? p.instructions : [""],
     });
     setNextIngId(ings.length + 1);
+    setExpandedSourceIngredientIds(new Set());
     setPickerRecipes(null);
+  };
+
+  const showPhotoComingSoon = () => {
+    Alert.alert("Coming Soon", "Recipe photo capture is a future feature.");
   };
 
   // Ingredients
@@ -216,7 +251,45 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
   const handleSetServings = useCallback((t: string) => setFormData(f => ({ ...f, servings: t })), []);
   const handleSetCookTime = useCallback((t: string) => setFormData(f => ({ ...f, cookTime: t })), []);
   const handleSetDifficulty = useCallback((level: string) => setFormData(f => ({ ...f, difficulty: level })), []);
+  const handleSetVisibility = useCallback((visibility: "private" | "public") => setFormData(f => ({ ...f, visibility })), []);
   const handleSetImportUrl = useCallback((url: string) => setImportUrl(url), []);
+
+  const isImportedFlow = !!lastImportedUrl;
+
+  const getIngredientUncertainty = (ingredient: Ingredient) => {
+    const name = (ingredient.name || "").trim();
+    const quantity = (ingredient.quantity || "").trim();
+    const unit = (ingredient.unit || "").trim().toLowerCase();
+
+    const nameUncertain =
+      !name ||
+      /\bfor\b\s+/i.test(name) ||
+      /[^a-z\s'\-]/i.test(name) ||
+      name.length < 2;
+
+    const quantityUncertain = !quantity || Number.isNaN(Number(quantity.replace(/,/g, "")));
+    const unitUncertain = !unit || unit === "piece" || unit === "pcs";
+
+    return {
+      nameUncertain,
+      quantityUncertain,
+      unitUncertain,
+      anyUncertain: nameUncertain || quantityUncertain || unitUncertain,
+    };
+  };
+
+  const uncertainIngredientCount = isImportedFlow
+    ? formData.ingredients.filter((ingredient) => getIngredientUncertainty(ingredient).anyUncertain).length
+    : 0;
+
+  const cleanIngredientsForSave = (ingredients: Ingredient[]) => {
+    return ingredients.map((ingredient, index) => ({
+      id: ingredient.id ?? index + 1,
+      name: (ingredient.name || "").trim(),
+      quantity: (ingredient.quantity || "").trim(),
+      unit: (ingredient.unit || "").trim(),
+    }));
+  };
 
   // Save / Update
   const handleSave = async () => {
@@ -234,50 +307,74 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
       Alert.alert("Missing Instructions", "Add at least one cooking step.");
       return;
     }
-    const finalData = { ...formData, instructions: validInst };
+    const resolvedImageUrl = formData.imageUrl || "";
 
-    // Duplicate check — only for new recipes, run before any async work
-    if (!isEditMode && existingRecipeNames.some(n => n.trim().toLowerCase() === finalData.name.trim().toLowerCase())) {
-      Alert.alert(
-        "Recipe Already Exists",
-        `"${finalData.name}" is already in your recipes. Save a copy anyway?`,
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Save Anyway", onPress: () => { onRecipeSaved?.(finalData); resetForm(); } },
-        ]
-      );
-      return;
-    }
+    const finalData = {
+      ...formData,
+      imageUrl: resolvedImageUrl,
+      instructions: validInst,
+      ingredients: cleanIngredientsForSave(formData.ingredients),
+    };
 
-    if (isEditMode && editRecipeId && userId) {
-      try {
-        await updateDoc(recipesDoc(userId, editRecipeId), {
-          name: finalData.name,
-          description: finalData.description || "",
-          servings: finalData.servings,
-          cookTime: finalData.cookTime,
-          difficulty: finalData.difficulty,
-          ingredients: finalData.ingredients,
-          instructions: finalData.instructions,
-        });
+    const proceedSave = async () => {
+      // Duplicate check — only for new recipes, run before any async work
+      if (!isEditMode && existingRecipeNames.some(n => n.trim().toLowerCase() === finalData.name.trim().toLowerCase())) {
+        Alert.alert(
+          "Recipe Already Exists",
+          `"${finalData.name}" is already in your recipes. Save a copy anyway?`,
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Save Anyway", onPress: () => { onRecipeSaved?.(finalData); resetForm(); } },
+          ]
+        );
+        return;
+      }
+
+      if (isEditMode && editRecipeId && userId) {
+        try {
+          await updateDoc(recipesDoc(userId, editRecipeId), {
+            name: finalData.name,
+            description: finalData.description || "",
+            imageUrl: finalData.imageUrl || "",
+            sourceUrl: finalData.sourceUrl || "",
+            servings: finalData.servings,
+            cookTime: finalData.cookTime,
+            difficulty: finalData.difficulty,
+            visibility: finalData.visibility,
+            ingredients: finalData.ingredients,
+            instructions: finalData.instructions,
+          });
+          onRecipeSaved?.(finalData);
+          resetForm();
+        } catch (err) {
+          Alert.alert("Update Failed", "Could not save changes. Try again.");
+        }
+      } else {
         onRecipeSaved?.(finalData);
         resetForm();
-      } catch (err) {
-        Alert.alert("Update Failed", "Could not save changes. Try again.");
       }
-    } else {
-      onRecipeSaved?.(finalData);
-      resetForm();
-    }
+    };
+
+    Alert.alert(
+      "Double-check before saving",
+      uncertainIngredientCount > 0
+        ? `Please quickly review your recipe details. ${uncertainIngredientCount} ingredient field(s) may need adjustment.`
+        : "Please quickly review your recipe details before saving.",
+      [
+        { text: "Keep Editing", style: "cancel" },
+        { text: isEditMode ? "Update" : "Save", onPress: () => { void proceedSave(); } },
+      ]
+    );
   };
 
   // Multi-recipe picker confirm
   const handlePickerConfirm = async () => {
     if (pickerSelected.size === 0) { Alert.alert("Nothing selected", "Select at least one recipe."); return; }
     const selected = pickerRecipes!.filter((_, i) => pickerSelected.has(i));
-    if (selected.length === 1) { applyParsed(selected[0]); return; }
+    if (selected.length === 1) { applyParsed(selected[0], lastImportedUrl || undefined); return; }
     if (!userId) { Alert.alert("Not signed in"); return; }
     setIsImporting(true);
+    const currentDisplayName = auth.currentUser?.displayName || auth.currentUser?.email?.split("@")[0] || "Insert Chef";
     let saved = 0, skipped = 0, failed = 0;
     const existingLower = existingRecipeNames.map(n => n.trim().toLowerCase());
     for (const r of selected) {
@@ -286,8 +383,19 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
       try {
         await addDoc(recipesCol(userId), {
           userId, name: r.name, description: r.description || "",
+          imageUrl: r.imageUrl || (Array.isArray(r.imageCandidates) ? r.imageCandidates[0] : "") || "",
+          sourceUrl: lastImportedUrl || "",
           servings: r.servings, cookTime: r.cookTime, difficulty: r.difficulty,
-          ingredients: r.ingredients, instructions: r.instructions,
+          visibility: "private",
+          ingredients: cleanIngredientsForSave((r.ingredients as any[]) || []), instructions: r.instructions,
+          originType: "imported",
+          originalCreatorUserId: userId,
+          originalCreatorDisplayName: currentDisplayName,
+          originalCreatedAt: serverTimestamp(),
+          originalImporterUserId: userId,
+          originalImporterDisplayName: currentDisplayName,
+          originalImportedAt: serverTimestamp(),
+          createdAt: serverTimestamp(),
         });
         saved++;
       } catch { failed++; }
@@ -332,6 +440,7 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
               </TouchableOpacity>
               {pickerRecipes.map((r, i) => {
                 const sel = pickerSelected.has(i);
+                const previewImage = r.imageUrl || (Array.isArray(r.imageCandidates) ? r.imageCandidates[0] : "") || "";
                 return (
                   <TouchableOpacity
                     key={i}
@@ -341,6 +450,9 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
                     <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: sel ? tc.accentColor : mutedBorder, backgroundColor: sel ? tc.accentColor : "transparent", alignItems: "center", justifyContent: "center", marginTop: 2, flexShrink: 0 }}>
                       {sel && <Ionicons name="checkmark" size={13} color="#fff" />}
                     </View>
+                    {previewImage ? (
+                      <Image source={{ uri: previewImage }} contentFit="cover" transition={160} style={{ width: 62, height: 62, borderRadius: 10 }} />
+                    ) : null}
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 15, fontWeight: "700", color: tc.textColor, marginBottom: 4 }} numberOfLines={2}>{r.name || "Untitled"}</Text>
                       {r.description ? <Text style={{ fontSize: 13, color: mutedText, marginBottom: 6 }} numberOfLines={2}>{r.description}</Text> : null}
@@ -422,9 +534,9 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
             style={{ flex: 1 }}
             contentContainerStyle={{ paddingBottom: 120 }}
             showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="always"
+            keyboardShouldPersistTaps="handled"
             scrollEventThrottle={16}
-            keyboardDismissMode="none"
+            keyboardDismissMode="on-drag"
             contentInset={{ bottom: 40 }}
             automaticallyAdjustKeyboardInsets={true}
             nestedScrollEnabled={true}
@@ -436,6 +548,15 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
                     <Ionicons name="link" size={16} color={tc.accentColor} />
                     <Text style={{ fontWeight: "700", fontSize: 14, color: tc.textColor }}>Import from a Website</Text>
+                    <TouchableOpacity
+                      onPress={() => Alert.alert(
+                        "Import accuracy note",
+                        "Website imports are auto-parsed and may not be 100% exact. Some ingredients, quantities, steps, times, or servings may need quick edits before saving."
+                      )}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="information-circle-outline" size={14} color={mutedText} />
+                    </TouchableOpacity>
                   </View>
                   <Text style={{ fontSize: 12, color: mutedText, marginBottom: 10, lineHeight: 18 }}>
                     AllRecipes, Food Network, Simply Recipes, Serious Eats, Epicurious, and most recipe blogs.
@@ -473,6 +594,79 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
                 </View>
               </>
             ) : null}
+            <Text style={labelStyle}>Recipe Photo</Text>
+            <View style={{ marginBottom: 16 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  if (importImageCandidates.length === 0) showPhotoComingSoon();
+                }}
+                activeOpacity={importImageCandidates.length > 0 ? 1 : 0.8}
+                style={{
+                  borderRadius: 16,
+                  overflow: "hidden",
+                  backgroundColor: isDark ? "#2a2a2a" : "#fff4ea",
+                  borderWidth: 1.5,
+                  borderColor: formData.imageUrl ? tc.accentColor : mutedBorder,
+                  minHeight: 190,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {formData.imageUrl ? (
+                  <Image source={{ uri: formData.imageUrl }} contentFit="cover" transition={220} style={{ width: "100%", height: 210 }} />
+                ) : (
+                  <View style={{ alignItems: "center", paddingHorizontal: 20 }}>
+                    <Ionicons name="camera-outline" size={32} color={tc.accentColor} />
+                    <Text style={{ marginTop: 8, color: tc.textColor, fontWeight: "700", fontSize: 15 }}>
+                      {importImageCandidates.length > 0 ? "Choose one image below" : "Recipe photo (Coming Soon)"}
+                    </Text>
+                    <Text style={{ marginTop: 4, color: mutedText, fontSize: 12 }}>
+                      {importImageCandidates.length > 0 ? "Tap one imported image to select it." : "Photo capture will be available in a future update."}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              {importImageCandidates.length > 0 ? (
+                <View style={{ marginTop: 10 }}>
+                  <Text style={{ color: mutedText, fontSize: 12, marginBottom: 8 }}>
+                    Imported image options (select one)
+                  </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
+                    {importImageCandidates.map((imageUrl, index) => {
+                      const selected = formData.imageUrl === imageUrl;
+                      return (
+                        <TouchableOpacity
+                          key={`${imageUrl}-${index}`}
+                          onPress={() => setFormData((f) => ({ ...f, imageUrl }))}
+                          style={{
+                            width: 94,
+                            borderRadius: 12,
+                            borderWidth: 2,
+                            borderColor: selected ? tc.accentColor : mutedBorder,
+                            overflow: "hidden",
+                            backgroundColor: isDark ? "#2a2a2a" : "#fff",
+                          }}
+                        >
+                          <Image source={{ uri: imageUrl }} contentFit="cover" transition={160} style={{ width: "100%", height: 68 }} />
+                          <View style={{ paddingVertical: 6, alignItems: "center" }}>
+                            <Text style={{ color: selected ? tc.accentColor : mutedText, fontSize: 11, fontWeight: "700" }}>
+                              {selected ? "Selected" : "Select"}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              ) : null}
+
+              {formData.imageUrl ? (
+                <TouchableOpacity onPress={() => setFormData((f) => ({ ...f, imageUrl: "" }))} style={{ marginTop: 8, alignSelf: "flex-start" }}>
+                  <Text style={{ color: "#cc5031", fontWeight: "700", fontSize: 13 }}>Remove photo</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
             {/* Name */}
             <Text style={labelStyle}>Recipe Name *</Text>
             <TextInput
@@ -544,6 +738,30 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
               })}
             </View>
 
+            <Text style={labelStyle}>Visibility</Text>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
+              {(["private", "public"] as const).map((visibility) => {
+                const selected = formData.visibility === visibility;
+                return (
+                  <TouchableOpacity
+                    key={visibility}
+                    onPress={() => handleSetVisibility(visibility)}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 10,
+                      borderRadius: 10,
+                      alignItems: "center",
+                      borderWidth: 1.5,
+                      backgroundColor: selected ? tc.accentColor : "transparent",
+                      borderColor: selected ? tc.accentColor : mutedBorder,
+                    }}
+                  >
+                    <Text style={{ fontWeight: "700", fontSize: 13, color: selected ? "#fff" : mutedText, textTransform: "capitalize" }}>{visibility}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
             {/* Ingredients */}
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
               <Text style={{ fontSize: 14, fontWeight: "700", color: tc.textColor }}>Ingredients</Text>
@@ -552,15 +770,44 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
                 <Text style={{ color: tc.accentColor, fontWeight: "600", fontSize: 13 }}>Add</Text>
               </TouchableOpacity>
             </View>
+            {isImportedFlow && uncertainIngredientCount > 0 ? (
+              <View style={{ marginBottom: 10, borderWidth: 1, borderColor: "#ffd59e", backgroundColor: isDark ? "#3a2d17" : "#fff8ef", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Ionicons name="alert-circle-outline" size={14} color={isDark ? "#ffd59e" : "#ad6800"} />
+                <Text style={{ color: isDark ? "#ffd59e" : "#ad6800", fontSize: 12, fontWeight: "600", flex: 1 }}>
+                  {uncertainIngredientCount} imported ingredient field(s) may need review.
+                </Text>
+              </View>
+            ) : null}
             <View style={{ backgroundColor: sectionBg, borderRadius: 14, padding: 12, marginBottom: 20, gap: 12 }}>
-              {formData.ingredients.map((ing, idx) => (
-                <View key={ing.id}>
+              {formData.ingredients.map((ing, idx) => {
+                const uncertainty = getIngredientUncertainty(ing);
+                const highlightRow = isImportedFlow && uncertainty.anyUncertain;
+                return (
+                <View key={ing.id} style={highlightRow ? { borderWidth: 1, borderColor: isDark ? "#8a6a3d" : "#ffd59e", borderRadius: 10, padding: 6, backgroundColor: isDark ? "#2e261a" : "#fffdf9" } : undefined}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
                     <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: tc.accentColor + "33", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                       <Text style={{ fontSize: 11, fontWeight: "700", color: tc.accentColor }}>{idx + 1}</Text>
                     </View>
+                    {highlightRow ? (
+                      <TouchableOpacity
+                        onPress={() => {
+                          setExpandedSourceIngredientIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(ing.id)) next.delete(ing.id);
+                            else next.add(ing.id);
+                            return next;
+                          });
+                        }}
+                        style={{ borderRadius: 999, paddingHorizontal: 7, paddingVertical: 2, backgroundColor: isDark ? "#8a6a3d" : "#ffe8c2", flexDirection: "row", alignItems: "center", gap: 3 }}
+                      >
+                        <Text style={{ color: isDark ? "#1f1f1f" : "#8a4b00", fontSize: 10, fontWeight: "700" }}>
+                          {expandedSourceIngredientIds.has(ing.id) ? "Hide source" : "Review"}
+                        </Text>
+                        <Ionicons name={expandedSourceIngredientIds.has(ing.id) ? "chevron-up" : "chevron-down"} size={11} color={isDark ? "#1f1f1f" : "#8a4b00"} />
+                      </TouchableOpacity>
+                    ) : null}
                     <TextInput
-                      style={{ flex: 1, borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: tc.textColor, backgroundColor: inputBg, borderColor: ing.name ? tc.accentColor : mutedBorder }}
+                      style={{ flex: 1, borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: tc.textColor, backgroundColor: inputBg, borderColor: uncertainty.nameUncertain && isImportedFlow ? "#f1a33c" : (ing.name ? tc.accentColor : mutedBorder) }}
                       placeholder="Ingredient name"
                       placeholderTextColor={isDark ? "#555" : "#bbb"}
                       value={ing.name}
@@ -568,7 +815,7 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
                       blurOnSubmit={false}
                     />
                     <TextInput
-                      style={{ width: 60, borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 8, fontSize: 14, color: tc.textColor, backgroundColor: inputBg, borderColor: mutedBorder, textAlign: "center" }}
+                      style={{ width: 60, borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 8, fontSize: 14, color: tc.textColor, backgroundColor: inputBg, borderColor: uncertainty.quantityUncertain && isImportedFlow ? "#f1a33c" : mutedBorder, textAlign: "center" }}
                       placeholder="Qty"
                       placeholderTextColor={isDark ? "#555" : "#bbb"}
                       value={ing.quantity}
@@ -586,11 +833,19 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
                     <View style={{ flexDirection: "row", gap: 6, paddingBottom: 2 }}>
                       {COOKING_UNITS.map(u => {
                         const sel = ing.unit === u;
+                        const unitUncertain = isImportedFlow && uncertainty.unitUncertain;
                         return (
                           <TouchableOpacity
                             key={u}
                             onPress={() => updateIngredient(ing.id, "unit", u)}
-                            style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 7, backgroundColor: sel ? tc.accentColor : chipInactive }}
+                            style={{
+                              paddingHorizontal: 10,
+                              paddingVertical: 5,
+                              borderRadius: 7,
+                              backgroundColor: sel ? tc.accentColor : chipInactive,
+                              borderWidth: !sel && unitUncertain ? 1 : 0,
+                              borderColor: !sel && unitUncertain ? "#f1a33c" : "transparent",
+                            }}
                           >
                             <Text style={{ fontSize: 12, fontWeight: sel ? "700" : "400", color: sel ? "#fff" : tc.textColor }}>{u}</Text>
                           </TouchableOpacity>
@@ -598,9 +853,29 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
                       })}
                     </View>
                   </ScrollView>
+                  {highlightRow ? (
+                    <Text style={{ marginLeft: 30, marginTop: 6, color: isDark ? "#ffd59e" : "#ad6800", fontSize: 11 }}>
+                      Check highlighted fields before saving.
+                    </Text>
+                  ) : null}
+                  {highlightRow && expandedSourceIngredientIds.has(ing.id) ? (
+                    <View style={{ marginLeft: 30, marginTop: 6, borderWidth: 1, borderColor: isDark ? "#6d5530" : "#ffd59e", borderRadius: 8, padding: 8, backgroundColor: isDark ? "#2a2318" : "#fff8ef" }}>
+                      <Text style={{ color: isDark ? "#eecf9f" : "#8a4b00", fontSize: 11, fontWeight: "700", marginBottom: 4 }}>
+                        Imported source snippet
+                      </Text>
+                      <Text style={{ color: isDark ? "#f2e6cf" : "#5e3b08", fontSize: 12 }}>
+                        {(ing.sourceText || "No source snippet available for this row.").trim()}
+                      </Text>
+                      {!!lastImportedUrl && (
+                        <Text style={{ marginTop: 4, color: isDark ? "#c6b494" : "#8b6c3f", fontSize: 10 }} numberOfLines={1}>
+                          Source: {lastImportedUrl}
+                        </Text>
+                      )}
+                    </View>
+                  ) : null}
                   {idx < formData.ingredients.length - 1 && <View style={{ height: 1, backgroundColor: mutedBorder, marginTop: 10 }} />}
                 </View>
-              ))}
+              )})}
             </View>
 
             {/* Instructions */}
@@ -650,7 +925,9 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
               onPress={handleSave}
               style={{ backgroundColor: allFilled ? tc.accentColor : (isDark ? "#333" : "#d0d0d0"), borderRadius: 14, paddingVertical: 16, alignItems: "center" }}
             >
-              <Text style={{ color: allFilled ? "#fff" : mutedText, fontWeight: "700", fontSize: 16 }}>{isEditMode ? "Update Recipe" : "Save Recipe"}</Text>
+              <Text style={{ color: allFilled ? "#fff" : mutedText, fontWeight: "700", fontSize: 16 }}>
+                {isEditMode ? "Update Recipe" : "Save Recipe"}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
