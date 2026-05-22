@@ -8,6 +8,7 @@ export type ParsedIngredient = {
   name: string;
   quantity: string;
   unit: string;
+  sourceText?: string;
 };
 
 export type ParsedRecipe = {
@@ -18,6 +19,8 @@ export type ParsedRecipe = {
   difficulty: string;
   ingredients: ParsedIngredient[];
   instructions: string[];
+  imageUrl?: string;
+  imageCandidates?: string[];
 };
 
 // Known units and their normalized forms matching the app's COOKING_UNITS
@@ -121,6 +124,38 @@ export function parseIngredient(raw: string): ParsedIngredient {
     .replace(/\s+/g, " ")
     .trim();
 
+  // Remove common list/markdown prefixes and noisy suffixes from ingredient lines
+  str = str
+    .replace(/^\s*[-*•#]+\s+/, "")
+    .replace(/\s[#*]+\s*.*$/, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  const sourceText = str;
+
+  const looksLikeSectionHeader = (value: string): boolean => {
+    const v = value.trim();
+    if (!v) return true;
+    if (/^for\b.+:\s*$/i.test(v)) return true;
+    if (/^[a-z][a-z\s'&-]{1,50}:\s*$/i.test(v)) return true;
+    return false;
+  };
+
+  const cleanIngredientName = (value: string): string => {
+    return value
+      .replace(/\([^)]*$/g, "")
+      .replace(/,.*$/, "")
+      .replace(/\s+for\s+(sprinkling|frying|serving|garnish(?:ing)?|drizzling|dusting|coating|dipping|topping)\b.*$/i, "")
+      .replace(/\s+(to taste|as needed)\b.*$/i, "")
+      .replace(/^\s*(quality|good[-\s]?quality|best[-\s]?quality)\s+/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  };
+
+  if (looksLikeSectionHeader(str)) {
+    return { name: "", quantity: "", unit: "", sourceText };
+  }
+
   // Normalize unicode fractions
   str = normalizeFractions(str);
 
@@ -130,7 +165,9 @@ export function parseIngredient(raw: string): ParsedIngredient {
 
   if (!qMatch) {
     // No quantity found — use "1" as default, entire string is name
-    return { name: str.replace(/,.*$/, "").trim(), quantity: "1", unit: "piece" };
+    const name = cleanIngredientName(str);
+    if (!name || looksLikeSectionHeader(name)) return { name: "", quantity: "", unit: "", sourceText };
+    return { name, quantity: "1", unit: "piece", sourceText };
   }
 
   const rawQty = qMatch[1].trim();
@@ -142,23 +179,34 @@ export function parseIngredient(raw: string): ParsedIngredient {
   const firstWordLower = words[0]?.toLowerCase() ?? "";
 
   if (ALL_UNITS.map(u => u.toLowerCase()).includes(firstWordLower)) {
-    const unit = UNIT_NORMALIZE[words[0]] ?? UNIT_NORMALIZE[firstWordLower] ?? firstWordLower;
-    // Remove trailing parentheticals like "(optional)", "(about X)"
-    const name = words
+    const parsedUnit = UNIT_NORMALIZE[words[0]] ?? UNIT_NORMALIZE[firstWordLower] ?? firstWordLower;
+    let parsedQuantity = quantity;
+
+    // The parenthetical value often contains normalized metric quantity, e.g. "4 ounces (113g)".
+    const unitTail = words
       .slice(1)
-      .join(" ")
+      .join(" ");
+    const parenMetricMatch = unitTail.match(/\((\d+(?:\.\d+)?)\s*(g|kg|ml|l)\)/i);
+    if (parenMetricMatch) {
+      parsedQuantity = parenMetricMatch[1];
+      parsedUnit = UNIT_NORMALIZE[parenMetricMatch[2].toLowerCase()] ?? parenMetricMatch[2].toLowerCase();
+    }
+
+    // Remove parentheticals like "(113g)", "(optional)", "(about X)" from ingredient name.
+    const name = cleanIngredientName(unitTail)
       .replace(/\s*\(.*?\)\s*/g, " ")
-      .replace(/,.*$/, "")
+      .replace(/^\W+/, "")
       .trim();
-    return { name, quantity, unit };
+    if (!name || looksLikeSectionHeader(name)) return { name: "", quantity: "", unit: "", sourceText };
+    return { name, quantity: parsedQuantity, unit: parsedUnit, sourceText };
   }
 
   // No recognizable unit — treat everything as name
-  const name = rest
+  const name = cleanIngredientName(rest)
     .replace(/\s*\(.*?\)\s*/g, " ")
-    .replace(/,.*$/, "")
     .trim();
-  return { name, quantity, unit: "piece" };
+  if (!name || looksLikeSectionHeader(name)) return { name: "", quantity: "", unit: "", sourceText };
+  return { name, quantity, unit: "piece", sourceText };
 }
 
 // Parse ISO 8601 duration to minutes string: "PT1H30M" → "90"
@@ -188,11 +236,63 @@ function cleanText(str: string): string {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/\[(.*?)\]\((.*?)\)/g, "$1")
+    .replace(/!\[(.*?)\]\((.*?)\)/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s*/gm, "")
+    .replace(/^\s*[-*•]+\s+/gm, "")
+    .replace(/^\s*\d+[.)]\s+/gm, "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/^\s*[#>*|`~]+\s*/g, "")
+    .replace(/\s*[#>*|`~]+\s*$/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 // Extract instructions as an array of plain text strings
+function splitInstructionText(raw: string): string[] {
+  if (!raw) return [];
+
+  const linePieces = raw
+    .replace(/\r/g, "\n")
+    .split(/\n+/)
+    .map((line) => cleanText(line))
+    .filter(Boolean);
+
+  const splitByNumbering = (text: string): string[] => {
+    // Example patterns: "1. ... 2. ...", "Step 1: ... Step 2: ...", "1) ..."
+    const tokenized = text
+      .replace(/(?:^|\s)(?:step\s*)?\d+\s*[).:-]\s+/gi, " ||| ")
+      .trim();
+
+    const numberedParts = tokenized
+      .split("|||")
+      .map((part) => cleanText(part))
+      .filter(Boolean);
+
+    if (numberedParts.length > 1) return numberedParts;
+    return [text];
+  };
+
+  const out: string[] = [];
+  for (const line of linePieces.length > 0 ? linePieces : [cleanText(raw)]) {
+    for (const maybeNumbered of splitByNumbering(line)) {
+      // Fallback split for very long clumped directions without numbering.
+      const sentenceParts = maybeNumbered
+        .split(/[.!?]\s+(?=[A-Z])/)
+        .map((part) => cleanText(part))
+        .filter(Boolean);
+
+      if (sentenceParts.length > 1 && maybeNumbered.length >= 120) {
+        out.push(...sentenceParts);
+      } else {
+        out.push(maybeNumbered);
+      }
+    }
+  }
+
+  return [...new Set(out.map((step) => cleanText(step)).filter(Boolean))];
+}
+
 function extractInstructions(raw: unknown): string[] {
   if (!raw) return [];
 
@@ -202,18 +302,14 @@ function extractInstructions(raw: unknown): string[] {
   }
 
   if (typeof raw === "string") {
-    return raw
-      .split(/\n+/)
-      .map(cleanText)
-      .filter(Boolean);
+    return splitInstructionText(raw);
   }
 
   if (Array.isArray(raw)) {
     const results: string[] = [];
     for (const item of raw) {
       if (typeof item === "string") {
-        const cleaned = cleanText(item);
-        if (cleaned) results.push(cleaned);
+        results.push(...splitInstructionText(item));
       } else if (item && typeof item === "object") {
         const type = (item as any)["@type"];
         const typeStr = Array.isArray(type) ? type[0] : type;
@@ -222,17 +318,16 @@ function extractInstructions(raw: unknown): string[] {
           const nested = (item as any).itemListElement ?? [];
           for (const step of nested) {
             if (typeof step === "string") {
-              const cleaned = cleanText(step);
-              if (cleaned) results.push(cleaned);
+              results.push(...splitInstructionText(step));
             } else if (step && typeof step === "object") {
               const text = (step as any).text ?? (step as any).description ?? (step as any).name ?? "";
-              if (text) results.push(cleanText(String(text)));
+              if (text) results.push(...splitInstructionText(String(text)));
             }
           }
         } else {
           // HowToStep or other — try text, description, name in order
           const text = (item as any).text ?? (item as any).description ?? (item as any).name ?? "";
-          if (text) results.push(cleanText(String(text)));
+          if (text) results.push(...splitInstructionText(String(text)));
         }
       }
     }
@@ -283,17 +378,51 @@ function findAllRecipeNodes(json: unknown): Record<string, unknown>[] {
 }
 
 // Build a ParsedRecipe from a raw schema.org Recipe node
-function buildParsedRecipe(recipeNode: Record<string, unknown>): ParsedRecipe {
-  const name = String(recipeNode.name ?? "").trim();
-  const description = String(recipeNode.description ?? "")
-    .replace(/<[^>]+>/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+function extractImageCandidates(raw: unknown): string[] {
+  const out: string[] = [];
+  const pushUrl = (value: unknown) => {
+    if (typeof value !== "string") return;
+    const url = value.trim();
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) return;
+    out.push(url);
+  };
+
+  const walk = (value: unknown) => {
+    if (!value) return;
+    if (typeof value === "string") {
+      pushUrl(value);
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item);
+      return;
+    }
+    if (typeof value === "object") {
+      const obj = value as Record<string, unknown>;
+      pushUrl(obj.url);
+      pushUrl(obj.contentUrl);
+      pushUrl(obj.thumbnailUrl);
+      pushUrl(obj["@id"]);
+    }
+  };
+
+  walk(raw);
+
+  // Keep order but dedupe.
+  return [...new Set(out)];
+}
+
+function buildParsedRecipe(recipeNode: Record<string, unknown>, pageImageCandidates: string[] = []): ParsedRecipe {
+  const name = cleanText(String(recipeNode.name ?? ""));
+  const description = cleanText(String(recipeNode.description ?? ""));
 
   const rawIngredients = recipeNode.recipeIngredient;
   const ingredients: ParsedIngredient[] =
     Array.isArray(rawIngredients) && rawIngredients.length > 0
-      ? rawIngredients.map(i => parseIngredient(String(i)))
+      ? rawIngredients
+          .map(i => parseIngredient(String(i)))
+          .filter((ingredient) => ingredient.name.trim().length > 0)
       : [{ name: "", quantity: "1", unit: "piece" }];
 
   const rawInstructions = recipeNode.recipeInstructions;
@@ -304,6 +433,9 @@ function buildParsedRecipe(recipeNode: Record<string, unknown>): ParsedRecipe {
     parseDuration(String(recipeNode.cookTime ?? "")) ||
     parseDuration(String(recipeNode.prepTime ?? ""));
 
+  const recipeImages = extractImageCandidates(recipeNode.image);
+  const imageCandidates = [...new Set([...recipeImages, ...pageImageCandidates])].slice(0, 12);
+
   return {
     name,
     description: description.slice(0, 500),
@@ -312,11 +444,18 @@ function buildParsedRecipe(recipeNode: Record<string, unknown>): ParsedRecipe {
     difficulty: "easy",
     ingredients,
     instructions: instructions.length > 0 ? instructions : [""],
+    imageUrl: imageCandidates[0] || "",
+    imageCandidates,
   };
 }
 
 // Shared fetch + HTML parse logic
-async function fetchAndParseHtml(url: string): Promise<Record<string, unknown>[]> {
+type ParsedHtmlPayload = {
+  recipeNodes: Record<string, unknown>[];
+  pageImageCandidates: string[];
+};
+
+async function fetchAndParseHtml(url: string): Promise<ParsedHtmlPayload> {
   const trimmed = url.trim();
   if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
     throw new Error("Please enter a URL starting with https://");
@@ -342,8 +481,10 @@ async function fetchAndParseHtml(url: string): Promise<Record<string, unknown>[]
 
   const html = await response.text();
   const jsonLdRegex = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  const imageMetaRegex = /<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image|og:image:url|twitter:image:src)["'][^>]+content=["']([^"']+)["'][^>]*>/gi;
   let match: RegExpExecArray | null;
   const allNodes: Record<string, unknown>[] = [];
+  const pageImageCandidates: string[] = [];
 
   while ((match = jsonLdRegex.exec(html)) !== null) {
     try {
@@ -354,17 +495,26 @@ async function fetchAndParseHtml(url: string): Promise<Record<string, unknown>[]
     }
   }
 
-  return allNodes;
+  while ((match = imageMetaRegex.exec(html)) !== null) {
+    const maybeUrl = (match[1] || "").trim();
+    if (/^https?:\/\//i.test(maybeUrl)) pageImageCandidates.push(maybeUrl);
+  }
+
+  return {
+    recipeNodes: allNodes,
+    pageImageCandidates: [...new Set(pageImageCandidates)].slice(0, 12),
+  };
 }
 
 export async function parseAllRecipesFromUrl(url: string): Promise<ParsedRecipe[]> {
-  const nodes = await fetchAndParseHtml(url);
+  const { recipeNodes, pageImageCandidates } = await fetchAndParseHtml(url);
+  const nodes = recipeNodes;
   if (nodes.length === 0) {
     throw new Error(
       "No recipe data found on this page.\n\nThis works best with major recipe sites like AllRecipes, Food Network, Simply Recipes, Serious Eats, Epicurious, and most food blogs."
     );
   }
-  return nodes.map(buildParsedRecipe);
+  return nodes.map((node) => buildParsedRecipe(node, pageImageCandidates));
 }
 
 export async function parseRecipeFromUrl(url: string): Promise<ParsedRecipe> {
