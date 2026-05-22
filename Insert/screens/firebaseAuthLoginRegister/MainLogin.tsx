@@ -1,6 +1,8 @@
 import { View, Text, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { colors } from "@/screens/components/styles/colors";
 // import Login from './login/index';
 // import Register from './register/index';
 // import HomeScreen from './screens/home/index';
@@ -25,15 +27,24 @@ export default function MainLogin({ onLoginSuccess }: MainLoginProps) {
   const renderWelcomeScreen = () => (
     <View style={styles.welcomeCard}>
       <Text style={styles.welcomeEyebrow}>INSERT PANTRY</Text>
-      <Text style={styles.welcomeTitle}>Make pantry planning feel effortless.</Text>
+      <Text style={styles.welcomeTitle}>Keep your kitchen in sync, without the chaos.</Text>
       <Text style={styles.welcomeDescription}>
-        Save ingredients, track what is expiring, and plan recipes with fewer taps.
+        Track food, plan meals, and organize shopping in one calm, polished workflow.
       </Text>
 
       <View style={styles.featureList}>
-        <Text style={styles.featureItem}>Track ingredients by location and freshness</Text>
-        <Text style={styles.featureItem}>Build recipe ideas from what you already have</Text>
-        <Text style={styles.featureItem}>Keep your shopping list in one place</Text>
+        <View style={styles.featureItemRow}>
+          <Ionicons name="leaf-outline" size={16} color={colors.accent} />
+          <Text style={styles.featureItem}>Track ingredients by location and freshness</Text>
+        </View>
+        <View style={styles.featureItemRow}>
+          <Ionicons name="restaurant-outline" size={16} color={colors.accent} />
+          <Text style={styles.featureItem}>Build recipes from ingredients already at home</Text>
+        </View>
+        <View style={styles.featureItemRow}>
+          <Ionicons name="cart-outline" size={16} color={colors.accent} />
+          <Text style={styles.featureItem}>Shop smarter with one shared list</Text>
+        </View>
       </View>
 
       <TouchableOpacity style={styles.primaryButton} onPress={() => setActiveScreen('login')}>
