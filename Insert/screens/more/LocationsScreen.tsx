@@ -230,7 +230,7 @@ export default function LocationsScreen({ onBack, theme, showInternalHeader = tr
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.contentContainer}>
+      <ScrollView contentContainerStyle={styles.contentContainer} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         {activeTab === 'locations' && (
           <>
             {/* Add New Location Section */}

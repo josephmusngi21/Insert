@@ -157,7 +157,7 @@ export default function PreferencesScreen({ onBack, theme }: PreferencesScreenPr
         </TouchableOpacity>
       )}
 
-      <ScrollView contentContainerStyle={styles.contentContainer}>
+      <ScrollView contentContainerStyle={styles.contentContainer} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         <Text style={[styles.title, { color: themeColors.textColor }]}>Preferences</Text>
         <Text style={[styles.subtitle, { color: themeColors.mode === "dark" ? "#aaa" : "#666" }]}>
           Customize how quantities, shopping safety, and pantry behavior work
