@@ -10,6 +10,7 @@ import styles from "./LocationsScreen.styles";
 interface LocationsScreenProps {
   onBack: () => void;
   theme?: ThemeColors;
+  showInternalHeader?: boolean;
 }
 
 const DEFAULT_LOCATIONS: Record<string, string[]> = {
@@ -20,7 +21,7 @@ const DEFAULT_LOCATIONS: Record<string, string[]> = {
   "Counter": ["tomato", "onion", "garlic", "bread", "fruit", "apple", "banana", "orange", "lemon"],
 };
 
-export default function LocationsScreen({ onBack, theme }: LocationsScreenProps) {
+export default function LocationsScreen({ onBack, theme, showInternalHeader = true }: LocationsScreenProps) {
   const [locations, setLocations] = useState<Record<string, string[]>>(DEFAULT_LOCATIONS);
   const [editingLocation, setEditingLocation] = useState<string | null>(null);
   const [newItemName, setNewItemName] = useState("");
@@ -171,18 +172,20 @@ export default function LocationsScreen({ onBack, theme }: LocationsScreenProps)
   return (
     <View style={[styles.container, { backgroundColor: themeColors.backgroundColor }]}>
       {/* Header */}
-      <View
-        style={[
-          styles.header,
-          { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff", borderBottomColor: themeColors.mode === "dark" ? "#444" : "#eee" },
-        ]}
-      >
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Text style={[styles.backButtonText, { color: themeColors.accentColor }]}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={[styles.title, { color: themeColors.textColor }]}>Locations</Text>
-        <View style={{ width: 60 }} />
-      </View>
+      {showInternalHeader && (
+        <View
+          style={[
+            styles.header,
+            { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff", borderBottomColor: themeColors.mode === "dark" ? "#444" : "#eee" },
+          ]}
+        >
+          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+            <Text style={[styles.backButtonText, { color: themeColors.accentColor }]}>← Back</Text>
+          </TouchableOpacity>
+          <Text style={[styles.title, { color: themeColors.textColor }]}>Locations</Text>
+          <View style={{ width: 60 }} />
+        </View>
+      )}
 
       {/* Tab Buttons */}
       <View
