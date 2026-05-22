@@ -118,6 +118,7 @@ type ImporterProfilePreview = {
   displayName: string;
   handle: string;
   allergies: string[];
+  dietaryRestrictions: string[];
   publicRecipes: Array<{
     id: string;
     name: string;
@@ -135,12 +136,13 @@ interface RecipeListScreenProps {
   onRecipeSelect?: (recipeId: string) => void;
   theme?: ThemeColors;
   userAllergies?: string[];
+  userDietaryRestrictions?: string[];
   showRecipeForm?: boolean;
   setShowRecipeForm?: (show: boolean) => void;
   onBackToAddChoice?: () => void;
 }
 
-export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies = [], showRecipeForm = false, setShowRecipeForm = () => {}, onBackToAddChoice }: RecipeListScreenProps) {
+export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies = [], userDietaryRestrictions = [], showRecipeForm = false, setShowRecipeForm = () => {}, onBackToAddChoice }: RecipeListScreenProps) {
   const [recipeList, setRecipeList] = useState<Recipe[]>([]);
   const [filterByAllergies, setFilterByAllergies] = useState(false);
   const [selectedDiets, setSelectedDiets] = useState<string[]>([]);
@@ -346,11 +348,14 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
     setLoadingImporterProfile(true);
     try {
       const profileSnap = await getDoc(userDoc(importerUserId));
-      const profileData = profileSnap.data() as { displayName?: string; email?: string; allergies?: unknown[] } | undefined;
+      const profileData = profileSnap.data() as { displayName?: string; email?: string; allergies?: unknown[]; dietaryRestrictions?: unknown[] } | undefined;
       const displayName = profileData?.displayName || profileData?.email?.split("@")[0] || recipe.originalImporterDisplayName || recipe.originalCreatorDisplayName || "Insert User";
       const handle = `@${displayName.toLowerCase().replace(/[^a-z0-9]/g, "") || "insertuser"}`;
       const allergies = Array.isArray(profileData?.allergies)
         ? profileData.allergies.filter((value): value is string => typeof value === "string")
+        : [];
+      const dietaryRestrictions = Array.isArray(profileData?.dietaryRestrictions)
+        ? profileData.dietaryRestrictions.filter((value): value is string => typeof value === "string")
         : [];
 
       const publicRecipesSnap = await getDocs(query(collection(db, "publicRecipes"), where("ownerId", "==", importerUserId), limit(12)));
@@ -383,6 +388,7 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
         displayName,
         handle,
         allergies,
+        dietaryRestrictions,
         publicRecipes,
       });
     } catch (error) {
@@ -534,6 +540,32 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
     if (!userAllergies.length) return [] as string[];
     const ingredientNames = (share.recipeIngredientsDetailed || []).map((ingredient) => ingredient.name || "").join(" ").toLowerCase();
     return userAllergies.filter((allergy) => ingredientNames.includes(String(allergy).toLowerCase()));
+  };
+
+  const DIETARY_CONFLICT_KEYWORDS: Record<string, string[]> = {
+    vegan: ["beef", "pork", "chicken", "fish", "salmon", "tuna", "shrimp", "egg", "milk", "cheese", "butter", "yogurt", "honey", "gelatin"],
+    vegetarian: ["beef", "pork", "chicken", "fish", "salmon", "tuna", "shrimp", "anchovy", "gelatin", "bacon", "sausage", "ham"],
+    pescatarian: ["beef", "pork", "chicken", "turkey", "lamb", "bacon", "sausage", "ham", "gelatin"],
+    "gluten-free": ["wheat", "barley", "rye", "flour", "bread", "pasta", "noodle", "soy sauce", "breadcrumbs", "cracker"],
+    "dairy-free": ["milk", "cheese", "butter", "cream", "yogurt", "ghee", "whey"],
+    keto: ["sugar", "honey", "syrup", "bread", "pasta", "rice", "potato", "flour", "corn", "beans"],
+    "low-carb": ["sugar", "honey", "syrup", "bread", "pasta", "rice", "potato", "flour", "corn"],
+    halal: ["pork", "ham", "bacon", "lard", "gelatin", "wine", "beer", "rum", "vodka"],
+    kosher: ["pork", "shellfish", "shrimp", "crab", "lobster"],
+  };
+
+  const getShareDietaryConflicts = (share: SharedRecipeInvite) => {
+    if (!userDietaryRestrictions.length) return [] as string[];
+    const ingredientNames = (share.recipeIngredientsDetailed || []).map((ingredient) => ingredient.name || "").join(" ").toLowerCase();
+
+    return userDietaryRestrictions.filter((restriction) => {
+      const key = String(restriction).toLowerCase().trim();
+      const conflictKeywords = DIETARY_CONFLICT_KEYWORDS[key];
+      if (conflictKeywords?.length) {
+        return conflictKeywords.some((keyword) => ingredientNames.includes(keyword));
+      }
+      return ingredientNames.includes(key);
+    });
   };
 
   const markShareStatus = async (shareId: string, status: "accepted" | "denied") => {
@@ -728,6 +760,7 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
 
           {pendingShares.slice(0, 3).map((share) => {
             const matchedAllergies = getShareMatchedAllergies(share);
+            const dietaryConflicts = getShareDietaryConflicts(share);
             return (
               <View key={share.id} style={{ borderWidth: 1, borderColor: themeColors.mode === "dark" ? "#395239" : "#cde9d0", borderRadius: 10, padding: 10, marginBottom: 8, backgroundColor: themeColors.mode === "dark" ? "#1d281d" : "#fff" }}>
                 <Text style={{ color: themeColors.textColor, fontWeight: "700" }} numberOfLines={1}>{share.recipeName || "Shared recipe"}</Text>
@@ -747,6 +780,22 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
                       <Ionicons name="information-circle-outline" size={14} color="#c62828" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+                {dietaryConflicts.length > 0 && (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
+                    <Text style={{ color: "#ad1457", fontWeight: "700", flex: 1 }} numberOfLines={2}>
+                      Dietary conflict: {dietaryConflicts.join(", ")}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => Alert.alert(
+                        "Dietary warning note",
+                        "This dietary warning is based on ingredient-name text and may not be 100% exact. Always verify full ingredients before cooking."
+                      )}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="information-circle-outline" size={14} color="#ad1457" />
                     </TouchableOpacity>
                   </View>
                 )}
@@ -1007,13 +1056,26 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
 
             {(() => {
               const matched = selectedShare ? getShareMatchedAllergies(selectedShare) : [];
-              if (matched.length === 0) return null;
+              const dietaryConflicts = selectedShare ? getShareDietaryConflicts(selectedShare) : [];
+              if (matched.length === 0 && dietaryConflicts.length === 0) return null;
               return (
                 <View style={{ marginTop: 12, borderRadius: 12, borderWidth: 1, borderColor: "#f4b5b5", backgroundColor: "#fff5f5", padding: 10 }}>
-                  <Text style={{ color: "#b71c1c", fontWeight: "800" }}>Allergy warning</Text>
-                  <Text style={{ color: "#b71c1c", marginTop: 4 }}>
-                    This recipe may contain: {matched.join(", ")}
-                  </Text>
+                  {matched.length > 0 && (
+                    <>
+                      <Text style={{ color: "#b71c1c", fontWeight: "800" }}>Allergy warning</Text>
+                      <Text style={{ color: "#b71c1c", marginTop: 4 }}>
+                        This recipe may contain: {matched.join(", ")}
+                      </Text>
+                    </>
+                  )}
+                  {dietaryConflicts.length > 0 && (
+                    <>
+                      <Text style={{ color: "#ad1457", fontWeight: "800", marginTop: matched.length > 0 ? 8 : 0 }}>Dietary warning</Text>
+                      <Text style={{ color: "#ad1457", marginTop: 4 }}>
+                        This recipe may conflict with: {dietaryConflicts.join(", ")}
+                      </Text>
+                    </>
+                  )}
                 </View>
               );
             })()}
@@ -1094,6 +1156,19 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
                     {selectedImporterProfile.allergies.map((allergy) => (
                       <View key={`${selectedImporterProfile.userId}-${allergy}`} style={{ borderWidth: 1, borderColor: themeColors.mode === "dark" ? "#444" : "#ddd", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 }}>
                         <Text style={{ color: themeColors.textColor, fontWeight: "700", fontSize: 12 }}>{allergy}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                <Text style={{ color: themeColors.textColor, fontWeight: "700", marginTop: 14, marginBottom: 8 }}>Dietary Restrictions</Text>
+                {selectedImporterProfile.dietaryRestrictions.length === 0 ? (
+                  <Text style={{ color: themeColors.mode === "dark" ? "#aaa" : "#666" }}>No dietary restrictions listed.</Text>
+                ) : (
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                    {selectedImporterProfile.dietaryRestrictions.map((restriction) => (
+                      <View key={`${selectedImporterProfile.userId}-diet-${restriction}`} style={{ borderWidth: 1, borderColor: themeColors.mode === "dark" ? "#444" : "#ddd", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 }}>
+                        <Text style={{ color: themeColors.textColor, fontWeight: "700", fontSize: 12 }}>{restriction}</Text>
                       </View>
                     ))}
                   </View>

@@ -304,7 +304,7 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
   const [showImporterProfile, setShowImporterProfile] = useState(false);
   const [loadingImporterProfile, setLoadingImporterProfile] = useState(false);
   type ImporterPublicRecipe = { id: string; name: string; imageUrl?: string; cookTime?: string | number; difficulty?: string; description?: string; sourceUrl?: string; ingredients?: { name: string; quantity?: string | number; unit?: string }[]; instructions?: string[] };
-  const [importerProfile, setImporterProfile] = useState<{ userId: string; displayName: string; handle: string; allergies: string[]; publicRecipes: ImporterPublicRecipe[]; isFriend: boolean; hasPendingRequest: boolean } | null>(null);
+  const [importerProfile, setImporterProfile] = useState<{ userId: string; displayName: string; handle: string; allergies: string[]; dietaryRestrictions: string[]; publicRecipes: ImporterPublicRecipe[]; isFriend: boolean; hasPendingRequest: boolean } | null>(null);
   const [selectedImporterRecipeDetail, setSelectedImporterRecipeDetail] = useState<ImporterPublicRecipe | null>(null);
 
   const getDisplayQuantityText = (quantity: number | string, unit: string) => {
@@ -315,14 +315,10 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
 
   useEffect(() => {
     if (!recipeId) return;
-    
-    console.log("Loading recipe with ID:", recipeId);
-    
+
     // Load from Firestore using real-time listener for instant display
     const docRef = recipesDoc(userId, recipeId);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      console.log("Firestore doc exists:", docSnap.exists());
-      console.log("Firestore doc data:", docSnap.data());
       if (docSnap.exists()) {
         const data = docSnap.data();
         setRecipe({
@@ -350,8 +346,6 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
           originalImporterDisplayName: data.originalImporterDisplayName || "",
           originalImportedAt: data.originalImportedAt || null,
         } as Recipe);
-      } else {
-        console.log("Document does not exist");
       }
     }, (error) => {
       console.error("Error loading recipe from Firestore:", error);
@@ -940,6 +934,30 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
     return allergies.filter((allergen) => combined.includes(allergen.toLowerCase()));
   };
 
+  const DIETARY_CONFLICT_KEYWORDS: Record<string, string[]> = {
+    vegan: ["beef", "pork", "chicken", "fish", "salmon", "tuna", "shrimp", "egg", "milk", "cheese", "butter", "yogurt", "honey", "gelatin"],
+    vegetarian: ["beef", "pork", "chicken", "fish", "salmon", "tuna", "shrimp", "anchovy", "gelatin", "bacon", "sausage", "ham"],
+    pescatarian: ["beef", "pork", "chicken", "turkey", "lamb", "bacon", "sausage", "ham", "gelatin"],
+    "gluten-free": ["wheat", "barley", "rye", "flour", "bread", "pasta", "noodle", "soy sauce", "breadcrumbs", "cracker"],
+    "dairy-free": ["milk", "cheese", "butter", "cream", "yogurt", "ghee", "whey"],
+    keto: ["sugar", "honey", "syrup", "bread", "pasta", "rice", "potato", "flour", "corn", "beans"],
+    "low-carb": ["sugar", "honey", "syrup", "bread", "pasta", "rice", "potato", "flour", "corn"],
+    halal: ["pork", "ham", "bacon", "lard", "gelatin", "wine", "beer", "rum", "vodka"],
+    kosher: ["pork", "shellfish", "shrimp", "crab", "lobster"],
+  };
+
+  const recipeConflictsDietaryRestrictions = (dietaryRestrictions: string[] = []) => {
+    const combined = recipe?.ingredients.map((ingredient) => ingredient.name.toLowerCase()).join(" ") || "";
+    return dietaryRestrictions.filter((restriction) => {
+      const key = restriction.toLowerCase().trim();
+      const conflictKeywords = DIETARY_CONFLICT_KEYWORDS[key];
+      if (conflictKeywords?.length) {
+        return conflictKeywords.some((keyword) => combined.includes(keyword));
+      }
+      return combined.includes(key);
+    });
+  };
+
   const sendRecipeToFriend = async (friend: FriendItem) => {
     if (!recipe || !userId || !friend?.id) return;
     setSendingToFriendId(friend.id);
@@ -948,12 +966,23 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
       const friendAllergies = Array.isArray(friendProfileSnap.data()?.allergies)
         ? friendProfileSnap.data()?.allergies.filter((value: unknown): value is string => typeof value === "string")
         : [];
+      const friendDietaryRestrictions = Array.isArray(friendProfileSnap.data()?.dietaryRestrictions)
+        ? friendProfileSnap.data()?.dietaryRestrictions.filter((value: unknown): value is string => typeof value === "string")
+        : [];
       const matchedAllergies = recipeContainsAllergy(friendAllergies);
-      if (matchedAllergies.length > 0) {
+      const dietaryConflicts = recipeConflictsDietaryRestrictions(friendDietaryRestrictions);
+      if (matchedAllergies.length > 0 || dietaryConflicts.length > 0) {
+        const warningParts: string[] = [];
+        if (matchedAllergies.length > 0) {
+          warningParts.push(`${friend.displayName || "Your friend"} has allergies listed that match this recipe: ${matchedAllergies.join(", ")}.`);
+        }
+        if (dietaryConflicts.length > 0) {
+          warningParts.push(`${friend.displayName || "Your friend"} has dietary restrictions that may conflict: ${dietaryConflicts.join(", ")}.`);
+        }
         const continueShare = await new Promise<boolean>((resolve) => {
           Alert.alert(
-            "Allergy warning",
-            `${friend.displayName || "Your friend"} has ${matchedAllergies.join(", ")} listed. This recipe may contain ingredients that match those allergies. Share anyway?`,
+            matchedAllergies.length > 0 ? "Allergy / dietary warning" : "Dietary warning",
+            `${warningParts.join("\n\n")}\n\nThis check is based on ingredient-name text and may not be 100% exact. Share anyway?`,
             [
               { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
               { text: "Share Anyway", style: "destructive", onPress: () => resolve(true) },
@@ -1016,11 +1045,14 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
     setLoadingImporterProfile(true);
     try {
       const profileSnap = await getDoc(doc(db, "users", importerUserId));
-      const profileData = profileSnap.data() as { displayName?: string; email?: string; allergies?: unknown[] } | undefined;
+      const profileData = profileSnap.data() as { displayName?: string; email?: string; allergies?: unknown[]; dietaryRestrictions?: unknown[] } | undefined;
       const displayName = profileData?.displayName || profileData?.email?.split("@")[0] || recipe.originalImporterDisplayName || recipe.originalCreatorDisplayName || "Insert User";
       const handle = `@${displayName.toLowerCase().replace(/[^a-z0-9]/g, "") || "insertuser"}`;
       const allergies = Array.isArray(profileData?.allergies)
         ? (profileData!.allergies as unknown[]).filter((v): v is string => typeof v === "string")
+        : [];
+      const dietaryRestrictions = Array.isArray(profileData?.dietaryRestrictions)
+        ? (profileData!.dietaryRestrictions as unknown[]).filter((v): v is string => typeof v === "string")
         : [];
 
       const publicRecipesSnap = await getDocs(query(collection(db, "publicRecipes"), where("ownerId", "==", importerUserId), limit(12)));
@@ -1047,7 +1079,7 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
         hasPendingRequest = outSnap.exists();
       } catch { /* ignore */ }
 
-      setImporterProfile({ userId: importerUserId, displayName, handle, allergies, publicRecipes, isFriend, hasPendingRequest });
+      setImporterProfile({ userId: importerUserId, displayName, handle, allergies, dietaryRestrictions, publicRecipes, isFriend, hasPendingRequest });
     } catch (error) {
       console.error("Importer profile load failed:", error);
       Alert.alert("Profile unavailable", "Could not load this profile right now.");
@@ -2151,6 +2183,19 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
                           <Text style={{ color: isDark ? "#aaa" : "#777", fontSize: 12 }}>+{importerProfile.allergies.length - 3} more</Text>
                         </View>
                       )}
+                    </View>
+                  )}
+
+                  <Text style={{ color: themeColors.textColor, fontWeight: "700", marginBottom: 6 }}>Dietary Restrictions</Text>
+                  {importerProfile.dietaryRestrictions.length === 0 ? (
+                    <Text style={{ color: isDark ? "#aaa" : "#777", marginBottom: 12, fontSize: 13 }}>No dietary restrictions listed.</Text>
+                  ) : (
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                      {importerProfile.dietaryRestrictions.map((restriction) => (
+                        <View key={`imp-diet-${restriction}`} style={{ borderWidth: 1, borderColor: isDark ? "#444" : "#ddd", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 }}>
+                          <Text style={{ color: themeColors.textColor, fontWeight: "700", fontSize: 12 }}>{restriction}</Text>
+                        </View>
+                      ))}
                     </View>
                   )}
 
