@@ -4,22 +4,22 @@
  */
 
 export const colors = {
-  // Greens
-  accent:        '#4CAF50',
-  accentDark:    '#388E3C',
-  accentMuted:   '#66BB6A',
+  // Warm cooking primary
+  accent:        '#FF8A3D',
+  accentDark:    '#E86F1C',
+  accentMuted:   '#FFD9B3',
 
   // Backgrounds
-  bgLight:       '#f5f5f5',
+  bgLight:       '#F8F8F8',
   bgDark:        '#1a1a1a',
   cardLight:     '#ffffff',
   cardDark:      '#2a2a2a',
   cardDarkAlt:   '#333333',
 
   // Text
-  textPrimary:   '#1a1a1a',
-  textSecondary: '#555555',
-  textMuted:     '#888888',
+  textPrimary:   '#2F2A26',
+  textSecondary: '#4A4A4A',
+  textMuted:     '#6F6F6F',
   textDisabled:  '#bbbbbb',
   textLight:     '#ffffff',
 
@@ -32,6 +32,6 @@ export const colors = {
   dangerBg:      '#fff2f2',
   dangerBorder:  '#f5cccc',
   warning:       '#f59f00',
-  success:       '#4CAF50',
+  success:       '#3C9E5D',
   info:          '#2196F3',
 };
