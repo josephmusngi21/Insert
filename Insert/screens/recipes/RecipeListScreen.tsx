@@ -4,12 +4,14 @@
  */
 
 import { useState, useMemo, useEffect, useRef } from "react";
-import { View, Text, ScrollView, TouchableOpacity, Alert, Button, Animated } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity, Alert, Animated, TextInput } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
-import { onSnapshot, addDoc } from "firebase/firestore";
-import { recipesCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
+import { onSnapshot, addDoc, deleteDoc } from "firebase/firestore";
+import { recipesCol, recipesDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
+import { RECIPE_CATEGORY_OPTIONS, RecipeBrowseCategory, getRecipeBrowseCategory, matchesSearch } from "@/screens/utils/categorization";
 import styles from "./RecipeListScreen.styles";
 import RecipeFormScreen from "./RecipeFormScreen";
 
@@ -77,15 +79,27 @@ interface RecipeListScreenProps {
   userAllergies?: string[];
   showRecipeForm?: boolean;
   setShowRecipeForm?: (show: boolean) => void;
+  onBackToAddChoice?: () => void;
 }
 
-export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies = [], showRecipeForm = false, setShowRecipeForm = () => {} }: RecipeListScreenProps) {
+export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies = [], showRecipeForm = false, setShowRecipeForm = () => {}, onBackToAddChoice }: RecipeListScreenProps) {
   const [recipeList, setRecipeList] = useState<Recipe[]>([]);
   const [filterByAllergies, setFilterByAllergies] = useState(false);
   const [selectedDiets, setSelectedDiets] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<RecipeBrowseCategory>("all");
   const [toast, setToast] = useState<{ message: string; success: boolean } | null>(null);
+  const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
+  const recipeSearchInputRef = useRef<any>(null);
   const toastAnim = useRef(new Animated.Value(0)).current;
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleRecipeSearchChange = (value: string) => {
+    setSearchQuery(value);
+    requestAnimationFrame(() => {
+      recipeSearchInputRef.current?.focus?.();
+    });
+  };
 
   const showToast = (message: string, success: boolean) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -156,23 +170,46 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
     });
   };
 
-  // Filter recipes based on selected diets and allergies
-  let filteredRecipes = selectedDiets.length > 0
-    ? recipeList.filter((recipe) => recipeMatchesDiets(recipe, selectedDiets))
-    : recipeList;
+  const filteredRecipes = useMemo(() => {
+    let next = selectedDiets.length > 0
+      ? recipeList.filter((recipe) => recipeMatchesDiets(recipe, selectedDiets))
+      : recipeList;
 
-  // Apply allergy filter if enabled
-  if (filterByAllergies && userAllergies.length > 0) {
-    filteredRecipes = filteredRecipes.filter((recipe) => recipeSafeForAllergies(recipe));
-  }
+    if (filterByAllergies && userAllergies.length > 0) {
+      next = next.filter((recipe) => recipeSafeForAllergies(recipe));
+    }
+
+    next = next.filter((recipe) => {
+      const derivedCategory = getRecipeBrowseCategory({
+        name: recipe.name,
+        description: recipe.description,
+        ingredients: recipe.ingredients,
+      });
+
+      const categoryMatches = selectedCategory === "all" || derivedCategory === selectedCategory;
+      const searchMatches = matchesSearch(
+        [
+          recipe.name,
+          recipe.description,
+          recipe.difficulty,
+          recipe.cookTime,
+          recipe.servings,
+          ...recipe.ingredients.map((ingredient) => ingredient.name),
+          derivedCategory,
+        ],
+        searchQuery
+      );
+
+      return categoryMatches && searchMatches;
+    });
+
+    return next;
+  }, [filterByAllergies, recipeList, searchQuery, selectedCategory, selectedDiets, userAllergies]);
 
 
   const handleRecipeSaved = async (newRecipe: any) => {
     try {
-      console.log("handleRecipeSaved called with:", newRecipe.name);
-      
-      // Save to Firestore
-      const docRef = await addDoc(recipesCol(userId), {
+      await addDoc(recipesCol(userId), {
         userId,
         name: newRecipe.name,
         description: newRecipe.description || "",
@@ -182,35 +219,106 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
         ingredients: newRecipe.ingredients,
         instructions: newRecipe.instructions,
       });
-      
-      console.log("Recipe saved with ID:", docRef.id);
       setShowRecipeForm(false);
       showToast(`"${newRecipe.name}" saved!`, true);
     } catch (error) {
-      console.error("Error saving recipe:", error);
       showToast("Failed to save recipe. Try again.", false);
     }
   };
 
-  if (showRecipeForm) {
-    return (
-      <RecipeFormScreen
-        onRecipeSaved={handleRecipeSaved}
-        onCancel={() => setShowRecipeForm(false)}
-        theme={themeColors}
-      />
+  const handleDeleteRecipeFromList = (recipe: Recipe) => {
+    Alert.alert(
+      "Delete Recipe",
+      `Delete "${recipe.name}"? This cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: async () => {
+          try {
+            await deleteDoc(recipesDoc(userId, recipe.id));
+            showToast(`"${recipe.name}" deleted.`, true);
+          } catch {
+            showToast("Failed to delete.", false);
+          }
+        }},
+      ]
     );
-  }
+  };
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: themeColors.backgroundColor }]}>
+    <>
+      <RecipeFormScreen
+        visible={showRecipeForm}
+        editRecipeId={editingRecipe?.id}
+        initialData={editingRecipe ? {
+          name: editingRecipe.name,
+          description: editingRecipe.description || "",
+          servings: String(editingRecipe.servings || ""),
+          cookTime: String(editingRecipe.cookTime || ""),
+          difficulty: editingRecipe.difficulty || "easy",
+          ingredients: editingRecipe.ingredients.map((ing, i) => ({ id: i + 1, name: ing.name, quantity: String(ing.quantity || "1"), unit: ing.unit || "" })),
+          instructions: editingRecipe.instructions.length > 0 ? editingRecipe.instructions : [""],
+        } : undefined}
+        onRecipeSaved={editingRecipe ? () => {
+          showToast(`"${editingRecipe.name}" updated!`, true);
+          setEditingRecipe(null);
+          setShowRecipeForm(false);
+        } : handleRecipeSaved}
+        onCancel={() => { setEditingRecipe(null); setShowRecipeForm(false); }}
+        onBack={editingRecipe ? undefined : onBackToAddChoice}
+        theme={themeColors}
+        existingRecipeNames={editingRecipe ? [] : recipeList.map(r => r.name)}
+      />
+    <ScrollView style={[styles.container, { backgroundColor: themeColors.backgroundColor }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="none">
       <View style={styles.header}>
         <Text style={[styles.title, { color: themeColors.textColor }]}>Recipes</Text>
-        <Button title="+ Add Recipe" onPress={() => setShowRecipeForm(true)} color={themeColors.accentColor} />
       </View>
 
+      <View style={[styles.searchSection, { borderBottomColor: themeColors.mode === "dark" ? "#333" : "#ececec" }]}>
+        <View style={[styles.searchInputWrap, { backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#fff", borderColor: themeColors.mode === "dark" ? "#444" : "#e3e3e3" }]}>
+          <Text style={[styles.searchIcon, { color: themeColors.mode === "dark" ? "#888" : "#999" }]}>⌕</Text>
+          <TextInput
+            ref={recipeSearchInputRef}
+            style={[styles.searchInput, { color: themeColors.textColor }]}
+            placeholder="Search recipes, ingredients, difficulty..."
+            placeholderTextColor={themeColors.mode === "dark" ? "#777" : "#aaa"}
+            value={searchQuery}
+            onChangeText={handleRecipeSearchChange}
+            blurOnSubmit={false}
+          />
+          {searchQuery ? (
+            <TouchableOpacity onPress={() => setSearchQuery("")} style={styles.clearSearchButton}>
+              <Text style={[styles.clearSearchText, { color: themeColors.mode === "dark" ? "#bbb" : "#888" }]}>Clear</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        <Text style={[styles.sectionLabel, { color: themeColors.mode === "dark" ? "#cfcfcf" : "#6c6c6c" }]}>Meal Type</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow} keyboardShouldPersistTaps="handled" keyboardDismissMode="none">
+          {RECIPE_CATEGORY_OPTIONS.map((category) => {
+            const selected = selectedCategory === category.key;
+            return (
+              <TouchableOpacity
+                key={category.key}
+                onPress={() => setSelectedCategory(category.key)}
+                style={[
+                  styles.categoryChip,
+                  {
+                    backgroundColor: selected ? themeColors.accentColor : (themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5"),
+                    borderColor: "transparent",
+                  },
+                ]}
+              >
+                {selected && <Ionicons name="checkmark-circle" size={14} color="#fff" style={{ marginRight: 4 }} />}
+                <Text style={[styles.categoryChipText, { color: selected ? "#fff" : themeColors.textColor, fontWeight: selected ? "700" : "500" }]}>{category.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      <Text style={[styles.sectionLabel, { marginTop: 16, color: themeColors.mode === "dark" ? "#cfcfcf" : "#6c6c6c" }]}>Dietary Preferences</Text>
       {/* Dietary Filter Buttons */}
-      <View style={styles.filterContainer}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterContainer} keyboardShouldPersistTaps="handled">
         <TouchableOpacity
           style={[
             styles.filterButton,
@@ -221,7 +329,7 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
           onPress={() => setSelectedDiets([])}
         >
           <Text style={[styles.filterButtonText, selectedDiets.length === 0 && { color: "#fff" }, selectedDiets.length > 0 && { color: themeColors.textColor }]}>
-            All
+            All Diets
           </Text>
         </TouchableOpacity>
 
@@ -264,15 +372,15 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
             </Text>
           </TouchableOpacity>
         )}
-      </View>
+      </ScrollView>
 
       {filteredRecipes.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={[styles.emptyStateText, { color: themeColors.textColor }]}>
-            {selectedDiets.length > 0 ? "No recipes match these filters" : "No recipes yet"}
+            {selectedDiets.length > 0 || selectedCategory !== "all" || searchQuery ? "No recipes match this search" : "No recipes yet"}
           </Text>
           <Text style={styles.emptyStateSubtext}>
-            {selectedDiets.length > 0 ? "Try selecting a different diet or add a new recipe" : "Add your first recipe to get started"}
+            {selectedDiets.length > 0 || selectedCategory !== "all" || searchQuery ? "Try another category, adjust the search, or remove a filter" : "Add your first recipe to get started"}
           </Text>
         </View>
       ) : (
@@ -281,11 +389,31 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
             key={recipe.id} 
             style={[styles.recipeCard, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}
             onPress={() => onRecipeSelect?.(recipe.id)}
+            onLongPress={() => Alert.alert(
+              recipe.name || "Recipe",
+              "What would you like to do?",
+              [
+                { text: "Cancel", style: "cancel" },
+                { text: "Edit Recipe", onPress: () => { setEditingRecipe(recipe); setShowRecipeForm(true); } },
+                { text: "Delete Recipe", style: "destructive", onPress: () => handleDeleteRecipeFromList(recipe) },
+              ]
+            )}
+            delayLongPress={400}
           >
-            <Text style={[styles.recipeName, { color: themeColors.textColor }]}>{recipe.name}</Text>
+            <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }}>
+              <Text style={[styles.recipeName, { color: themeColors.textColor, flex: 1 }]}>{recipe.name}</Text>
+              <Ionicons name="ellipsis-horizontal" size={16} color={themeColors.mode === "dark" ? "#666" : "#ccc"} style={{ marginTop: 2, marginLeft: 8 }} />
+            </View>
             {recipe.description && (
               <Text style={[styles.recipeDescription, { color: themeColors.textColor }]}>{recipe.description}</Text>
             )}
+            <View style={styles.recipeMetaRow}>
+              <View style={[styles.recipeMetaChip, { backgroundColor: themeColors.mode === "dark" ? "#243326" : "#edf8ef" }]}>
+                <Text style={[styles.recipeMetaChipText, { color: themeColors.accentColor }]}>
+                  {RECIPE_CATEGORY_OPTIONS.find((option) => option.key === getRecipeBrowseCategory({ name: recipe.name, description: recipe.description, ingredients: recipe.ingredients }))?.label ?? "Dinner"}
+                </Text>
+              </View>
+            </View>
             <View style={styles.recipeInfo}>
               <Text style={[styles.infoText, { color: themeColors.textColor }]}>Cook: {recipe.cookTime ? `${recipe.cookTime} min` : "--"}</Text>
               <Text style={[styles.infoText, { color: themeColors.textColor }]}>Servings: {recipe.servings || "--"}</Text>
@@ -298,5 +426,6 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
         ))
       )}
     </ScrollView>
+    </>
   );
 }
