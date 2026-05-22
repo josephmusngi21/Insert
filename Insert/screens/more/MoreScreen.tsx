@@ -16,10 +16,11 @@ import PreferencesScreen from "@/screens/more/PreferencesScreen";
 import PrivacyPolicy from "@/screens/misc/PrivacyPolicy";
 import TermsOfService from "@/screens/misc/TermsOfService";
 import AboutScreen from "@/screens/misc/AboutScreen";
+import CookHistoryScreen from "@/screens/more/CookHistoryScreen";
 import styles from "./MoreScreen.styles";
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-type SubScreen = 'theme' | 'allergies' | 'locations' | 'preferences' | 'privacy' | 'terms' | 'about' | null;
+type SubScreen = 'theme' | 'allergies' | 'locations' | 'preferences' | 'privacy' | 'terms' | 'about' | 'cookHistory' | null;
 
 interface MoreScreenProps {
   userEmail?: string;
@@ -112,6 +113,7 @@ export default function MoreScreen({
     privacy: 'Privacy Policy',
     terms: 'Terms of Service',
     about: 'About Insert',
+    cookHistory: 'Cook History',
   };
 
   const sections: Section[] = [
@@ -122,6 +124,12 @@ export default function MoreScreen({
         { icon: "leaf-outline",              label: "Allergies",         sub: "Manage your dietary restrictions",  subScreen: 'allergies' },
         { icon: "location-outline",          label: "Locations",         sub: "Track your regular stores",         subScreen: 'locations' },
         { icon: "options-outline",           label: "Preferences",       sub: "App defaults and behavior",         subScreen: 'preferences' },
+      ],
+    },
+    {
+      title: "COOKING",
+      items: [
+        { icon: "flame-outline",             label: "Cook History",      sub: "All recipes you've cooked",         subScreen: 'cookHistory' },
       ],
     },
     {
@@ -227,38 +235,38 @@ export default function MoreScreen({
       </Animated.View>
 
       {subScreen !== null && (
-        <GestureDetector gesture={swipeBack}>
+        subScreen === 'theme' ? (
           <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: themeColors.backgroundColor }, subStyle]}>
-            {subScreen !== 'theme' && (
-              <View style={{
-                flexDirection: 'row', alignItems: 'center',
-                backgroundColor: headerBg,
-                borderBottomWidth: 1, borderBottomColor: headerBorder,
-                paddingTop: 52, paddingBottom: 12, paddingHorizontal: 8,
+            <ThemeCustomizerScreen
+              currentTheme={themeColors}
+              onThemeChange={(t) => { onThemeChange?.(t); }}
+              onBack={closeSub}
+            />
+          </Animated.View>
+        ) : (
+          <GestureDetector gesture={swipeBack}>
+            <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: themeColors.backgroundColor }, subStyle]}>
+            <View style={{
+              flexDirection: 'row', alignItems: 'center',
+              backgroundColor: headerBg,
+              borderBottomWidth: 1, borderBottomColor: headerBorder,
+              paddingTop: 52, paddingBottom: 12, paddingHorizontal: 8,
+            }}>
+              <TouchableOpacity
+                onPress={closeSub}
+                style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4 }}
+              >
+                <Ionicons name="chevron-back" size={22} color={accentColor} />
+                <Text style={{ color: accentColor, fontSize: 16, fontWeight: '600', marginLeft: 2 }}>Back</Text>
+              </TouchableOpacity>
+              <Text style={{
+                flex: 1, textAlign: 'center',
+                fontSize: 17, fontWeight: '700',
+                color: themeColors.textColor, marginRight: 60,
               }}>
-                <TouchableOpacity
-                  onPress={closeSub}
-                  style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4 }}
-                >
-                  <Ionicons name="chevron-back" size={22} color={accentColor} />
-                  <Text style={{ color: accentColor, fontSize: 16, fontWeight: '600', marginLeft: 2 }}>Back</Text>
-                </TouchableOpacity>
-                <Text style={{
-                  flex: 1, textAlign: 'center',
-                  fontSize: 17, fontWeight: '700',
-                  color: themeColors.textColor, marginRight: 60,
-                }}>
-                  {subTitles[subScreen] ?? ''}
-                </Text>
-              </View>
-            )}
-            {subScreen === 'theme' && (
-              <ThemeCustomizerScreen
-                currentTheme={themeColors}
-                onThemeChange={(t) => { onThemeChange?.(t); }}
-                onBack={closeSub}
-              />
-            )}
+                {subTitles[subScreen] ?? ''}
+              </Text>
+            </View>
             {subScreen === 'allergies' && (
               <AllergiesScreen
                 userAllergies={userAllergies}
@@ -270,6 +278,7 @@ export default function MoreScreen({
               <LocationsScreen
                 onBack={doCloseSub}
                 theme={themeColors}
+                showInternalHeader={false}
               />
             )}
             {subScreen === 'preferences' && (
@@ -286,8 +295,12 @@ export default function MoreScreen({
             {subScreen === 'about' && (
               <AboutScreen />
             )}
-          </Animated.View>
-        </GestureDetector>
+            {subScreen === 'cookHistory' && (
+              <CookHistoryScreen theme={themeColors} />
+            )}
+            </Animated.View>
+          </GestureDetector>
+        )
       )}
     </View>
   );
