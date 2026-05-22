@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, FlatList, TouchableOpacity, TextInput, Alert, ScrollView } from "react-native";
+import { View, Text, FlatList, TouchableOpacity, TextInput, Alert, ScrollView, Modal, Platform } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
-import { addDoc, deleteDoc, updateDoc, onSnapshot, getDoc, setDoc, doc } from "firebase/firestore";
+import { addDoc, deleteDoc, updateDoc, onSnapshot, doc } from "firebase/firestore";
 import { shoppingCol, shoppingDoc, pendingCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import { type ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
@@ -21,17 +23,45 @@ interface ShoppingItem {
 
 interface ShoppingListScreenProps {
   theme: ThemeColors;
+  showAddItemModal?: boolean;
+  setShowAddItemModal?: (v: boolean) => void;
+  onBackToAddChoice?: () => void;
 }
 
-export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
+type DraftShoppingItem = {
+  id: string;
+  name: string;
+  quantity: string;
+  unit: string;
+};
+
+const QTY_OPTIONS = ["0.5", "1", "2", "3", "4", "5", "6", "8", "10", "12", "16", "20"];
+const UNIT_OPTIONS = ["qty", "g", "kg", "lb", "oz", "ml", "l", "cup", "tbsp", "tsp", "pcs", "pack", "can", "bottle"];
+
+const createDraftItem = (): DraftShoppingItem => ({
+  id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  name: "",
+  quantity: "1",
+  unit: "qty",
+});
+
+export default function ShoppingListScreen({ theme, showAddItemModal, setShowAddItemModal, onBackToAddChoice }: ShoppingListScreenProps) {
   const [items, setItems] = useState<ShoppingItem[]>([]);
-  const [newItemName, setNewItemName] = useState("");
-  const [newItemQuantity, setNewItemQuantity] = useState("");
-  const [newItemUnit, setNewItemUnit] = useState("qty");
   const [loading, setLoading] = useState(true);
   const [locations, setLocations] = useState<Record<string, string[]>>({});
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [draftItems, setDraftItems] = useState<DraftShoppingItem[]>([createDraftItem()]);
+  const [qtyPickerItemId, setQtyPickerItemId] = useState<string | null>(null);
+  const [unitPickerItemId, setUnitPickerItemId] = useState<string | null>(null);
+  const insets = useSafeAreaInsets();
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
+
+  useEffect(() => {
+    if (!showAddItemModal) return;
+    setShowAddModal(true);
+    setDraftItems(prev => (prev.length > 0 ? prev : [createDraftItem()]));
+  }, [showAddItemModal]);
 
   useEffect(() => {
     if (!userId) return;
@@ -71,27 +101,92 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
     return () => unsubscribe();
   }, [userId]);
 
-  const addItem = async () => {
-    if (!newItemName.trim() || !newItemQuantity.trim()) {
-      Alert.alert("Error", "Please enter item name and quantity");
+  const addDraftRow = () => {
+    setDraftItems(prev => [...prev, createDraftItem()]);
+  };
+
+  const removeDraftRow = (id: string) => {
+    setDraftItems(prev => {
+      const next = prev.filter(item => item.id !== id);
+      return next.length > 0 ? next : [createDraftItem()];
+    });
+  };
+
+  const updateDraftRow = (id: string, updates: Partial<DraftShoppingItem>) => {
+    setDraftItems(prev => prev.map(item => (item.id === id ? { ...item, ...updates } : item)));
+  };
+
+  const closeAddModal = () => {
+    setShowAddModal(false);
+    setShowAddItemModal?.(false);
+    setQtyPickerItemId(null);
+    setUnitPickerItemId(null);
+  };
+
+  const handleModalBack = () => {
+    closeAddModal();
+    onBackToAddChoice?.();
+  };
+
+  const addItems = async () => {
+    const validItems = draftItems.filter(item => item.name.trim().length > 0);
+    if (validItems.length === 0) {
+      Alert.alert("Error", "Add at least one item name.");
+      return;
+    }
+
+    const invalidQty = validItems.some(item => !item.quantity.trim());
+    if (invalidQty) {
+      Alert.alert("Error", "Each item needs a quantity.");
       return;
     }
 
     try {
-      await addDoc(shoppingCol(userId), {
-        name: newItemName,
-        quantity: newItemQuantity,
-        unit: newItemUnit,
-        completed: false,
-        userId,
-        createdAt: Date.now(),
-      });
-      setNewItemName("");
-      setNewItemQuantity("");
-      setNewItemUnit("qty");
+      await Promise.all(
+        validItems.map(item =>
+          addDoc(shoppingCol(userId), {
+            name: item.name.trim(),
+            quantity: item.quantity,
+            unit: item.unit || "qty",
+            completed: false,
+            userId,
+            createdAt: Date.now(),
+            source: "manual",
+          })
+        )
+      );
+      Alert.alert("Added", `${validItems.length} item(s) added to shopping list.`);
+      setDraftItems([createDraftItem()]);
+      closeAddModal();
     } catch (error) {
-      Alert.alert("Error", "Failed to add item");
+      Alert.alert("Error", "Failed to add items");
     }
+  };
+
+  const clearShoppingList = async () => {
+    if (items.length === 0) {
+      Alert.alert("Shopping List", "Your shopping list is already empty.");
+      return;
+    }
+
+    Alert.alert(
+      "Clear Shopping List",
+      `Remove all ${items.length} item(s) from your shopping list? This cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear All",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await Promise.all(items.map(item => deleteDoc(shoppingDoc(userId, item.id))));
+            } catch (error) {
+              Alert.alert("Error", "Failed to clear shopping list");
+            }
+          },
+        },
+      ]
+    );
   };
 
   const toggleItem = async (id: string, currentStatus: boolean) => {
@@ -222,13 +317,22 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
   };
 
   const renderItem = ({ item }: { item: ShoppingItem }) => (
-    <View style={[styles.itemContainer, { backgroundColor: theme.mode === "dark" ? "#333" : "#fff", borderColor: theme.accentColor }]}>
+    <View
+      style={[
+        styles.itemContainer,
+        {
+          backgroundColor: theme.mode === "dark" ? "#333" : "#fff",
+          borderColor: theme.mode === "dark" ? "#3b3b3b" : "#ececec",
+          borderLeftColor: theme.accentColor,
+        },
+      ]}
+    >
       <TouchableOpacity
         style={styles.checkboxContainer}
         onPress={() => toggleItem(item.id, item.completed)}
       >
         <View style={[styles.checkbox, item.completed && { backgroundColor: theme.accentColor, borderColor: theme.accentColor }]}>
-          {item.completed && <Text style={styles.checkmark}>+</Text>}
+          {item.completed && <Ionicons name="checkmark" size={14} color="#fff" />}
         </View>
       </TouchableOpacity>
 
@@ -236,56 +340,74 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
         <Text style={[styles.itemName, { color: theme.textColor, textDecorationLine: item.completed ? "line-through" : "none" }]}>
           {item.name}
         </Text>
-        <Text style={[styles.itemQuantity, { color: theme.mode === "dark" ? "#aaa" : "#666" }]}>
-          {item.quantity} {item.unit}
-        </Text>
+        <View style={styles.metaRow}>
+          <Text style={[styles.itemQuantity, { color: theme.mode === "dark" ? "#aaa" : "#666" }]}>
+            {item.quantity} {item.unit}
+          </Text>
+          {item.source && (
+            <View style={[styles.sourceBadge, { backgroundColor: theme.mode === "dark" ? "#1f1f1f" : "#f4f4f4" }]}>
+              <Text style={[styles.sourceBadgeText, { color: theme.mode === "dark" ? "#bbb" : "#666" }]}>{item.source}</Text>
+            </View>
+          )}
+        </View>
       </View>
 
       <View style={styles.actionButtons}>
         {item.completed && (
-          <Text style={[styles.locationText, { color: theme.accentColor }]}>
+          <Text style={[styles.locationText, { color: theme.accentColor }]} numberOfLines={1}>
             {getLocationForItem(item.name, locations) || "Pantry"}
           </Text>
         )}
-        <TouchableOpacity onPress={() => deleteItem(item.id, item.name)}>
-          <Text style={[styles.deleteButton, { color: "#e74c3c" }]}>X</Text>
+        <TouchableOpacity onPress={() => deleteItem(item.id, item.name)} style={styles.deleteIconButton}>
+          <Ionicons name="trash-outline" size={18} color="#e74c3c" />
         </TouchableOpacity>
       </View>
     </View>
   );
 
+  const completedCount = items.filter(item => item.completed).length;
+  const remainingCount = items.length - completedCount;
+
   return (
-    <View style={[styles.container, { backgroundColor: theme.backgroundColor }]}>
-      <View style={[styles.header, { backgroundColor: theme.mode === "dark" ? "#222" : "#fff", borderBottomColor: theme.accentColor }]}>
-        <Text style={[styles.headerTitle, { color: theme.textColor }]}>Shopping List</Text>
+    <View style={[styles.container, { backgroundColor: theme.backgroundColor, paddingTop: insets.top }]}>
+      <View
+        style={[
+          styles.header,
+          {
+            backgroundColor: theme.backgroundColor,
+            borderBottomColor: theme.mode === "dark" ? "#3b3b3b" : "#e8e8e8",
+          },
+        ]}
+      >
+        <View style={styles.headerTopRow}>
+          <Text style={[styles.headerTitle, { color: theme.textColor }]}>Shopping</Text>
+          <View style={styles.headerActionRow}>
+            <TouchableOpacity
+              onPress={clearShoppingList}
+              style={[styles.clearButton, { borderColor: theme.mode === "dark" ? "#666" : "#d0d0d0", backgroundColor: theme.mode === "dark" ? "#2e2e2e" : "#f9f9f9" }]}
+            >
+              <Ionicons name="trash-outline" size={15} color="#e74c3c" />
+              <Text style={styles.clearButtonText}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
 
-      <View style={[styles.inputContainer, { backgroundColor: theme.mode === "dark" ? "#333" : "#f9f9f9" }]}>
-        <TextInput
-          style={[styles.input, { color: theme.textColor, borderColor: theme.accentColor }]}
-          placeholder="Item name"
-          placeholderTextColor={theme.mode === "dark" ? "#888" : "#ccc"}
-          value={newItemName}
-          onChangeText={setNewItemName}
-        />
-        <TextInput
-          style={[styles.input, styles.quantityInput, { color: theme.textColor, borderColor: theme.accentColor }]}
-          placeholder="Qty"
-          placeholderTextColor={theme.mode === "dark" ? "#888" : "#ccc"}
-          value={newItemQuantity}
-          onChangeText={setNewItemQuantity}
-          keyboardType="decimal-pad"
-        />
-        <TextInput
-          style={[styles.input, styles.unitInput, { color: theme.textColor, borderColor: theme.accentColor }]}
-          placeholder="Unit"
-          placeholderTextColor={theme.mode === "dark" ? "#888" : "#ccc"}
-          value={newItemUnit}
-          onChangeText={setNewItemUnit}
-        />
-        <TouchableOpacity style={[styles.addButton, { backgroundColor: theme.accentColor }]} onPress={addItem}>
-          <Text style={styles.addButtonText}>+</Text>
-        </TouchableOpacity>
+      <View style={styles.summaryContainer}>
+        <View style={styles.summaryRow}>
+          <View style={[styles.summaryChip, { backgroundColor: theme.mode === "dark" ? "#2c2c2c" : "#f2f2f2" }]}>
+            <Text style={[styles.summaryText, { color: theme.textColor }]}>{remainingCount} remaining</Text>
+          </View>
+          <View style={[styles.summaryChip, { backgroundColor: theme.mode === "dark" ? "#233529" : "#eaf8ef" }]}>
+            <Text style={[styles.summaryText, { color: theme.accentColor }]}>{completedCount} selected</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={[styles.inputContainer, { backgroundColor: theme.mode === "dark" ? "#2f2f2f" : "#fff", borderColor: theme.mode === "dark" ? "#3b3b3b" : "#ececec" }]}>
+        <Text style={[styles.bulkAddHint, { color: theme.mode === "dark" ? "#aaa" : "#666" }]}>
+          Use Add to quickly create multiple shopping items with dropdown quantity and unit.
+        </Text>
       </View>
 
       {loading ? (
@@ -317,6 +439,126 @@ export default function ShoppingListScreen({ theme }: ShoppingListScreenProps) {
           )}
         </>
       )}
+
+      <Modal visible={showAddModal} transparent animationType="slide" onRequestClose={closeAddModal}>
+        <View style={{ flex: 1, justifyContent: "flex-end" }}>
+          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={closeAddModal} />
+          <View style={[styles.addModalCard, { backgroundColor: theme.mode === "dark" ? "#1f1f1f" : "#fff" }]}>
+            <View style={styles.addModalHeader}>
+              <TouchableOpacity
+                onPress={handleModalBack}
+                style={styles.modalBackButton}
+                hitSlop={{ top: 16, bottom: 16, left: 20, right: 20 }}
+              >
+                <Ionicons name="chevron-back" size={20} color={theme.accentColor} />
+                <Text style={[styles.modalBackText, { color: theme.accentColor }]}>Back</Text>
+              </TouchableOpacity>
+              <Text style={[styles.addModalTitle, { color: theme.textColor }]}>Add Shopping Items</Text>
+              <TouchableOpacity onPress={closeAddModal} style={styles.modalCloseButton}>
+                <Ionicons name="close" size={20} color={theme.mode === "dark" ? "#999" : "#777"} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={{ flexShrink: 1 }}
+              contentContainerStyle={styles.addRowsContainer}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+              automaticallyAdjustKeyboardInsets={true}
+            >
+              {draftItems.map((draft, idx) => (
+                <View key={draft.id} style={[styles.draftRow, { backgroundColor: theme.mode === "dark" ? "#2a2a2a" : "#f8f8f8", borderColor: theme.mode === "dark" ? "#444" : "#e5e5e5" }]}>
+                  <View style={styles.draftRowTop}>
+                    <Text style={[styles.draftRowLabel, { color: theme.mode === "dark" ? "#aaa" : "#777" }]}>Item {idx + 1}</Text>
+                    <TouchableOpacity onPress={() => removeDraftRow(draft.id)} style={styles.removeDraftButton}>
+                      <Ionicons name="trash-outline" size={16} color="#e74c3c" />
+                    </TouchableOpacity>
+                  </View>
+
+                  <TextInput
+                    style={[styles.draftNameInput, { color: theme.textColor, borderColor: theme.accentColor, backgroundColor: theme.mode === "dark" ? "#1e1e1e" : "#fff" }]}
+                    placeholder="Item name"
+                    placeholderTextColor={theme.mode === "dark" ? "#777" : "#bbb"}
+                    value={draft.name}
+                    onChangeText={(text) => updateDraftRow(draft.id, { name: text })}
+                  />
+
+                  <View style={styles.draftPickersRow}>
+                    <TouchableOpacity
+                      onPress={() => setQtyPickerItemId(draft.id)}
+                      style={[styles.dropdownButton, { borderColor: theme.accentColor, backgroundColor: theme.mode === "dark" ? "#1e1e1e" : "#fff" }]}
+                    >
+                      <Text style={{ color: theme.textColor, fontWeight: "600" }}>{draft.quantity}</Text>
+                      <Ionicons name="chevron-down" size={14} color={theme.mode === "dark" ? "#999" : "#666"} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => setUnitPickerItemId(draft.id)}
+                      style={[styles.dropdownButton, { borderColor: theme.accentColor, backgroundColor: theme.mode === "dark" ? "#1e1e1e" : "#fff" }]}
+                    >
+                      <Text style={{ color: theme.textColor, fontWeight: "600" }}>{draft.unit}</Text>
+                      <Ionicons name="chevron-down" size={14} color={theme.mode === "dark" ? "#999" : "#666"} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+
+            <View style={styles.addModalFooter}>
+              <TouchableOpacity onPress={addDraftRow} style={[styles.secondaryFooterButton, { borderColor: theme.mode === "dark" ? "#666" : "#d0d0d0", backgroundColor: theme.mode === "dark" ? "#2b2b2b" : "#f4f4f4" }]}>
+                <Ionicons name="add-circle-outline" size={16} color={theme.textColor} />
+                <Text style={[styles.secondaryFooterButtonText, { color: theme.textColor }]}>Add Row</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={addItems} style={[styles.primaryFooterButton, { backgroundColor: theme.accentColor }]}>
+                <Text style={styles.primaryFooterButtonText}>Add Items</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!qtyPickerItemId} transparent animationType="fade" onRequestClose={() => setQtyPickerItemId(null)}>
+        <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setQtyPickerItemId(null)}>
+          <View style={[styles.pickerCard, { backgroundColor: theme.mode === "dark" ? "#222" : "#fff" }]}>
+            <Text style={[styles.pickerTitle, { color: theme.textColor }]}>Select Quantity</Text>
+            <ScrollView>
+              {QTY_OPTIONS.map((qty) => (
+                <TouchableOpacity
+                  key={qty}
+                  onPress={() => {
+                    if (qtyPickerItemId) updateDraftRow(qtyPickerItemId, { quantity: qty });
+                    setQtyPickerItemId(null);
+                  }}
+                  style={[styles.pickerOption, { backgroundColor: theme.mode === "dark" ? "#333" : "#f4f4f4" }]}
+                >
+                  <Text style={{ color: theme.textColor, fontWeight: "600" }}>{qty}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal visible={!!unitPickerItemId} transparent animationType="fade" onRequestClose={() => setUnitPickerItemId(null)}>
+        <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setUnitPickerItemId(null)}>
+          <View style={[styles.pickerCard, { backgroundColor: theme.mode === "dark" ? "#222" : "#fff" }]}>
+            <Text style={[styles.pickerTitle, { color: theme.textColor }]}>Select Unit</Text>
+            <ScrollView>
+              {UNIT_OPTIONS.map((unit) => (
+                <TouchableOpacity
+                  key={unit}
+                  onPress={() => {
+                    if (unitPickerItemId) updateDraftRow(unitPickerItemId, { unit });
+                    setUnitPickerItemId(null);
+                  }}
+                  style={[styles.pickerOption, { backgroundColor: theme.mode === "dark" ? "#333" : "#f4f4f4" }]}
+                >
+                  <Text style={{ color: theme.textColor, fontWeight: "600" }}>{unit}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
