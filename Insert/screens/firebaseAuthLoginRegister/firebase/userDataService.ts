@@ -30,6 +30,8 @@ import {
 export interface UserProfile {
   email: string;
   displayName: string;
+  allergies?: string[];
+  dietaryRestrictions?: string[];
   createdAt: unknown; // serverTimestamp
   updatedAt?: unknown;
 }
@@ -61,11 +63,21 @@ export interface Recipe {
   userId: string;
   name: string;
   description: string;
+  imageUrl?: string;
   servings: string;
   cookTime: string;
   difficulty: string;
+  visibility?: "private" | "public";
   ingredients: { name: string; quantity: string; unit: string }[];
   instructions: string[];
+  sourceUrl?: string;
+  originType?: "created" | "imported";
+  originalCreatorUserId?: string;
+  originalCreatorDisplayName?: string;
+  originalCreatedAt?: unknown;
+  originalImporterUserId?: string;
+  originalImporterDisplayName?: string;
+  originalImportedAt?: unknown;
   createdAt?: number;
 }
 
@@ -109,6 +121,14 @@ export const recipesCol = (uid: string): CollectionReference =>
 export const recipesDoc = (uid: string, id: string): DocumentReference =>
   doc(db, "users", uid, "recipes", id);
 
+/** Shared index of public recipes */
+export const publicRecipesCol = (): CollectionReference =>
+  collection(db, "publicRecipes");
+
+/** Reference to a public recipe mirror document */
+export const publicRecipeDoc = (recipeId: string): DocumentReference =>
+  doc(db, "publicRecipes", recipeId);
+
 /** Collection of shopping list items for a user */
 export const shoppingCol = (uid: string): CollectionReference =>
   collection(db, "users", uid, "shoppingList");
@@ -130,7 +150,23 @@ export interface CookHistoryEntry {
   recipeName: string;
   cookedAt: number; // epoch ms
   ingredients: { name: string; quantity: string; unit: string }[];
+  recipeIngredientsDetailed?: { name: string; quantity: string; unit: string }[];
+  recipeInstructions?: string[];
+  recipeImageUrl?: string;
+  stepPhotos?: SocialStepPhoto[];
+  sharedAt?: number;
   userId: string;
+}
+
+export type RecipeVisibility = "private" | "public";
+
+export interface PublicRecipe extends Recipe {
+  recipeId: string;
+  ownerId: string;
+  ownerName?: string;
+  ownerHandle?: string;
+  visibility: RecipeVisibility;
+  updatedAt?: unknown;
 }
 
 // ── Shared product database ─────────────────────────────────────────────────
@@ -151,6 +187,105 @@ export interface ProductEntry {
   defaultExpirationDays: number;
   addedBy: string;
   createdAt: number;
+}
+
+// ── Social feed ─────────────────────────────────────────────────────────────
+
+export type SocialStepPhoto = {
+  stepIndex: number;
+  url: string;
+};
+
+export interface SocialPost {
+  userId: string;
+  recipeOwnerId?: string;
+  userDisplayName: string;
+  userHandle: string;
+  recipeId: string;
+  recipeName: string;
+  recipeImageUrl?: string;
+  note?: string;
+  ingredients: string[];
+  recipeIngredientsDetailed?: { name: string; quantity: string; unit: string }[];
+  recipeInstructions?: string[];
+  sourceUrl?: string;
+  originType?: "created" | "imported";
+  originalCreatorUserId?: string;
+  originalCreatorDisplayName?: string;
+  originalCreatedAt?: number | unknown;
+  originalImporterUserId?: string;
+  originalImporterDisplayName?: string;
+  originalImportedAt?: number | unknown;
+  cookedAt?: number;
+  sharedAt?: unknown;
+  stepPhotos: SocialStepPhoto[];
+  likes: string[];
+  createdAt: unknown; // serverTimestamp
+}
+
+/** Global social posts collection (shared feed across users) */
+export const socialPostsCol = (): CollectionReference =>
+  collection(db, "socialPosts");
+
+/** Reference to a specific social post */
+export const socialPostDoc = (postId: string): DocumentReference =>
+  doc(db, "socialPosts", postId);
+
+// ── Friends and shares ─────────────────────────────────────────────────────
+
+/** Collection of accepted friends for a user */
+export const friendsCol = (uid: string): CollectionReference =>
+  collection(db, "users", uid, "friends");
+
+/** Reference to a specific friend relationship doc */
+export const friendDoc = (uid: string, friendUid: string): DocumentReference =>
+  doc(db, "users", uid, "friends", friendUid);
+
+/** Incoming friend requests for a user */
+export const friendRequestsCol = (uid: string): CollectionReference =>
+  collection(db, "users", uid, "friendRequests");
+
+/** Outgoing friend requests for a user */
+export const outgoingFriendRequestsCol = (uid: string): CollectionReference =>
+  collection(db, "users", uid, "outgoingFriendRequests");
+
+/** In-app recipe shares inbox for a user */
+export const recipeSharesCol = (uid: string): CollectionReference =>
+  collection(db, "users", uid, "recipeShares");
+
+export interface FriendRequest {
+  fromUserId: string;
+  fromDisplayName: string;
+  fromHandle: string;
+  status: "pending" | "accepted" | "declined";
+  createdAt: unknown; // serverTimestamp
+}
+
+export interface RecipeShare {
+  fromUserId: string;
+  fromDisplayName: string;
+  toUserId: string;
+  recipeId: string;
+  recipeName: string;
+  recipeOwnerId: string;
+  recipeImageUrl?: string;
+  recipeDescription?: string;
+  recipeServings?: string | number;
+  recipeCookTime?: string | number;
+  recipeDifficulty?: string;
+  recipeIngredientsDetailed?: Array<{ name: string; quantity?: string | number; unit?: string }>;
+  recipeInstructions?: string[];
+  sourceUrl?: string;
+  originType?: "created" | "imported";
+  originalCreatorUserId?: string;
+  originalCreatorDisplayName?: string;
+  originalCreatedAt?: number | unknown;
+  originalImporterUserId?: string;
+  originalImporterDisplayName?: string;
+  originalImportedAt?: number | unknown;
+  status?: "pending" | "accepted" | "denied";
+  message?: string;
+  createdAt: unknown; // serverTimestamp
 }
 
 // ── User profile management ─────────────────────────────────────────────────
@@ -180,7 +315,7 @@ export async function ensureUserProfile(
  */
 export async function updateUserProfile(
   uid: string,
-  updates: Partial<Pick<UserProfile, "displayName" | "email">>
+  updates: Partial<Pick<UserProfile, "displayName" | "email" | "allergies" | "dietaryRestrictions">>
 ): Promise<void> {
   await setDoc(userDoc(uid), { ...updates, updatedAt: serverTimestamp() }, { merge: true });
 }
