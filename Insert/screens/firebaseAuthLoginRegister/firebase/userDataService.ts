@@ -121,6 +121,18 @@ export const shoppingDoc = (uid: string, id: string): DocumentReference =>
 export const settingsDoc = (uid: string, key: string): DocumentReference =>
   doc(db, "users", uid, "settings", key);
 
+/** Collection of cook history entries for a user */
+export const cookHistoryCol = (uid: string): CollectionReference =>
+  collection(db, "users", uid, "cookHistory");
+
+export interface CookHistoryEntry {
+  recipeId: string;
+  recipeName: string;
+  cookedAt: number; // epoch ms
+  ingredients: { name: string; quantity: string; unit: string }[];
+  userId: string;
+}
+
 // ── Shared product database ─────────────────────────────────────────────────
 
 /** Shared products collection — keyed by barcode */
