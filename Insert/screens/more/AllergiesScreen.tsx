@@ -68,7 +68,12 @@ export default function AllergiesScreen({ userAllergies, onAllergiesChange, onBa
   };
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: themeColors.backgroundColor }]} contentContainerStyle={styles.contentContainer}>
+    <ScrollView
+      style={[styles.container, { backgroundColor: themeColors.backgroundColor }]}
+      contentContainerStyle={styles.contentContainer}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+    >
       {onBack && (
         <TouchableOpacity style={[styles.backButton, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff", borderBottomColor: themeColors.mode === "dark" ? "#444" : "#e8e8e8" }]} onPress={onBack}>
           <Ionicons name="chevron-back" size={20} color={themeColors.accentColor} />
