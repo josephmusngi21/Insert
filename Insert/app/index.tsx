@@ -1,11 +1,21 @@
-import { useState, useCallback, useLayoutEffect } from "react";
-import { Text, View, TouchableOpacity, Dimensions, Modal, Platform } from "react-native";
+import { useState, useCallback, useLayoutEffect, useEffect } from "react";
+import { Text, View, TouchableOpacity, Dimensions, Modal, Platform, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring, runOnJS, cancelAnimation } from "react-native-reanimated";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { onSnapshot } from "firebase/firestore";
 import styles from "./index.styles";
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
+const TAB_SPRING = {
+  damping: 26,
+  stiffness: 135,
+  mass: 0.95,
+  overshootClamping: false,
+  restDisplacementThreshold: 0.25,
+  restSpeedThreshold: 0.25,
+};
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 import PantryItemDetailScreen from "@/screens/pantry/PantryItemDetailScreen";
@@ -13,10 +23,19 @@ import RecipeListScreen from "@/screens/recipes/RecipeListScreen";
 import RecipeDetailScreen from "@/screens/recipes/RecipeDetailScreen";
 import MoreScreen from "@/screens/more/MoreScreen";
 import ShoppingListScreen from "@/screens/shopping/ShoppingListScreen";
+import SocialScreen from "@/screens/social/SocialScreen";
 import { type ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
+import SplashScreen from "@/screens/misc/SplashScreen";
 import MainLogin from '../screens/firebaseAuthLoginRegister/MainLogin';
+import { ensureUserProfile, updateUserProfile, userDoc, settingsDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 
-type Screen = 'home' | 'recipes' | 'pantry' | 'blank1' | 'blank2' | 'more' | 'recipeDetail';
+type QuickSwitchAccount = {
+  label: string;
+  email: string;
+  password?: string;
+};
+
+type Screen = 'recipes' | 'pantry' | 'social' | 'shopping' | 'more' | 'recipeDetail';
 
 interface TabIconProps {
   icon: IoniconsName;
@@ -27,7 +46,7 @@ interface TabIconProps {
   isDark?: boolean;
 }
 
-const TabIcon: React.FC<TabIconProps> = ({ icon, activeIcon, label, isActive, accentColor = "#4CAF50", isDark = false }) => (
+const TabIcon: React.FC<TabIconProps> = ({ icon, activeIcon, label, isActive, accentColor = "#FF8A3D", isDark = false }) => (
   <View style={styles.tabIcon}>
     <View style={[styles.tabIconPill, isActive && { backgroundColor: accentColor + "22" }]}>
       <Ionicons
@@ -47,26 +66,36 @@ const TabIcon: React.FC<TabIconProps> = ({ icon, activeIcon, label, isActive, ac
 );
 
 export default function Index() {
+  const auth = getAuth();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAuthBooting, setIsAuthBooting] = useState(true);
+  const [isLoginLoading, setIsLoginLoading] = useState(false);
   // currentScreen is only used for tab-bar highlight — the row never re-mounts
   const [currentScreen, setCurrentScreen] = useState<Screen>('recipes');
   const [selectedRecipeId, setSelectedRecipeId] = useState<string>("local_1");
   const [showRecipeForm, setShowRecipeForm] = useState(false);
   const [theme, setTheme] = useState<ThemeColors>({
     mode: "light",
-    textColor: "#333",
-    accentColor: "#4CAF50",
-    backgroundColor: "#f5f5f5",
+    textColor: "#2F2A26",
+    accentColor: "#FF8A3D",
+    backgroundColor: "#F8F8F8",
   });
   const [userAllergies, setUserAllergies] = useState<string[]>([]);
+  const [userEmail, setUserEmail] = useState("user@example.com");
+  const [userDisplayName, setUserDisplayName] = useState("Insert User");
+  const [userId, setUserId] = useState<string | null>(null);
+  const [isAdminUser, setIsAdminUser] = useState(false);
+  const [quickSwitchAccounts, setQuickSwitchAccounts] = useState<QuickSwitchAccount[]>([]);
+  const [isSwitchingUser, setIsSwitchingUser] = useState(false);
   const [showPantryAdd, setShowPantryAdd] = useState(false);
   const [showShoppingAdd, setShowShoppingAdd] = useState(false);
   const [showAddChoice, setShowAddChoice] = useState(false);
   const [moreSubScreenActive, setMoreSubScreenActive] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
+  const [showPantryShortcut, setShowPantryShortcut] = useState(true);
 
-  // All 4 swipeable tabs in a permanent row — no re-mounting, no ghost screens
-  const swipeableTabs: Screen[] = ['recipes', 'pantry', 'blank2', 'more'];
+  // All swipeable tabs in a permanent row — no re-mounting, no ghost screens
+  const swipeableTabs: Screen[] = ['recipes', 'pantry', 'social', 'shopping', 'more'];
   const TABS_LEN = swipeableTabs.length;
 
   // Row position: translateX = -tabIdx * SCREEN_WIDTH
@@ -95,6 +124,10 @@ export default function Index() {
     setShowShoppingAdd(false);
     setTimeout(() => setShowAddChoice(true), 120);
   };
+
+  const getSwipeTabIndex = (name: Exclude<Screen, 'recipeDetail'>) => {
+    return swipeableTabs.indexOf(name);
+  };
   const choiceSwipeDown = Gesture.Pan()
     .activeOffsetY([15, 9999])
     .failOffsetX([-20, 20])
@@ -109,18 +142,152 @@ export default function Index() {
     moreSubSV.value = moreSubScreenActive ? 1 : 0;
   }, [moreSubScreenActive]);
 
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (nextUser) => {
+      if (!nextUser) {
+        setIsLoggedIn(false);
+        setUserId(null);
+        setIsAdminUser(false);
+        setQuickSwitchAccounts([]);
+        setUserEmail("user@example.com");
+        setUserDisplayName("Insert User");
+        setUserAllergies([]);
+        return;
+      }
+
+      setIsLoggedIn(true);
+      setUserId(nextUser.uid);
+      setUserEmail(nextUser.email || "user@example.com");
+      setUserDisplayName(nextUser.displayName || nextUser.email?.split("@")[0] || "Insert User");
+      await ensureUserProfile(nextUser.uid, nextUser.email, nextUser.displayName);
+    });
+
+    return () => unsubscribeAuth();
+  }, [auth]);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    const unsubscribeProfile = onSnapshot(userDoc(userId), (snap) => {
+      setIsAdminUser(Boolean(snap.data()?.isAdmin));
+      const allergies = Array.isArray(snap.data()?.allergies)
+        ? snap.data()?.allergies.filter((value: unknown): value is string => typeof value === "string")
+        : [];
+      setUserAllergies(allergies);
+      if (typeof snap.data()?.displayName === "string" && snap.data()?.displayName) {
+        setUserDisplayName(snap.data()?.displayName);
+      }
+      if (typeof snap.data()?.email === "string" && snap.data()?.email) {
+        setUserEmail(snap.data()?.email);
+      }
+    });
+
+    return () => unsubscribeProfile();
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    const unsubscribeSwitchConfig = onSnapshot(settingsDoc(userId, "adminQuickSwitch"), (snap) => {
+      const targets = Array.isArray(snap.data()?.targets)
+        ? snap.data()?.targets
+            .map((target: any) => ({
+              label: typeof target?.label === "string" ? target.label : "Test User",
+              email: typeof target?.email === "string" ? target.email : "",
+              password: typeof target?.password === "string" ? target.password : undefined,
+            }))
+            .filter((target: QuickSwitchAccount) => target.email.length > 0)
+        : [];
+      setQuickSwitchAccounts(targets);
+    });
+
+    return () => unsubscribeSwitchConfig();
+  }, [userId]);
+
+  const handleAllergiesChange = useCallback((nextAllergies: string[]) => {
+    setUserAllergies(nextAllergies);
+    if (userId) {
+      void updateUserProfile(userId, { allergies: nextAllergies });
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    const bootTimer = setTimeout(() => {
+      setIsAuthBooting(false);
+    }, 1650);
+
+    return () => clearTimeout(bootTimer);
+  }, []);
+
+  useEffect(() => {
+    setShowPantryShortcut(currentScreen === 'recipes');
+  }, [currentScreen]);
+
+  const syncScreenState = useCallback((screen: Screen) => {
+    setCurrentScreen(screen);
+    setShowPantryShortcut(screen === 'recipes');
+  }, []);
+
   const handleCloseDetail = useCallback(() => {
     setDetailVisible(false);
     isDetailSV.value = 0;
-    setCurrentScreen('recipes');
-  }, []);
+    syncScreenState('recipes');
+  }, [syncScreenState]);
 
   const handleLogout = useCallback(() => {
-    setIsLoggedIn(false);
-    setCurrentScreen('recipes');
-    translateX.value = 0;
-    tabIndexSV.value = 0;
-  }, []);
+    void (async () => {
+      try {
+        await signOut(auth);
+      } catch {
+        // Fall back to local state reset if auth sign out fails.
+      }
+      setIsLoggedIn(false);
+      syncScreenState('recipes');
+      translateX.value = 0;
+      tabIndexSV.value = 0;
+    })();
+  }, [auth, syncScreenState, tabIndexSV, translateX]);
+
+  const handleQuickSwitchUser = useCallback((targetEmail: string) => {
+    if (!isAdminUser) {
+      Alert.alert("Admin only", "Quick switch is only available for configured admin test accounts.");
+      return;
+    }
+
+    const target = quickSwitchAccounts.find((account) => account.email.toLowerCase() === targetEmail.toLowerCase());
+    if (!target) {
+      Alert.alert("Unknown target", "This quick-switch account is not configured.");
+      return;
+    }
+
+    if (!target.password) {
+      Alert.alert(
+        "Password required",
+        "This target account does not have a stored quick-switch password yet. Please log in once manually from the login screen, then I can wire it for one-tap switching."
+      );
+      return;
+    }
+    const targetEmailValue = target.email;
+    const targetPassword = target.password;
+
+    setIsSwitchingUser(true);
+    void (async () => {
+      try {
+        await signOut(auth).catch(() => undefined);
+        await signInWithEmailAndPassword(auth, targetEmailValue, targetPassword);
+        Alert.alert("Switched", `You are now signed in as ${targetEmailValue}.`);
+      } catch (error: any) {
+        const message = typeof error?.message === "string" ? error.message : "Unable to switch accounts.";
+        Alert.alert("Switch failed", message);
+      } finally {
+        setIsSwitchingUser(false);
+      }
+    })();
+  }, [auth, isAdminUser, quickSwitchAccounts]);
+
+  const quickSwitchTargetsForCurrentUser = quickSwitchAccounts
+    .filter((account) => account.email.toLowerCase() !== userEmail.trim().toLowerCase())
+    .map((account) => ({ label: account.label, email: account.email }));
 
   const handleRecipeSelect = useCallback((recipeId: string) => {
     setSelectedRecipeId(recipeId);
@@ -128,8 +295,8 @@ export default function Index() {
     detailOffset.value = SCREEN_WIDTH;
     detailOffset.value = withTiming(0, { duration: 220 });
     isDetailSV.value = 1;
-    setCurrentScreen('recipeDetail');
-  }, []);
+    syncScreenState('recipeDetail');
+  }, [syncScreenState]);
 
   const swipeGesture = Gesture.Pan()
     .activeOffsetX([-12, 12])
@@ -185,31 +352,59 @@ export default function Index() {
       tabIndexSV.value = targetIdx;
       const nextScreen = targetIdx === 0 && detailVisible ? 'recipeDetail' : swipeableTabs[targetIdx];
       isDetailSV.value = nextScreen === 'recipeDetail' ? 1 : 0;
-      translateX.value = withTiming(-targetIdx * SCREEN_WIDTH, { duration: 220 }, () => {
-        runOnJS(setCurrentScreen)(nextScreen);
-      });
+      runOnJS(syncScreenState)(nextScreen);
+      translateX.value = withSpring(-targetIdx * SCREEN_WIDTH, TAB_SPRING);
     });
 
   if (!isLoggedIn) {
-    return <MainLogin onLoginSuccess={() => setIsLoggedIn(true)} />;
+    if (isAuthBooting) return <SplashScreen />;
+    return (
+      <MainLogin
+        onLoginSuccess={() => {
+          setIsLoginLoading(true);
+          setIsLoggedIn(true);
+          setTimeout(() => setIsLoginLoading(false), 1600);
+        }}
+      />
+    );
   }
+
+  if (isLoginLoading) return <SplashScreen />;
 
   const switchToTab = (idx: number) => {
     tabIndexSV.value = idx;
     const nextScreen = idx === 0 && detailVisible ? 'recipeDetail' : swipeableTabs[idx];
     isDetailSV.value = nextScreen === 'recipeDetail' ? 1 : 0;
-    translateX.value = withTiming(-idx * SCREEN_WIDTH, { duration: 220 });
-    setCurrentScreen(nextScreen);
+    setShowPantryShortcut(false);
+    syncScreenState(nextScreen);
+    translateX.value = withSpring(-idx * SCREEN_WIDTH, TAB_SPRING);
   };
 
-  type TabDef = { name: Screen; icon: IoniconsName; activeIcon: IoniconsName; label: string; isCenter?: boolean };
+  const goToRecipesFromKitchen = () => {
+    const recipesIdx = getSwipeTabIndex('recipes');
+    tabIndexSV.value = recipesIdx;
+    isDetailSV.value = 0;
+    setDetailVisible(false);
+    detailOffset.value = SCREEN_WIDTH;
+    setShowPantryShortcut(true);
+    syncScreenState('recipes');
+    translateX.value = withSpring(-recipesIdx * SCREEN_WIDTH, TAB_SPRING);
+  };
+
+  type TabDef = {
+    name: 'kitchen' | 'social' | 'add' | 'shopping' | 'more';
+    icon: IoniconsName;
+    activeIcon: IoniconsName;
+    label: string;
+    isCenter?: boolean;
+  };
 
   const tabs: TabDef[] = [
-    { name: 'recipes', icon: 'restaurant-outline', activeIcon: 'restaurant',  label: 'Recipes'  },
-    { name: 'pantry',  icon: 'basket-outline',      activeIcon: 'basket',      label: 'Pantry'   },
-    { name: 'blank1',  icon: 'add',                 activeIcon: 'add',         label: '',         isCenter: true },
-    { name: 'blank2',  icon: 'cart-outline',         activeIcon: 'cart',        label: 'Shopping' },
-    { name: 'more',    icon: 'settings-outline',     activeIcon: 'settings',    label: 'More'     },
+    { name: 'kitchen', icon: 'restaurant-outline', activeIcon: 'restaurant', label: 'Kitchen' },
+    { name: 'social', icon: 'people-outline', activeIcon: 'people', label: 'Social' },
+    { name: 'add', icon: 'add', activeIcon: 'add', label: '', isCenter: true },
+    { name: 'shopping', icon: 'cart-outline', activeIcon: 'cart', label: 'Shopping' },
+    { name: 'more', icon: 'grid-outline', activeIcon: 'grid', label: 'More' },
   ];
 
   return (
@@ -237,6 +432,13 @@ export default function Index() {
             />
           </View>
           <View style={{ width: SCREEN_WIDTH }}>
+            <SocialScreen
+              theme={theme}
+              currentUserDisplayName={userDisplayName}
+              currentUserEmail={userEmail}
+            />
+          </View>
+          <View style={{ width: SCREEN_WIDTH }}>
             <ShoppingListScreen
               theme={theme}
               showAddItemModal={showShoppingAdd}
@@ -246,13 +448,18 @@ export default function Index() {
           </View>
           <View style={{ width: SCREEN_WIDTH }}>
             <MoreScreen
-              userEmail="user@example.com"
+              userEmail={userEmail}
+              userDisplayName={userDisplayName}
               onLogout={handleLogout}
               theme={theme}
               userAllergies={userAllergies}
-              onAllergiesChange={setUserAllergies}
+              onAllergiesChange={handleAllergiesChange}
               onThemeChange={setTheme}
               onSubScreenChange={setMoreSubScreenActive}
+              isAdminUser={isAdminUser}
+              isSwitchingUser={isSwitchingUser}
+              quickSwitchTargets={quickSwitchTargetsForCurrentUser}
+              onQuickSwitchUser={handleQuickSwitchUser}
             />
           </View>
         </Animated.View>
@@ -288,11 +495,37 @@ export default function Index() {
           </Animated.View>
         )}
 
+        {currentScreen === 'recipes' && showPantryShortcut && !moreSubScreenActive && (
+          <TouchableOpacity
+            onPress={() => {
+              setShowPantryShortcut(false);
+              switchToTab(getSwipeTabIndex('pantry'));
+            }}
+            style={[
+              styles.quickPantryButton,
+              {
+                backgroundColor: theme.mode === "dark" ? "#2b2b2b" : "#fff",
+                borderColor: theme.accentColor,
+              },
+            ]}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="basket" size={15} color={theme.accentColor} />
+            <Text style={[styles.quickPantryButtonText, { color: theme.accentColor }]}>Pantry</Text>
+            <Ionicons name="arrow-forward" size={13} color={theme.accentColor} />
+          </TouchableOpacity>
+        )}
+
         {!moreSubScreenActive && (
           <View style={[styles.bottomTabContainer, { backgroundColor: theme.mode === "dark" ? "#222" : "#fff", borderTopColor: theme.mode === "dark" ? "#444" : "#eee" }]}>
             {tabs.map((tab) => {
-              const tabInRowIdx  = swipeableTabs.indexOf(tab.name as Screen);
-              const isFocused    = currentScreen === tab.name || (tab.name === 'recipes' && currentScreen === 'recipeDetail');
+              const isKitchen = tab.name === 'kitchen';
+              const tabScreenName = isKitchen ? 'recipes' : (tab.name as Exclude<Screen, 'recipeDetail'>);
+              const tabInRowIdx = getSwipeTabIndex(tabScreenName);
+              const isFocused = isKitchen
+                ? currentScreen === 'recipes' || currentScreen === 'pantry' || currentScreen === 'recipeDetail'
+                : currentScreen === tabScreenName;
+              const kitchenIsPantry = currentScreen === 'pantry';
               const isCenterButton = tab.isCenter;
 
               if (isCenterButton) {
@@ -310,13 +543,21 @@ export default function Index() {
               return (
                 <TouchableOpacity
                   key={tab.name}
-                  onPress={() => { if (tabInRowIdx !== -1) switchToTab(tabInRowIdx); }}
+                  onPress={() => {
+                    if (isKitchen) {
+                      goToRecipesFromKitchen();
+                      return;
+                    }
+                    if (tabInRowIdx !== -1) switchToTab(tabInRowIdx);
+                  }}
+                  onLongPress={isKitchen ? () => switchToTab(getSwipeTabIndex('pantry')) : undefined}
+                  delayLongPress={220}
                   style={styles.tabButton}
                 >
                   <TabIcon
-                    icon={tab.icon}
-                    activeIcon={tab.activeIcon}
-                    label={tab.label}
+                    icon={isKitchen ? (kitchenIsPantry ? 'basket-outline' : 'restaurant-outline') : tab.icon}
+                    activeIcon={isKitchen ? (kitchenIsPantry ? 'basket' : 'restaurant') : tab.activeIcon}
+                    label={isKitchen ? 'Kitchen' : tab.label}
                     isActive={isFocused}
                     accentColor={theme.accentColor}
                     isDark={theme.mode === "dark"}
@@ -374,7 +615,7 @@ export default function Index() {
                   onPress={() => {
                     closeChoiceSheet();
                     setTimeout(() => {
-                      switchToTab(2);
+                      switchToTab(getSwipeTabIndex('shopping'));
                       setShowShoppingAdd(true);
                     }, 150);
                   }}
