@@ -178,14 +178,33 @@ function parseServings(raw: unknown): string {
   return match ? match[0] : "";
 }
 
+// Strip HTML tags and normalize whitespace from a string
+function cleanText(str: string): string {
+  return str
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // Extract instructions as an array of plain text strings
 function extractInstructions(raw: unknown): string[] {
   if (!raw) return [];
 
+  // Single non-array object — wrap and recurse
+  if (!Array.isArray(raw) && typeof raw === "object") {
+    return extractInstructions([raw]);
+  }
+
   if (typeof raw === "string") {
     return raw
       .split(/\n+/)
-      .map(s => s.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim())
+      .map(cleanText)
       .filter(Boolean);
   }
 
@@ -193,19 +212,27 @@ function extractInstructions(raw: unknown): string[] {
     const results: string[] = [];
     for (const item of raw) {
       if (typeof item === "string") {
-        results.push(item.replace(/<[^>]+>/g, "").trim());
+        const cleaned = cleanText(item);
+        if (cleaned) results.push(cleaned);
       } else if (item && typeof item === "object") {
         const type = (item as any)["@type"];
-        if (type === "HowToSection") {
+        const typeStr = Array.isArray(type) ? type[0] : type;
+        if (typeStr === "HowToSection") {
           // Section contains nested steps
           const nested = (item as any).itemListElement ?? [];
           for (const step of nested) {
-            const text = (step as any).text ?? (step as any).name ?? "";
-            if (text) results.push(String(text).replace(/<[^>]+>/g, "").trim());
+            if (typeof step === "string") {
+              const cleaned = cleanText(step);
+              if (cleaned) results.push(cleaned);
+            } else if (step && typeof step === "object") {
+              const text = (step as any).text ?? (step as any).description ?? (step as any).name ?? "";
+              if (text) results.push(cleanText(String(text)));
+            }
           }
         } else {
-          const text = (item as any).text ?? (item as any).name ?? "";
-          if (text) results.push(String(text).replace(/<[^>]+>/g, "").trim());
+          // HowToStep or other — try text, description, name in order
+          const text = (item as any).text ?? (item as any).description ?? (item as any).name ?? "";
+          if (text) results.push(cleanText(String(text)));
         }
       }
     }
