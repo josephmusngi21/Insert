@@ -2,11 +2,10 @@ import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity, FlatList, StyleSheet, Modal, Platform, Dimensions, ActivityIndicator, Keyboard, TouchableWithoutFeedback } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { CameraView, useCameraPermissions } from "expo-camera";
 import Swipeable from "react-native-gesture-handler/Swipeable";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { onSnapshot, addDoc, deleteDoc, doc, writeBatch, getDoc, setDoc, updateDoc } from "firebase/firestore";
-import { pantryCol, pantryDoc, pendingCol, pendingDoc, settingsDoc, productDoc, ProductEntry, shoppingCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
+import { pantryCol, pantryDoc, pendingCol, pendingDoc, settingsDoc, productDoc, ProductEntry, shoppingCol, recipesCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import { formatQuantityForPreference, PreferredWeightUnit, UnitDisplayMode } from "@/screens/utils/unitUtils";
 import styles from "./PantryItemDetailScreen.styles";
@@ -209,6 +208,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
   const [expandedPendingId, setExpandedPendingId] = useState<string | null>(null);
   const [pendingUnitPickerItemId, setPendingUnitPickerItemId] = useState<string | null>(null);
   const [confirmShoppingItemId, setConfirmShoppingItemId] = useState<string | null>(null);
+  const [confirmRecipeItemId, setConfirmRecipeItemId] = useState<string | null>(null);
   const [showExpiredItems, setShowExpiredItems] = useState(false);
   const [preferredWeightUnit, setPreferredWeightUnit] = useState<PreferredWeightUnit>("g");
   const [unitDisplayMode, setUnitDisplayMode] = useState<UnitDisplayMode>("converted");
@@ -721,6 +721,49 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
     setConfirmShoppingItemId(itemKey);
   };
 
+  const executeSendToRecipe = async (item: PantryItem) => {
+    if (!userId) {
+      Alert.alert("Sign in required", "Please sign in to create recipes from pantry items.");
+      return;
+    }
+
+    const recipeName = `${item.name} Recipe`;
+    const quantity = Number.isFinite(Number(item.quantity)) ? String(item.quantity) : "1";
+
+    try {
+      await addDoc(recipesCol(userId), {
+        userId,
+        name: recipeName,
+        description: `Draft recipe started from pantry item: ${item.name}.`,
+        imageUrl: "",
+        sourceUrl: "",
+        servings: "",
+        cookTime: "",
+        difficulty: "easy",
+        visibility: "private",
+        ingredients: [
+          {
+            id: 1,
+            name: item.name,
+            quantity,
+            unit: item.unit || "",
+          },
+        ],
+        instructions: ["Add your cooking steps here."],
+        originType: "created",
+        originalCreatorUserId: userId,
+        originalCreatorDisplayName: auth.currentUser?.displayName || auth.currentUser?.email?.split("@")[0] || "Insert Chef",
+        originalCreatedAt: Date.now(),
+        createdAt: Date.now(),
+      });
+
+      Alert.alert("Sent to Recipes", `Created \"${recipeName}\" in your Kitchen recipes.`);
+    } catch (error) {
+      console.error("Error creating recipe from pantry item:", error);
+      Alert.alert("Error", "Failed to create recipe from this pantry item.");
+    }
+  };
+
   const handleDeleteItem = useCallback((itemId: number | string, itemName: string) => {
     Alert.alert(
       "Delete Item",
@@ -953,7 +996,6 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
     const [lookingUp, setLookingUp] = useState(false);
     const [showAdvanced, setShowAdvanced] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
-    const [permission, requestPermission] = useCameraPermissions();
     const scanLockRef = useRef(false);
     const [itemTypes, setItemTypes] = useState<AddItemTypeOption[]>(DEFAULT_ADD_ITEM_TYPES);
 
@@ -1116,15 +1158,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
     };
 
     const openScanner = async () => {
-      if (!permission?.granted) {
-        const result = await requestPermission();
-        if (!result.granted) {
-          Alert.alert("Camera Permission", "Camera access is required to scan barcodes.");
-          return;
-        }
-      }
-      setShowScanner(true);
-      scanLockRef.current = false;
+      Alert.alert("Coming Soon", "Barcode camera scanning is a future feature.");
     };
 
     const handleAddItem = async () => {
@@ -1318,7 +1352,8 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
       setShowAddItemModal(false);
     };
 
-    const handleCloseAttempt = (goBack = false) => {
+    const handleCloseAttempt = (goBackOrEvent?: boolean | unknown) => {
+      const goBack = typeof goBackOrEvent === "boolean" ? goBackOrEvent : false;
       const hasData = !!(newItem.name.trim() || newItem.brand.trim() || newItem.notes.trim());
       if (hasData) {
         Alert.alert(
@@ -1361,35 +1396,11 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
         animationType="slide"
         onRequestClose={handleCloseModal}
       >
-        {showScanner && (
-          <Modal visible={showScanner} animationType="slide" onRequestClose={() => setShowScanner(false)}>
-            <View style={{ flex: 1, backgroundColor: "#000" }}>
-              <CameraView
-                style={{ flex: 1 }}
-                facing="back"
-                barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "code128", "code39", "qr"] }}
-                onBarcodeScanned={({ data }) => handleBarcodeScan(data)}
-              />
-              <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "center", alignItems: "center", pointerEvents: "none" }}>
-                <View style={{ width: 260, height: 160, borderRadius: 12, borderWidth: 2, borderColor: "#fff", backgroundColor: "transparent" }} />
-                <Text style={{ color: "#fff", marginTop: 16, fontSize: 14, fontWeight: "500" }}>Point at a barcode</Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setShowScanner(false)}
-                style={{ position: "absolute", top: 56, right: 20, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10 }}
-              >
-                <Text style={{ color: "#fff", fontWeight: "600" }}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </Modal>
-        )}
-
-
         <View style={{ flex: 1, justifyContent: "flex-end" }}>
           <TouchableOpacity
             style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.45)" }}
             activeOpacity={1}
-            onPress={handleCloseAttempt}
+            onPress={() => handleCloseAttempt(false)}
           />
 
           <View style={{
@@ -1434,17 +1445,13 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                 onPress={openScanner}
                 style={{
                   flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-                  borderWidth: 1.5, borderColor: themeColors.accentColor, borderRadius: 12,
+                  borderWidth: 1.5, borderColor: mutedBorder, borderRadius: 12,
                   paddingVertical: 12,
-                  backgroundColor: isDark ? "#1a2e1a" : "#f0faf0",
+                  backgroundColor: isDark ? "#222" : "#f2f2f2",
                 }}
               >
-                {lookingUp
-                  ? <ActivityIndicator size="small" color={themeColors.accentColor} />
-                  : <Ionicons name="barcode-outline" size={20} color={themeColors.accentColor} />}
-                <Text style={{ color: themeColors.accentColor, fontWeight: "600", fontSize: 14 }}>
-                  {lookingUp ? "Looking up…" : scannedBarcode ? "Scan Again" : "Barcode"}
-                </Text>
+                <Ionicons name="barcode-outline" size={20} color={mutedText} />
+                <Text style={{ color: mutedText, fontWeight: "600", fontSize: 14 }}>Barcode (Soon)</Text>
               </TouchableOpacity>
               {/* Receipt (future update) */}
               <View
@@ -1787,34 +1794,65 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
           </View>
 
           <View style={styles.itemActionsRow}>
-            {confirmShoppingItemId === itemKey ? (
-              <View style={styles.addMoreConfirmRow}>
+            <View style={{ flex: 1, gap: 8 }}>
+              {confirmShoppingItemId === itemKey ? (
+                <View style={styles.addMoreConfirmRow}>
+                  <TouchableOpacity
+                    onPress={() => setConfirmShoppingItemId(null)}
+                    style={[styles.addMoreCancelButton, { borderColor: themeColors.mode === "dark" ? "#666" : "#bbb", backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5" }]}
+                  >
+                    <Text style={[styles.addMoreCancelButtonText, { color: themeColors.textColor }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={async () => {
+                      await executeAddToShopping(item);
+                      setConfirmShoppingItemId(null);
+                    }}
+                    style={[styles.addMoreConfirmButton, { backgroundColor: themeColors.accentColor }]}
+                  >
+                    <Ionicons name="cart" size={14} color="#fff" />
+                    <Text style={styles.addMoreConfirmButtonText}>Confirm Add</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
                 <TouchableOpacity
-                  onPress={() => setConfirmShoppingItemId(null)}
-                  style={[styles.addMoreCancelButton, { borderColor: themeColors.mode === "dark" ? "#666" : "#bbb", backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5" }]}
+                  onPress={() => handleAddMoreToShopping(item)}
+                  style={[styles.addMoreButton, { borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#1f2b1f" : "#f0faf0" }]}
                 >
-                  <Text style={[styles.addMoreCancelButtonText, { color: themeColors.textColor }]}>Cancel</Text>
+                  <Ionicons name="cart-outline" size={15} color={themeColors.accentColor} />
+                  <Text style={[styles.addMoreButtonText, { color: themeColors.accentColor }]}>Add More to Shopping</Text>
                 </TouchableOpacity>
+              )}
+
+              {confirmRecipeItemId === itemKey ? (
+                <View style={styles.addMoreConfirmRow}>
+                  <TouchableOpacity
+                    onPress={() => setConfirmRecipeItemId(null)}
+                    style={[styles.addMoreCancelButton, { borderColor: themeColors.mode === "dark" ? "#666" : "#bbb", backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5" }]}
+                  >
+                    <Text style={[styles.addMoreCancelButtonText, { color: themeColors.textColor }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={async () => {
+                      await executeSendToRecipe(item);
+                      setConfirmRecipeItemId(null);
+                    }}
+                    style={[styles.addMoreConfirmButton, { backgroundColor: themeColors.accentColor }]}
+                  >
+                    <Ionicons name="restaurant" size={14} color="#fff" />
+                    <Text style={styles.addMoreConfirmButtonText}>Create Recipe</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
                 <TouchableOpacity
-                  onPress={async () => {
-                    await executeAddToShopping(item);
-                    setConfirmShoppingItemId(null);
-                  }}
-                  style={[styles.addMoreConfirmButton, { backgroundColor: themeColors.accentColor }]}
+                  onPress={() => setConfirmRecipeItemId(itemKey)}
+                  style={[styles.addMoreButton, { borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#2a2317" : "#fff7ee" }]}
                 >
-                  <Ionicons name="cart" size={14} color="#fff" />
-                  <Text style={styles.addMoreConfirmButtonText}>Confirm Add</Text>
+                  <Ionicons name="restaurant-outline" size={15} color={themeColors.accentColor} />
+                  <Text style={[styles.addMoreButtonText, { color: themeColors.accentColor }]}>Send to Recipes</Text>
                 </TouchableOpacity>
-              </View>
-            ) : (
-              <TouchableOpacity
-                onPress={() => handleAddMoreToShopping(item)}
-                style={[styles.addMoreButton, { borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#1f2b1f" : "#f0faf0" }]}
-              >
-                <Ionicons name="cart-outline" size={15} color={themeColors.accentColor} />
-                <Text style={[styles.addMoreButtonText, { color: themeColors.accentColor }]}>Add More to Shopping</Text>
-              </TouchableOpacity>
-            )}
+              )}
+            </View>
           </View>
 
             <Text style={[styles.deleteHint, { color: themeColors.mode === "dark" ? "#999" : "#999" }]}>Long press to edit • Swipe to delete</Text>
@@ -2409,6 +2447,42 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
           </View>
         )}
         
+        {items.length === 0 && (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, paddingTop: 72, paddingBottom: 40 }}>
+            <View style={{
+              width: 72,
+              height: 72,
+              borderRadius: 36,
+              backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#fff4ed",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: 20,
+              borderWidth: 1,
+              borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#ffe0c7",
+            }}>
+              <Ionicons name="basket-outline" size={34} color={themeColors.accentColor} />
+            </View>
+            <Text style={{ fontSize: 20, fontWeight: "800", color: themeColors.textColor, textAlign: "center", marginBottom: 8 }}>Your pantry is empty</Text>
+            <Text style={{ fontSize: 14, color: themeColors.mode === "dark" ? "#888" : "#999", textAlign: "center", lineHeight: 21, marginBottom: 28 }}>
+              Add items you have at home so Insert can help you plan meals and track what{"'s"} fresh.
+            </Text>
+            <TouchableOpacity
+              onPress={() => setShowAddItemModal(true)}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+                backgroundColor: themeColors.accentColor,
+                paddingHorizontal: 22,
+                paddingVertical: 13,
+                borderRadius: 14,
+              }}
+            >
+              <Ionicons name="add" size={18} color="#fff" />
+              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Add Your First Item</Text>
+            </TouchableOpacity>
+          </View>
+        )}
         {filteredItems.map((item) => (
           <ItemDetails 
             key={item.id} 

@@ -2,7 +2,7 @@ import { StyleSheet } from "react-native";
 
 const styles = StyleSheet.create({
     searchContainer: {
-        paddingTop: 50,
+        paddingTop: 52,
         paddingHorizontal: 16,
         paddingVertical: 8,
         backgroundColor: "#ffffff",
@@ -44,8 +44,9 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     title: {
-        fontSize: 28,
+        fontSize: 30,
         fontWeight: "700",
+        letterSpacing: 0.2,
     },
     headerButtonGroup: {
         flexDirection: "row",
@@ -65,15 +66,15 @@ const styles = StyleSheet.create({
         padding: 8,
     },
     itemDetails: {
-        borderRadius: 12,
+        borderRadius: 18,
         padding: 12,
         marginHorizontal: 16,
         marginBottom: 8,
         marginTop: 6,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
         elevation: 2,
     },
     nameQuantity: {
@@ -87,7 +88,7 @@ const styles = StyleSheet.create({
         marginBottom: 4,
     },
     itemName: {
-        fontSize: 16,
+        fontSize: 17,
         fontWeight: "700",
         flex: 1,
     },
@@ -164,20 +165,20 @@ const styles = StyleSheet.create({
         marginVertical: 8,
         paddingHorizontal: 16,
         paddingVertical: 16,
-        borderRadius: 12,
+        borderRadius: 18,
         borderWidth: 1,
         borderColor: "#e0e0e0",
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
-        shadowRadius: 4,
+        shadowRadius: 8,
         elevation: 4,
         gap: 12,
     },
     input: {
         borderWidth: 1,
         borderColor: "#e8e8e8",
-        borderRadius: 10,
+        borderRadius: 12,
         paddingHorizontal: 12,
         paddingVertical: 10,
         fontSize: 14,
@@ -196,7 +197,7 @@ const styles = StyleSheet.create({
     },
     addMoreButton: {
         borderWidth: 1,
-        borderRadius: 10,
+        borderRadius: 12,
         paddingVertical: 8,
         paddingHorizontal: 10,
         flexDirection: "row",
@@ -215,7 +216,7 @@ const styles = StyleSheet.create({
     addMoreCancelButton: {
         flex: 1,
         borderWidth: 1,
-        borderRadius: 10,
+        borderRadius: 12,
         paddingVertical: 9,
         alignItems: "center",
         justifyContent: "center",
@@ -226,7 +227,7 @@ const styles = StyleSheet.create({
     },
     addMoreConfirmButton: {
         flex: 1.35,
-        borderRadius: 10,
+        borderRadius: 12,
         paddingVertical: 9,
         alignItems: "center",
         justifyContent: "center",
