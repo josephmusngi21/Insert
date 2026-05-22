@@ -2,15 +2,105 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // User profile doc
+    match /users/{uid} {
+      // Owner can read/write their own profile.
+      // Authenticated users can read public profile basics for friend lookup.
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+
     // All user data lives under users/{uid}/ — one rule covers everything.
     match /users/{uid}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Incoming friend requests: sender can create request into recipient inbox.
+    match /users/{uid}/friendRequests/{requesterUid} {
+      allow read, update, delete: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null
+        && request.auth.uid == requesterUid
+        && request.auth.uid != uid
+        && request.resource.data.fromUserId == request.auth.uid
+        && request.resource.data.status == "pending";
+    }
+
+    // Notifications inbox: owner reads/updates/deletes, authenticated users may create limited notifications.
+    match /users/{uid}/notifications/{notificationId} {
+      allow read, update, delete: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null
+        && request.auth.uid != uid
+        && request.resource.data.type in ["recipe_saved"]
+        && request.resource.data.actorUserId == request.auth.uid
+        && request.resource.data.read == false;
+    }
+
+    // Friend relationships: owner can manage, and reciprocal friend can create/delete counterpart doc.
+    match /users/{uid}/friends/{friendUid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null
+        && (
+          request.auth.uid == uid
+          || (
+            request.auth.uid == friendUid
+            && (
+              request.resource.data.friendUserId == uid
+              || request.resource.data.friendUserId == friendUid
+            )
+          )
+        );
+      allow delete: if request.auth != null
+        && (request.auth.uid == uid || request.auth.uid == friendUid);
+    }
+
+    // Recipe share inbox: sender can create share for recipient.
+    match /users/{uid}/recipeShares/{shareId} {
+      allow read, update, delete: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null
+        && request.resource.data.fromUserId == request.auth.uid
+        && request.resource.data.toUserId == uid;
+    }
+
+    // Global social feed.
+    match /socialPosts/{postId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+
+      // Any signed-in user can update likes; owner can update/delete own post.
+      allow update: if request.auth != null
+        && (
+          request.auth.uid == resource.data.userId
+          || request.resource.data.diff(resource.data).changedKeys().hasOnly(["likes"])
+        );
+      allow delete: if request.auth != null && request.auth.uid == resource.data.userId;
+
+      // Comments on social posts.
+      match /comments/{commentId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null
+          && request.resource.data.userId == request.auth.uid;
+        allow update, delete: if request.auth != null
+          && request.auth.uid == resource.data.userId;
+      }
     }
 
     // Shared product database — any authenticated user can read; authenticated users can create/update
     match /products/{barcode} {
       allow read: if request.auth != null;
       allow create, update: if request.auth != null;
+    }
+
+    // Public recipe index used for friend and public browsing.
+    match /publicRecipes/{recipeId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update: if request.auth != null
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == request.auth.uid;
+      allow delete: if request.auth != null
+        && resource.data.ownerId == request.auth.uid;
     }
 
     // Deny everything else
