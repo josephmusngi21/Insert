@@ -1,11 +1,14 @@
-import { useState, useEffect, useRef } from "react";
-import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity, FlatList, StyleSheet, Modal, KeyboardAvoidingView, Platform, Dimensions, ActivityIndicator } from "react-native";
+import { useState, useEffect, useRef, useCallback, memo } from "react";
+import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity, FlatList, StyleSheet, Modal, Platform, Dimensions, ActivityIndicator, Keyboard, TouchableWithoutFeedback } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import Swipeable from "react-native-gesture-handler/Swipeable";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
-import { onSnapshot, addDoc, deleteDoc, doc, writeBatch, getDoc, setDoc } from "firebase/firestore";
-import { pantryCol, pantryDoc, pendingCol, pendingDoc, settingsDoc, productDoc, ProductEntry } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
+import { onSnapshot, addDoc, deleteDoc, doc, writeBatch, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { pantryCol, pantryDoc, pendingCol, pendingDoc, settingsDoc, productDoc, ProductEntry, shoppingCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
+import { formatQuantityForPreference, PreferredWeightUnit, UnitDisplayMode } from "@/screens/utils/unitUtils";
 import styles from "./PantryItemDetailScreen.styles";
 
 type PantryItem = {
@@ -23,6 +26,7 @@ type PantryItem = {
 type PendingItem = {
   id: string;
   name: string;
+    type?: string;
   quantity: number;
   unit: string;
   location: string;
@@ -41,7 +45,50 @@ const calculateExpirationDays = (expirationDate: string): number => {
   return diffDays;
 };
 
-type ItemDetailsProps = { item: PantryItem; isEditing: boolean };
+// Smart item categorization - detects category from item name
+const detectItemCategory = (itemName: string): string => {
+  const name = itemName.toLowerCase();
+
+  // Spices/seasonings should stay pantry (e.g. black pepper)
+  if (/black pepper|peppercorn|paprika|cumin|oregano|thyme|seasoning|spice|chili powder|garlic powder|onion powder/.test(name)) {
+    return "pantry";
+  }
+
+  // Meat keywords
+  if (/beef|chicken|pork|lamb|fish|salmon|tuna|shrimp|steak|roast|breast|ground beef|ground chicken|ground turkey|sausage|ham|bacon|turkey|duck|veal|meat/.test(name)) {
+    return "meat";
+  }
+
+  // Dairy keywords
+  if (/milk|cheese|yogurt|cream|butter|cheese|dairy|cottage|mozzarella|cheddar|ice cream/.test(name)) {
+    return "dairy";
+  }
+
+  // Produce keywords
+  if (/apple|banana|orange|grape|tomato|lettuce|carrot|broccoli|spinach|celery|potato|onion|garlic|pepper|cucumber|zucchini|fruit|vegetable|produce/.test(name)) {
+    return "produce";
+  }
+
+  // Frozen keywords
+  if (/frozen|fries|pizza|nuggets|peas|corn|ice cream|tv dinner/.test(name)) {
+    return "frozen";
+  }
+
+  // Beverages keywords
+  if (/juice|soda|coffee|tea|water|milk|beer|wine|alcohol|drink|smoothie|coconut water/.test(name)) {
+    return "beverages";
+  }
+
+  // Bakery keywords
+  if (/bread|cake|cookie|pastry|donut|croissant|muffin|bagel|baguette|brioche|bakery/.test(name)) {
+    return "bakery";
+  }
+
+  // Default to pantry
+  return "pantry";
+};
+
+type ItemDetailsProps = { item: PantryItem };
 
 interface ThemeColors {
   mode: "light" | "dark" | "custom";
@@ -55,9 +102,98 @@ interface PantryItemDetailScreenProps {
   theme?: ThemeColors;
   showAddItemModal: boolean;
   setShowAddItemModal: (v: boolean) => void;
+  onBackToAddChoice?: () => void;
 }
 
-export default function PantryItemDetailScreen({ onLogout, theme, showAddItemModal, setShowAddItemModal }: PantryItemDetailScreenProps) {
+const PENDING_UNIT_OPTIONS = ["g", "kg", "lb", "oz", "ml", "l", "cup", "tbsp", "tsp", "pcs", "qty", "pack", "can", "bottle"];
+const STORAGE_LOCATIONS = ["Fridge", "Freezer", "Pantry", "Cupboard", "Counter"];
+
+type AddItemTypeOption = {
+  label: string;
+  value: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  expirationDays: number;
+  location: string;
+};
+
+const DEFAULT_ADD_ITEM_TYPES: AddItemTypeOption[] = [
+  { label: "Produce", value: "produce", icon: "leaf-outline", expirationDays: 7, location: "Fridge" },
+  { label: "Dairy", value: "dairy", icon: "water-outline", expirationDays: 14, location: "Fridge" },
+  { label: "Meat", value: "meat", icon: "nutrition-outline", expirationDays: 3, location: "Fridge" },
+  { label: "Frozen", value: "frozen", icon: "snow-outline", expirationDays: 90, location: "Freezer" },
+  { label: "Pantry", value: "pantry", icon: "archive-outline", expirationDays: 180, location: "Pantry" },
+  { label: "Bakery", value: "bakery", icon: "storefront-outline", expirationDays: 5, location: "Counter" },
+  { label: "Beverages", value: "beverages", icon: "cafe-outline", expirationDays: 30, location: "Fridge" },
+];
+
+const ITEM_TYPE_ICON_BY_VALUE: Record<string, keyof typeof Ionicons.glyphMap> = {
+  produce: "leaf-outline",
+  dairy: "water-outline",
+  meat: "nutrition-outline",
+  frozen: "snow-outline",
+  pantry: "archive-outline",
+  bakery: "storefront-outline",
+  beverages: "cafe-outline",
+};
+
+const ITEM_TYPE_LOCATION_BY_VALUE: Record<string, string> = {
+  produce: "Fridge",
+  dairy: "Fridge",
+  meat: "Fridge",
+  frozen: "Freezer",
+  pantry: "Pantry",
+  bakery: "Counter",
+  beverages: "Fridge",
+};
+
+const normalizeItemTypes = (raw: unknown): AddItemTypeOption[] => {
+  if (!Array.isArray(raw)) return DEFAULT_ADD_ITEM_TYPES;
+
+  const normalized = raw
+    .map((entry): AddItemTypeOption | null => {
+      if (!entry || typeof entry !== "object") return null;
+      const source = entry as Record<string, unknown>;
+
+      const valueCandidate = source.value ?? source.name;
+      if (typeof valueCandidate !== "string") return null;
+      const value = valueCandidate.trim().toLowerCase();
+      if (!value) return null;
+
+      const labelCandidate = source.label ?? source.displayName;
+      const label = typeof labelCandidate === "string" && labelCandidate.trim().length > 0
+        ? labelCandidate.trim()
+        : value.charAt(0).toUpperCase() + value.slice(1);
+
+      const expirationRaw = source.expirationDays;
+      const expirationDays = typeof expirationRaw === "number" && Number.isFinite(expirationRaw) && expirationRaw > 0
+        ? Math.round(expirationRaw)
+        : (DEFAULT_ADD_ITEM_TYPES.find((t) => t.value === value)?.expirationDays ?? 7);
+
+      const iconRaw = source.icon;
+      const icon = (typeof iconRaw === "string" && iconRaw in Ionicons.glyphMap
+        ? (iconRaw as keyof typeof Ionicons.glyphMap)
+        : (ITEM_TYPE_ICON_BY_VALUE[value] ?? "archive-outline"));
+
+      const locationRaw = source.location;
+      const location = typeof locationRaw === "string" && locationRaw.trim().length > 0
+        ? locationRaw.trim()
+        : (ITEM_TYPE_LOCATION_BY_VALUE[value] ?? "Pantry");
+
+      return { label, value, icon, expirationDays, location };
+    })
+    .filter((entry): entry is AddItemTypeOption => entry !== null);
+
+  if (normalized.length === 0) return DEFAULT_ADD_ITEM_TYPES;
+
+  const seen = new Set<string>();
+  return normalized.filter((entry) => {
+    if (seen.has(entry.value)) return false;
+    seen.add(entry.value);
+    return true;
+  });
+};
+
+export default function PantryItemDetailScreen({ onLogout, theme, showAddItemModal, setShowAddItemModal, onBackToAddChoice }: PantryItemDetailScreenProps) {
   const themeColors = theme || {
     mode: "light",
     textColor: "#333",
@@ -66,13 +202,57 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
   };
   const [items, setItems] = useState<PantryItem[]>([]);
   const [hasUserAddedItems, setHasUserAddedItems] = useState(false);
-  const [editingMode, setEditingMode] = useState(false);
-  const [editForm, setEditForm] = useState<{ [key: string]: { name: string; quantity: string; location: string } }>({});
+  const [editingItemId, setEditingItemId] = useState<string | number | null>(null);
+  const [editFormData, setEditFormData] = useState<{ name: string; quantity: string; location: string }>({ name: "", quantity: "", location: "" });
   const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
   const [editingPending, setEditingPending] = useState<{ [key: string]: { quantity: string; name: string; unit: string; location: string } }>({});
+  const [expandedPendingId, setExpandedPendingId] = useState<string | null>(null);
+  const [pendingUnitPickerItemId, setPendingUnitPickerItemId] = useState<string | null>(null);
+  const [confirmShoppingItemId, setConfirmShoppingItemId] = useState<string | null>(null);
   const [showExpiredItems, setShowExpiredItems] = useState(false);
+  const [preferredWeightUnit, setPreferredWeightUnit] = useState<PreferredWeightUnit>("g");
+  const [unitDisplayMode, setUnitDisplayMode] = useState<UnitDisplayMode>("converted");
+  const [confirmBeforeAddToShopping, setConfirmBeforeAddToShopping] = useState(true);
+  const [showPendingItems, setShowPendingItems] = useState(true);
+  const [pantrySearchQuery, setPantrySearchQuery] = useState("");
+  const [selectedPantryCategory, setSelectedPantryCategory] = useState<string>("all");
+  const [selectedStorageLocation, setSelectedStorageLocation] = useState<string>("all");
+  const [activeFilterPanel, setActiveFilterPanel] = useState<"food" | "location" | null>(null);
+  const [availableStorageLocations, setAvailableStorageLocations] = useState<string[]>(STORAGE_LOCATIONS);
+  const mainScrollRef = useRef<ScrollView | null>(null);
+  const stickySectionHeightRef = useRef(0);
+  const isAutoSnapInProgressRef = useRef(false);
+  const pantrySearchInputRef = useRef<any>(null);
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
+
+  const locationOptions = availableStorageLocations.length > 0 ? availableStorageLocations : STORAGE_LOCATIONS;
+
+  const getPantryMatchKey = (name: string, unit: string, location: string): string => {
+    return `${name.trim().toLowerCase()}|${unit.trim().toLowerCase()}|${location.trim().toLowerCase()}`;
+  };
+
+  useEffect(() => {
+    if (!userId) return;
+    const loadUnitPreference = async () => {
+      try {
+        const snap = await getDoc(settingsDoc(userId, "preferences"));
+        if (snap.exists()) {
+          const pref = snap.data().preferredWeightUnit;
+          const displayMode = snap.data().unitDisplayMode;
+          const confirmPref = snap.data().confirmBeforeAddToShopping;
+          const showExpiredPref = snap.data().showExpiredByDefault;
+          if (pref === "g" || pref === "lb") setPreferredWeightUnit(pref);
+          if (displayMode === "converted" || displayMode === "as_is") setUnitDisplayMode(displayMode);
+          if (typeof confirmPref === "boolean") setConfirmBeforeAddToShopping(confirmPref);
+          if (typeof showExpiredPref === "boolean") setShowExpiredItems(showExpiredPref);
+        }
+      } catch (error) {
+        console.error("Error loading unit preference:", error);
+      }
+    };
+    loadUnitPreference();
+  }, [userId]);
 
   // Load both pending items and pantry items from Firestore
   useEffect(() => {
@@ -109,6 +289,44 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
       pantryUnsubscribe();
     };
   }, [userId]);
+
+  // Keep pantry location options in sync with More > Locations settings.
+  useEffect(() => {
+    if (!userId) return;
+
+    const locationsRef = doc(db, "users", userId, "settings", "locations");
+    const unsubscribe = onSnapshot(
+      locationsRef,
+      (snapshot) => {
+        const data = snapshot.data();
+        const locationsMap = data?.locations as Record<string, string[]> | undefined;
+
+        if (locationsMap && Object.keys(locationsMap).length > 0) {
+          setAvailableStorageLocations(Object.keys(locationsMap));
+        } else {
+          setAvailableStorageLocations(STORAGE_LOCATIONS);
+        }
+      },
+      (error) => {
+        console.error("Error loading pantry location options:", error);
+        setAvailableStorageLocations(STORAGE_LOCATIONS);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [userId]);
+
+  useEffect(() => {
+    if (selectedStorageLocation === "all") return;
+
+    const stillExists = locationOptions.some(
+      (location) => location.toLowerCase() === selectedStorageLocation
+    );
+
+    if (!stillExists) {
+      setSelectedStorageLocation("all");
+    }
+  }, [locationOptions, selectedStorageLocation]);
 
   // Function to convert units to most useful format
   const convertToUsefulUnit = (quantity: number, unit: string): { quantity: number; unit: string } => {
@@ -155,24 +373,38 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
               
               // Convert to useful unit
               const parsedQuantity = parseFloat(editedQuantity);
-              const converted = convertToUsefulUnit(parsedQuantity, editedUnit);
+              const converted = convertToUsefulUnit(Number.isFinite(parsedQuantity) ? parsedQuantity : 1, editedUnit);
+
+              const matchKey = getPantryMatchKey(editedName, converted.unit, editedLocation);
+              const existingPantryItem = items.find((existing) => {
+                if (!existing._firestoreId) return false;
+                const existingKey = getPantryMatchKey(existing.name || "", existing.unit || "", existing.location || "");
+                return existingKey === matchKey;
+              });
               
               console.log("Creating batch write...");
               const batch = writeBatch(db);
               
-              // Add to pantry
-              const pantryRef = doc(pantryCol(userId));
-              batch.set(pantryRef, {
-                name: editedName,
-                type: item.name,
-                quantity: converted.quantity,
-                unit: converted.unit,
-                location: editedLocation,
-                dateAdded: new Date().toISOString().split('T')[0],
-                expirationDate: item.expirationDate,
-                userId,
-                createdAt: Date.now(),
-              });
+              if (existingPantryItem?._firestoreId) {
+                const existingQuantity = Number(existingPantryItem.quantity) || 0;
+                batch.update(pantryDoc(userId, existingPantryItem._firestoreId), {
+                  quantity: existingQuantity + converted.quantity,
+                });
+              } else {
+                // Add to pantry as new item
+                const pantryRef = doc(pantryCol(userId));
+                batch.set(pantryRef, {
+                  name: editedName,
+                  type: item.type || detectItemCategory(editedName),
+                  quantity: converted.quantity,
+                  unit: converted.unit,
+                  location: editedLocation,
+                  dateAdded: new Date().toISOString().split('T')[0],
+                  expirationDate: item.expirationDate,
+                  userId,
+                  createdAt: Date.now(),
+                });
+              }
               
               console.log("Adding delete from pending to batch...");
               // Delete from pending
@@ -191,6 +423,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                 delete newState[item.id];
                 return newState;
               });
+              setExpandedPendingId(prev => (prev === item.id ? null : prev));
               
               Alert.alert("Success", `${editedName} added to ${editedLocation}`);
             } catch (error) {
@@ -224,6 +457,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                 delete newState[itemId];
                 return newState;
               });
+              setExpandedPendingId(prev => (prev === itemId ? null : prev));
               Alert.alert("Success", `${itemName} removed from pending`);
             } catch (error) {
               Alert.alert("Error", "Failed to remove item");
@@ -255,6 +489,26 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
           onPress: async () => {
             try {
               const batch = writeBatch(db);
+
+              const existingByKey = new Map<string, { firestoreId: string; quantity: number }>();
+              items.forEach((existing) => {
+                if (!existing._firestoreId) return;
+                const key = getPantryMatchKey(existing.name || "", existing.unit || "", existing.location || "");
+                existingByKey.set(key, {
+                  firestoreId: existing._firestoreId,
+                  quantity: Number(existing.quantity) || 0,
+                });
+              });
+
+              const incrementByDocId = new Map<string, number>();
+              const newItemsByKey = new Map<string, {
+                name: string;
+                type: string;
+                quantity: number;
+                unit: string;
+                location: string;
+                expirationDate: string;
+              }>();
               
               // Process each pending item
               pendingItems.forEach((item) => {
@@ -265,25 +519,57 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                 
                 // Convert to useful unit
                 const parsedQuantity = parseFloat(editedQuantity);
-                const converted = convertToUsefulUnit(parsedQuantity, editedUnit);
-                
-                // Add to pantry
-                const pantryRef = doc(pantryCol(userId));
-                batch.set(pantryRef, {
-                  name: editedName,
-                  type: item.name,
-                  quantity: converted.quantity,
-                  unit: converted.unit,
-                  location: editedLocation,
-                  dateAdded: new Date().toISOString().split('T')[0],
-                  expirationDate: item.expirationDate,
-                  userId,
-                  createdAt: Date.now(),
-                });
+                const converted = convertToUsefulUnit(Number.isFinite(parsedQuantity) ? parsedQuantity : 1, editedUnit);
+
+                const key = getPantryMatchKey(editedName, converted.unit, editedLocation);
+                const existing = existingByKey.get(key);
+
+                if (existing) {
+                  const prevIncrement = incrementByDocId.get(existing.firestoreId) || 0;
+                  incrementByDocId.set(existing.firestoreId, prevIncrement + converted.quantity);
+                } else {
+                  const existingNew = newItemsByKey.get(key);
+                  if (existingNew) {
+                    existingNew.quantity += converted.quantity;
+                    newItemsByKey.set(key, existingNew);
+                  } else {
+                    newItemsByKey.set(key, {
+                      name: editedName,
+                      type: item.type || detectItemCategory(editedName),
+                      quantity: converted.quantity,
+                      unit: converted.unit,
+                      location: editedLocation,
+                      expirationDate: item.expirationDate,
+                    });
+                  }
+                }
                 
                 // Delete from pending
                 const pendingRef = pendingDoc(userId, item.id);
                 batch.delete(pendingRef);
+              });
+
+              incrementByDocId.forEach((increment, firestoreId) => {
+                const matched = items.find((entry) => entry._firestoreId === firestoreId);
+                const startQty = Number(matched?.quantity) || 0;
+                batch.update(pantryDoc(userId, firestoreId), {
+                  quantity: startQty + increment,
+                });
+              });
+
+              newItemsByKey.forEach((newItem) => {
+                const pantryRef = doc(pantryCol(userId));
+                batch.set(pantryRef, {
+                  name: newItem.name,
+                  type: newItem.type,
+                  quantity: newItem.quantity,
+                  unit: newItem.unit,
+                  location: newItem.location,
+                  dateAdded: new Date().toISOString().split('T')[0],
+                  expirationDate: newItem.expirationDate,
+                  userId,
+                  createdAt: Date.now(),
+                });
               });
               
               // Commit all operations at once
@@ -291,6 +577,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
               
               // Clear editing state
               setEditingPending({});
+              setExpandedPendingId(null);
               
               Alert.alert("Success", `All ${pendingItems.length} items added to pantry`);
             } catch (error) {
@@ -354,26 +641,87 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
     );
   };
 
-  const handleToggleEdit = async () => {
-    if (editingMode) {
-      // Save all changes when exiting edit mode
-      const updatedItems = items.map((item) => {
-        const form = editForm[item.id];
-        if (!form) return item;
-        return {
-          ...item,
-          name: form.name || item.name,
-          quantity: parseInt(form.quantity) || item.quantity,
-          location: form.location || item.location,
-        };
+  const openEditModal = useCallback((item: PantryItem) => {
+    const itemKey = typeof item.id === "string" ? item.id : item.id.toString();
+    setEditingItemId(itemKey);
+    setEditFormData({
+      name: item.name,
+      quantity: item.quantity.toString(),
+      location: item.location,
+    });
+  }, []);
+
+  const closeEditModal = useCallback(() => {
+    setEditingItemId(null);
+    setEditFormData({ name: "", quantity: "", location: "" });
+  }, []);
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editingItemId) return;
+    
+    const itemToEdit = items.find(i => (typeof i.id === "string" ? i.id : i.id.toString()) === editingItemId);
+    if (!itemToEdit || !itemToEdit._firestoreId) return;
+
+    try {
+      await updateDoc(pantryDoc(userId, itemToEdit._firestoreId), {
+        name: editFormData.name || itemToEdit.name,
+        quantity: parseInt(editFormData.quantity) || itemToEdit.quantity,
+        location: editFormData.location || itemToEdit.location,
       });
-      setItems(updatedItems);
-      setEditForm({});
+      
+      setItems(items.map(item => {
+        if ((typeof item.id === "string" ? item.id : item.id.toString()) === editingItemId) {
+          return {
+            ...item,
+            name: editFormData.name || item.name,
+            quantity: parseInt(editFormData.quantity) || item.quantity,
+            location: editFormData.location || item.location,
+          };
+        }
+        return item;
+      }));
+      
+      closeEditModal();
+      Alert.alert("Success", "Item updated");
+    } catch (error) {
+      console.error("Error saving edits:", error);
+      Alert.alert("Save Error", "Failed to update item");
     }
-    setEditingMode(!editingMode);
+  }, [editingItemId, editFormData, items, userId, closeEditModal]);
+
+  const executeAddToShopping = async (item: PantryItem) => {
+    if (!userId) {
+      Alert.alert("Sign in required", "Please sign in to add items to your shopping list.");
+      return;
+    }
+    const converted = formatQuantityForPreference(item.quantity || 1, item.unit || "qty", preferredWeightUnit, unitDisplayMode);
+    try {
+      await addDoc(shoppingCol(userId), {
+        name: item.name,
+        quantity: String(converted.quantityValue),
+        unit: converted.unitText || "qty",
+        completed: false,
+        userId,
+        createdAt: Date.now(),
+        source: "pantry",
+      });
+      Alert.alert("Added", `${item.name} added to your shopping list.`);
+    } catch (error) {
+      console.error("Error adding item to shopping:", error);
+      Alert.alert("Error", "Failed to add item to shopping list.");
+    }
   };
 
-  const handleDeleteItem = (itemId: number | string, itemName: string) => {
+  const handleAddMoreToShopping = async (item: PantryItem) => {
+    if (!confirmBeforeAddToShopping) {
+      await executeAddToShopping(item);
+      return;
+    }
+    const itemKey = typeof item.id === "string" ? item.id : String(item.id);
+    setConfirmShoppingItemId(itemKey);
+  };
+
+  const handleDeleteItem = useCallback((itemId: number | string, itemName: string) => {
     Alert.alert(
       "Delete Item",
       `Are you sure you want to remove "${itemName}"?`,
@@ -383,50 +731,220 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
           text: "Delete",
           style: "destructive",
           onPress: async () => {
+            const targetItem = items.find((item) => item.id === itemId);
             try {
               // Update local state immediately for UI feedback
-              const updatedItems = items.filter(item => item.id !== itemId);
-              setItems(updatedItems);
+              setItems((prev) => prev.filter((item) => item.id !== itemId));
 
               // If it's a Firestore item, delete using _firestoreId
-              const itemIndex = items.findIndex(item => item.id === itemId);
-              if (itemIndex !== -1 && items[itemIndex]._firestoreId) {
-                await deleteDoc(pantryDoc(userId, items[itemIndex]._firestoreId!));
-                console.log("Item deleted from Firestore:", items[itemIndex]._firestoreId);
+              if (targetItem?._firestoreId) {
+                await deleteDoc(pantryDoc(userId, targetItem._firestoreId));
+                console.log("Item deleted from Firestore:", targetItem._firestoreId);
               }
             } catch (error) {
               console.error("Error deleting item:", error);
               Alert.alert("Error", "Failed to delete item");
-              // Revert state if deletion fails
-              setItems([...items]);
             }
           }
         }
       ]
     );
-  };
+  }, [items, userId]);
+
+  const handlePantrySearchChange = useCallback((value: string) => {
+    setPantrySearchQuery(value);
+    requestAnimationFrame(() => {
+      pantrySearchInputRef.current?.focus?.();
+    });
+  }, []);
+
+  const PANTRY_CATEGORIES = [
+    { key: "all", label: "All" },
+    { key: "protein", label: "Protein" },
+    { key: "dairy", label: "Dairy" },
+    { key: "produce", label: "Produce" },
+    { key: "frozen", label: "Frozen" },
+    { key: "beverages", label: "Beverages" },
+    { key: "bakery", label: "Bakery" },
+    { key: "pantry", label: "Pantry" },
+  ];
 
   const Header = () => {
     return (
       <View style={[styles.header, { backgroundColor: themeColors.backgroundColor }]}>
         <View style={styles.titleAndMenu}>
           <Text style={[styles.title, { color: themeColors.textColor }]}>Pantry</Text>
-          <View style={styles.headerButtonGroup}>
-            <Button
-              title={editingMode ? "Done" : "Edit Items"} 
-              onPress={handleToggleEdit}
-              color={themeColors.accentColor}
-              accessibilityLabel={editingMode ? "Done editing" : "Edit items"}
-            />
-          </View>
         </View>
       </View>
     );
   };
 
+  const EditItemModal = () => {
+    const isDark = themeColors.mode === "dark";
+    const surfaceBg = isDark ? "#1e1e1e" : "#fff";
+    const inputBg = isDark ? "#2a2a2a" : "#fafafa";
+    const mutedBorder = isDark ? "#444" : "#e0e0e0";
+    const mutedText = isDark ? "#aaa" : "#666";
+    const labelStyle = {
+      fontSize: 12, fontWeight: "600" as const, color: mutedText,
+      marginBottom: 6, textTransform: "uppercase" as const, letterSpacing: 0.6,
+    };
+    const inputStyle = {
+      borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+      fontSize: 15, color: themeColors.textColor, backgroundColor: inputBg,
+      borderColor: mutedBorder,
+    };
+
+    return (
+      <Modal visible={editingItemId !== null} transparent animationType="slide" onRequestClose={closeEditModal}>
+        <TouchableOpacity
+          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.45)" }}
+          activeOpacity={1}
+          onPress={closeEditModal}
+        />
+
+        <View style={{ flex: 1, justifyContent: "flex-end" }}>
+          <View style={{
+            backgroundColor: surfaceBg,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            paddingHorizontal: 20,
+            paddingTop: 12,
+            paddingBottom: 0,
+            height: Dimensions.get("window").height * 0.75,
+            maxHeight: Dimensions.get("window").height * 0.85,
+          }}>
+            {/* Header */}
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <Text style={{ fontSize: 22, fontWeight: "700", color: themeColors.textColor }}>Edit Item</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <TouchableOpacity onPress={() => Keyboard.dismiss()} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
+                  <Text style={{ color: themeColors.accentColor, fontWeight: "700", fontSize: 13 }}>Done</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={closeEditModal} style={{ padding: 6 }}>
+                  <Ionicons name="close" size={22} color="#999" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+              <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingBottom: 120 }}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                nestedScrollEnabled={true}
+              >
+              {/* Item Name */}
+              <Text style={labelStyle}>Item Name *</Text>
+              <TextInput
+                style={{ ...inputStyle, marginBottom: 16 }}
+                placeholder="Enter item name"
+                placeholderTextColor={isDark ? "#555" : "#bbb"}
+                value={editFormData.name}
+                onChangeText={(text) => setEditFormData(prev => ({ ...prev, name: text }))}
+                blurOnSubmit={false}
+                autoCorrect={false}
+              />
+
+              {/* Quantity */}
+              <Text style={labelStyle}>Quantity *</Text>
+              <TextInput
+                style={{ ...inputStyle, marginBottom: 16 }}
+                placeholder="Enter quantity"
+                placeholderTextColor={isDark ? "#555" : "#bbb"}
+                value={editFormData.quantity}
+                onChangeText={(text) => setEditFormData(prev => ({ ...prev, quantity: text }))}
+                keyboardType="numeric"
+                blurOnSubmit={false}
+                autoCorrect={false}
+              />
+
+              {/* Storage Location Dropdown */}
+              <Text style={labelStyle}>Storage Location *</Text>
+              <View style={{
+                borderWidth: 1.5,
+                borderColor: mutedBorder,
+                borderRadius: 10,
+                backgroundColor: inputBg,
+                marginBottom: 16,
+                overflow: "hidden",
+              }}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 8, paddingHorizontal: 10, paddingVertical: 10 }}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {locationOptions.map((location) => {
+                    const isSelected = editFormData.location === location;
+                    return (
+                      <TouchableOpacity
+                        key={location}
+                        onPress={() => setEditFormData(prev => ({ ...prev, location }))}
+                        style={{
+                          paddingHorizontal: 14,
+                          paddingVertical: 8,
+                          borderRadius: 8,
+                          backgroundColor: isSelected ? themeColors.accentColor : mutedBorder,
+                          minWidth: 80,
+                          alignItems: "center",
+                        }}
+                      >
+                        <Text style={{
+                          color: isSelected ? "#fff" : themeColors.textColor,
+                          fontWeight: isSelected ? "700" : "500",
+                          fontSize: 13,
+                        }}>
+                          {location}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+              </ScrollView>
+            </TouchableWithoutFeedback>
+
+            {/* Save Button */}
+            <View style={{
+              marginHorizontal: -20,
+              paddingHorizontal: 20,
+              paddingTop: 10,
+              paddingBottom: Platform.OS === "ios" ? 34 : 18,
+              borderTopWidth: 1,
+              borderTopColor: mutedBorder,
+              backgroundColor: surfaceBg,
+            }}>
+              <TouchableOpacity
+                onPress={handleSaveEdit}
+                disabled={!editFormData.name.trim() || !editFormData.quantity.trim() || !editFormData.location.trim()}
+                style={{
+                  backgroundColor: (editFormData.name.trim() && editFormData.quantity.trim() && editFormData.location.trim()) ? themeColors.accentColor : mutedBorder,
+                  borderRadius: 14,
+                  paddingVertical: 16,
+                  alignItems: "center"
+                }}
+              >
+                <Text style={{
+                  color: (editFormData.name.trim() && editFormData.quantity.trim() && editFormData.location.trim()) ? "#fff" : mutedText,
+                  fontWeight: "700",
+                  fontSize: 16
+                }}>
+                  Save Changes
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   const AddItemModal = () => {
     const [newItem, setNewItem] = useState({
-      name: "", type: "", location: "", quantity: "1", unit: "pcs",
+      name: "", type: "pantry", location: "", quantity: "1", unit: "pcs",
       brand: "", notes: "", customExpiry: "",
     });
     const [scannedBarcode, setScannedBarcode] = useState<string | null>(null);
@@ -434,239 +952,41 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
     const [showScanner, setShowScanner] = useState(false);
     const [lookingUp, setLookingUp] = useState(false);
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
     const [permission, requestPermission] = useCameraPermissions();
     const scanLockRef = useRef(false);
-
-    // ── Receipt scanner state ──────────────────────────────────────────────
-    type ReceiptItem = {
-      id: string;
-      name: string;
-      quantity: string;
-      unit: string;
-      type: string;
-      location: string;
-      expirationDays: number;
-      checked: boolean;
-    };
-    const [showReceiptCamera, setShowReceiptCamera] = useState(false);
-    const [receiptProcessing, setReceiptProcessing] = useState(false);
-    const [receiptStep, setReceiptStep] = useState<'idle' | 'ocr' | 'lookup'>('idle');
-    const [receiptLookupProgress, setReceiptLookupProgress] = useState(0);
-    const [receiptLookupTotal, setReceiptLookupTotal] = useState(0);
-    const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([]);
-    const [showReceiptReview, setShowReceiptReview] = useState(false);
-    const cameraRef = useRef<any>(null);
-
-    const openReceiptCamera = async () => {
-      if (!permission?.granted) {
-        const result = await requestPermission();
-        if (!result.granted) {
-          Alert.alert("Camera Permission", "Camera access is required to scan receipts.");
-          return;
-        }
-      }
-      setShowReceiptCamera(true);
-    };
-
-    /** Parse raw OCR text from a receipt → candidate product name lines */
-    const parseReceiptLines = (rawText: string): string[] => {
-      const SKIP = /total|subtotal|tax|hst|gst|pst|change|balance|cash|credit|debit|visa|mastercard|amex|approval|auth|store|receipt|thank|welcome|member|loyalty|points|savings|discount|coupon|void|refund|return|service|date|time|reg|cashier|operator|tel|phone|address|www\.|\.com|invoice|order|trans|^\d+$/i;
-      const PRICE = /^\$?[\d,]+\.\d{2}$|^\d{1,2}\/\d{1,2}\/\d{2,4}$|\b\d{12,}\b/;
-      return rawText
-        .split('\n')
-        .map(l => l.replace(/[*|\\/#@<>{}[\]]/g, '').trim())
-        .filter(l => l.length >= 3 && l.length <= 60)
-        .filter(l => !SKIP.test(l))
-        .filter(l => !PRICE.test(l.trim()))
-        // must contain at least one letter
-        .filter(l => /[a-zA-Z]/.test(l))
-        // strip trailing price if present e.g. "Chicken Breast  4.99"
-        .map(l => l.replace(/\s+\$?[\d,]+\.\d{2}\s*[A-Z]?\s*$/, '').trim())
-        .filter(l => l.length >= 3)
-        // dedupe
-        .filter((v, i, a) => a.indexOf(v) === i)
-        .slice(0, 30); // safety cap
-    };
-
-    /** Search Open Food Facts by name → best-match product info */
-    const lookupItemByName = async (name: string): Promise<Partial<ReceiptItem>> => {
-      try {
-        const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(name)}&action=process&json=1&page_size=1&fields=product_name,categories_tags,product_quantity,product_quantity_unit,quantity`;
-        const resp = await fetch(url);
-        if (!resp.ok) return {};
-        const data = await resp.json();
-        const p = data.products?.[0];
-        if (!p) return {};
-
-        const allTags: string[] = p.categories_tags || [];
-        const categoryMap: Record<string, string> = {
-          dairy: "dairy", milk: "dairy", cheese: "dairy", yogurt: "dairy", butter: "dairy",
-          meat: "meat", beef: "meat", chicken: "meat", pork: "meat", fish: "meat", seafood: "meat",
-          fruits: "produce", vegetables: "produce", fresh: "produce", produce: "produce",
-          frozen: "frozen", "ice-cream": "frozen",
-          beverages: "beverages", drinks: "beverages", juices: "beverages",
-          breads: "bakery", pastries: "bakery", bakery: "bakery",
-        };
-        let mappedType = "pantry";
-        for (const tag of allTags) {
-          const clean = tag.replace(/^en:/, "").toLowerCase();
-          const hit = Object.entries(categoryMap).find(([key]) => clean.includes(key));
-          if (hit) { mappedType = hit[1]; break; }
-        }
-
-        let unit = "pcs";
-        let quantity = "1";
-        if (p.product_quantity && p.product_quantity_unit) {
-          quantity = String(p.product_quantity);
-          unit = p.product_quantity_unit.toLowerCase();
-        } else if (p.quantity) {
-          const m = String(p.quantity).match(/^([\d.]+)\s*([a-zA-Z]+)/);
-          if (m) { quantity = m[1]; unit = m[2].toLowerCase(); }
-        }
-        return { type: mappedType, quantity, unit };
-      } catch {
-        return {};
-      }
-    };
-
-    const captureAndProcessReceipt = async () => {
-      if (!cameraRef.current) return;
-      try {
-        setReceiptProcessing(true);
-        setReceiptStep('ocr');
-
-        // Take photo
-        const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.7 });
-        setShowReceiptCamera(false);
-
-        // OCR via ocr.space free API
-        const formBody = new URLSearchParams({
-          apikey: 'K88888888888888', // free demo key — user can replace
-          base64Image: `data:image/jpeg;base64,${photo.base64}`,
-          language: 'eng',
-          isOverlayRequired: 'false',
-        }).toString();
-
-        const ocrResp = await fetch('https://api.ocr.space/parse/image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: formBody,
-        });
-        const ocrData = await ocrResp.json();
-        const rawText: string = ocrData.ParsedResults?.[0]?.ParsedText || '';
-        if (!rawText) {
-          Alert.alert("Couldn't read receipt", "No text was detected. Try better lighting and hold the camera steady.");
-          setReceiptProcessing(false);
-          setReceiptStep('idle');
-          return;
-        }
-
-        const lines = parseReceiptLines(rawText);
-        if (lines.length === 0) {
-          Alert.alert("No items found", "The receipt text was detected but no product lines could be extracted.");
-          setReceiptProcessing(false);
-          setReceiptStep('idle');
-          return;
-        }
-
-        // Look up each item on Open Food Facts
-        setReceiptStep('lookup');
-        setReceiptLookupTotal(lines.length);
-        setReceiptLookupProgress(0);
-
-        const results: ReceiptItem[] = [];
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
-          const info = await lookupItemByName(line);
-          const foundType = info.type ?? 'pantry';
-          const foundTypeObj = itemTypes.find(t => t.value === foundType);
-          results.push({
-            id: `receipt-${i}`,
-            name: line,
-            quantity: info.quantity ?? '1',
-            unit: info.unit ?? 'pcs',
-            type: foundType,
-            location: foundTypeObj?.location ?? 'Pantry',
-            expirationDays: foundTypeObj?.expirationDays ?? 7,
-            checked: true,
-          });
-          setReceiptLookupProgress(i + 1);
-          // small delay to avoid hammering the API
-          await new Promise(r => setTimeout(r, 120));
-        }
-
-        setReceiptItems(results);
-        setReceiptProcessing(false);
-        setReceiptStep('idle');
-        setShowReceiptReview(true);
-      } catch (err) {
-        console.error('Receipt processing error:', err);
-        Alert.alert("Error", "Failed to process receipt. Please try again.");
-        setReceiptProcessing(false);
-        setReceiptStep('idle');
-        setShowReceiptCamera(false);
-      }
-    };
-
-    const addReceiptItemsToPantry = async () => {
-      const toAdd = receiptItems.filter(ri => ri.checked);
-      if (toAdd.length === 0) {
-        Alert.alert("Nothing selected", "Check at least one item to add.");
-        return;
-      }
-      try {
-        if (userId) {
-          const batch = writeBatch(db);
-          toAdd.forEach(ri => {
-            const ref = doc(pantryCol(userId));
-            const expDate = new Date(Date.now() + ri.expirationDays * 86400000).toISOString();
-            batch.set(ref, {
-              type: ri.type,
-              name: ri.name,
-              quantity: parseFloat(ri.quantity) || 1,
-              unit: ri.unit,
-              location: ri.location,
-              dateAdded: new Date().toISOString(),
-              expirationDate: expDate,
-              userId,
-              createdAt: Date.now(),
-            });
-          });
-          await batch.commit();
-        }
-        setShowReceiptReview(false);
-        setReceiptItems([]);
-        setShowAddItemModal(false);
-        Alert.alert("Added!", `${toAdd.length} item${toAdd.length !== 1 ? 's' : ''} added to your pantry.`);
-      } catch (err) {
-        console.error('Batch add error:', err);
-        Alert.alert("Error", "Failed to add items. Please try again.");
-      }
-    };
-    // ── end receipt scanner state ──────────────────────────────────────────
-    const [itemTypes, setItemTypes] = useState([
-      { label: "Produce",   value: "produce",   icon: "leaf-outline" as const,          expirationDays: 7,   location: "Fridge"  },
-      { label: "Dairy",     value: "dairy",     icon: "water-outline" as const,         expirationDays: 14,  location: "Fridge"  },
-      { label: "Meat",      value: "meat",      icon: "nutrition-outline" as const,     expirationDays: 3,   location: "Fridge"  },
-      { label: "Frozen",    value: "frozen",    icon: "snow-outline" as const,          expirationDays: 90,  location: "Freezer" },
-      { label: "Pantry",    value: "pantry",    icon: "archive-outline" as const,       expirationDays: 180, location: "Pantry"  },
-      { label: "Bakery",    value: "bakery",    icon: "storefront-outline" as const,    expirationDays: 5,   location: "Counter" },
-      { label: "Beverages", value: "beverages", icon: "cafe-outline" as const,          expirationDays: 30,  location: "Fridge"  },
-    ]);
+    const [itemTypes, setItemTypes] = useState<AddItemTypeOption[]>(DEFAULT_ADD_ITEM_TYPES);
 
     useEffect(() => {
       const loadPreferences = async () => {
-        if (!userId) return;
+        if (!userId) {
+          setItemTypes(DEFAULT_ADD_ITEM_TYPES);
+          return;
+        }
+
         try {
           const prefsDoc = await getDoc(settingsDoc(userId, "preferences"));
-          if (prefsDoc.exists()) {
-            const savedPrefs = prefsDoc.data().itemTypes || [];
-            setItemTypes(savedPrefs);
-          }
-        } catch (_error) {}
+          const rawTypes = prefsDoc.exists() ? prefsDoc.data().itemTypes : undefined;
+          setItemTypes(normalizeItemTypes(rawTypes));
+        } catch (_error) {
+          setItemTypes(DEFAULT_ADD_ITEM_TYPES);
+        }
       };
-      if (showAddItemModal) loadPreferences();
-    }, []);
+
+      if (showAddItemModal) {
+        loadPreferences();
+      }
+    }, [showAddItemModal, userId]);
+
+    // Ensure no nested modal can remain mounted and block touches after close.
+    useEffect(() => {
+      if (!showAddItemModal) {
+        setShowScanner(false);
+        setLookingUp(false);
+        scanLockRef.current = false;
+        setIsSaving(false);
+      }
+    }, [showAddItemModal]);
 
     const applyCategory = (typeValue: string) => {
       const found = itemTypes.find(t => t.value === typeValue);
@@ -680,12 +1000,18 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
 
     const handleBarcodeScan = async (barcode: string) => {
       if (scanLockRef.current) return;
+
+      const sanitizedBarcode = String(barcode || "").trim();
+      if (!sanitizedBarcode) return;
+
       scanLockRef.current = true;
       setLookingUp(true);
-      setScannedBarcode(barcode);
+      setShowScanner(false);
+      setScannedBarcode(sanitizedBarcode);
+
       try {
         // 1. Our Firestore DB first
-        const snap = await getDoc(productDoc(barcode));
+        const snap = await getDoc(productDoc(sanitizedBarcode));
         if (snap.exists()) {
           const product = snap.data() as ProductEntry;
           const found = itemTypes.find(t => t.value === product.type);
@@ -705,7 +1031,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
         }
 
         // 2. Open Food Facts
-        const offResp = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json`);
+        const offResp = await fetch(`https://world.openfoodfacts.org/api/v2/product/${sanitizedBarcode}.json`);
         if (offResp.ok) {
           const offData = await offResp.json();
           if (offData.status === 1 && offData.product) {
@@ -725,7 +1051,9 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
             const brand: string = p.brands || "";
 
             // Map category
-            const allTags: string[] = p.categories_tags || [];
+            const allTags: string[] = Array.isArray(p.categories_tags)
+              ? p.categories_tags.filter((tag: unknown): tag is string => typeof tag === "string")
+              : [];
             const categoryMap: Record<string, string> = {
               dairy: "dairy", milk: "dairy", cheese: "dairy", yogurt: "dairy", butter: "dairy",
               meat: "meat", beef: "meat", chicken: "meat", pork: "meat", fish: "meat", seafood: "meat",
@@ -783,6 +1111,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
         setShowScanner(false);
       } finally {
         setLookingUp(false);
+        scanLockRef.current = false;
       }
     };
 
@@ -799,10 +1128,15 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
     };
 
     const handleAddItem = async () => {
+      // Prevent double-taps while a save is in progress
+      if (isSaving) return;
       if (!newItem.name || !newItem.type) {
         Alert.alert("Missing Fields", "Please enter a name and choose a category.");
         return;
       }
+
+      setIsSaving(true);
+
       const selectedType = itemTypes.find((t) => t.value === newItem.type);
       const effectiveLocation = newItem.location || selectedType?.location || "Pantry";
       let expirationDate: string;
@@ -814,59 +1148,147 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
       } else {
         expirationDate = new Date(Date.now() + (selectedType?.expirationDays || 7) * 86400000).toISOString();
       }
+
+      // Capture all mutable values NOW before any state change.
+      // AddItemModal is defined inside the parent render, so the Firestore onSnapshot
+      // listener firing right after addDoc can remount this component mid-save and
+      // wipe local state. Capturing here makes the rest of the function immune to that.
+      const capturedBarcode = scannedBarcode;
+      const capturedIsNewProduct = isNewProduct;
+      const capturedItem = { ...newItem };
+      const capturedExpirationDays = selectedType?.expirationDays ?? 7;
+      const parsedQuantity = parseFloat(capturedItem.quantity);
+      const converted = convertToUsefulUnit(
+        Number.isFinite(parsedQuantity) ? parsedQuantity : 1,
+        capturedItem.unit || "pcs"
+      );
+      const matchKey = getPantryMatchKey(capturedItem.name, converted.unit, effectiveLocation);
+
       try {
         if (userId) {
-          await addDoc(pantryCol(userId), {
-            type: newItem.type,
-            name: newItem.name,
-            brand: newItem.brand || "",
-            notes: newItem.notes || "",
-            quantity: parseFloat(newItem.quantity) || 1,
-            unit: newItem.unit || "pcs",
-            location: effectiveLocation,
-            dateAdded: new Date().toISOString(),
-            expirationDate,
-            userId,
-            createdAt: Date.now(),
-          });
-          if (scannedBarcode && isNewProduct) {
-            await setDoc(productDoc(scannedBarcode), {
-              barcode: scannedBarcode,
-              name: newItem.name,
-              type: newItem.type,
-              unit: newItem.unit || "pcs",
-              defaultExpirationDays: selectedType?.expirationDays || 7,
-              addedBy: userId,
-              createdAt: Date.now(),
-            } as ProductEntry);
+          if (capturedBarcode) {
+            const existingPending = pendingItems.find((pending) => {
+              const key = getPantryMatchKey(pending.name || "", pending.unit || "", pending.location || "");
+              return key === matchKey;
+            });
+
+            if (existingPending) {
+              await updateDoc(pendingDoc(userId, existingPending.id), {
+                quantity: (Number(existingPending.quantity) || 0) + converted.quantity,
+                expirationDate,
+                updatedAt: Date.now(),
+              });
+            } else {
+              await addDoc(pendingCol(userId), {
+                type: capturedItem.type,
+                name: capturedItem.name,
+                quantity: converted.quantity,
+                unit: converted.unit,
+                location: effectiveLocation,
+                expirationDate,
+                userId,
+                createdAt: Date.now(),
+                source: "barcode",
+              });
+            }
+          } else {
+            const existingPantry = items.find((entry) => {
+              if (!entry._firestoreId) return false;
+              const key = getPantryMatchKey(entry.name || "", entry.unit || "", entry.location || "");
+              return key === matchKey;
+            });
+
+            if (existingPantry?._firestoreId) {
+              await updateDoc(pantryDoc(userId, existingPantry._firestoreId), {
+                quantity: (Number(existingPantry.quantity) || 0) + converted.quantity,
+                type: capturedItem.type,
+                brand: capturedItem.brand || "",
+                notes: capturedItem.notes || "",
+              });
+            } else {
+              await addDoc(pantryCol(userId), {
+                type: capturedItem.type,
+                name: capturedItem.name,
+                brand: capturedItem.brand || "",
+                notes: capturedItem.notes || "",
+                quantity: converted.quantity,
+                unit: converted.unit,
+                location: effectiveLocation,
+                dateAdded: new Date().toISOString(),
+                expirationDate,
+                userId,
+                createdAt: Date.now(),
+              });
+            }
           }
         } else {
-          const newPantryItem: PantryItem = {
-            id: Math.max(...items.map((i) => typeof i.id === "string" ? parseInt(i.id) : i.id), 0) + 1,
-            type: newItem.type,
-            name: newItem.name,
-            quantity: parseFloat(newItem.quantity) || 1,
-            unit: newItem.unit || "pcs",
-            location: effectiveLocation,
-            dateAdded: new Date().toISOString(),
-            expirationDate,
-          };
-          setItems([...items, newPantryItem]);
+          const existingIndex = items.findIndex((entry) => {
+            const key = getPantryMatchKey(entry.name || "", entry.unit || "", entry.location || "");
+            return key === matchKey;
+          });
+
+          if (existingIndex >= 0) {
+            setItems((prev) => prev.map((entry, idx) => idx === existingIndex
+              ? { ...entry, quantity: (Number(entry.quantity) || 0) + converted.quantity }
+              : entry
+            ));
+          } else {
+            const localId = items.length > 0
+              ? Math.max(0, ...items.map((i) => typeof i.id === "string" ? (parseInt(i.id) || 0) : i.id)) + 1
+              : 1;
+            const newPantryItem: PantryItem = {
+              id: localId,
+              type: capturedItem.type,
+              name: capturedItem.name,
+              quantity: converted.quantity,
+              unit: converted.unit,
+              location: effectiveLocation,
+              dateAdded: new Date().toISOString(),
+              expirationDate,
+            };
+            setItems((prev) => [...prev, newPantryItem]);
+          }
         }
       } catch (error) {
         console.error("Error adding item:", error);
         Alert.alert("Error", "Failed to add item. Please try again.");
+        setIsSaving(false);
         return;
       }
-      setNewItem({ name: "", type: "", location: "", quantity: "1", unit: "pcs", brand: "", notes: "", customExpiry: "" });
+
+      // Close and reset immediately after the pantry write succeeds.
+      // Do NOT await the product-DB write here — let it run in the background
+      // so the modal isn't blocked by a secondary, optional write.
+      setNewItem({ name: "", type: "pantry", location: "", quantity: "1", unit: "pcs", brand: "", notes: "", customExpiry: "" });
       setScannedBarcode(null);
       setIsNewProduct(false);
       setShowAdvanced(false);
+      setShowScanner(false);
+      setLookingUp(false);
+      scanLockRef.current = false;
+      setIsSaving(false);
       setShowAddItemModal(false);
+
+      if (capturedBarcode) {
+        Alert.alert("Sent for approval", "Scanned item was added to Pending Confirmation.");
+      }
+
+      // Background write to shared product database (fire-and-forget)
+      if (userId && capturedBarcode && capturedIsNewProduct) {
+        setDoc(productDoc(capturedBarcode), {
+          barcode: capturedBarcode,
+          name: capturedItem.name,
+          type: capturedItem.type,
+          unit: capturedItem.unit || "pcs",
+          defaultExpirationDays: capturedExpirationDays,
+          addedBy: userId,
+          createdAt: Date.now(),
+        } as ProductEntry).catch((e) => console.error("Product DB write failed (non-critical):", e));
+      }
     };
 
     const UNITS = ["pcs", "g", "kg", "ml", "L", "oz", "lb", "cups"];
-    const LOCATIONS = ["Fridge", "Freezer", "Pantry", "Cupboard", "Counter", "Cabinet"];
+    const LOCATIONS = locationOptions;
     const selectedType = itemTypes.find((t) => t.value === newItem.type);
     const expirationDays = selectedType?.expirationDays ?? 0;
     const effectiveLocation = newItem.location || selectedType?.location || "";
@@ -881,6 +1303,48 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
     const chipInactiveBg = isDark ? "#333" : "#f0f0f0";
     const allFilled = !!(newItem.name && newItem.type);
 
+    // ── Swipe-down to close ────────────────────────────────────────────────
+    // ── end close handlers ────────────────────────────────────────────────
+
+    const doCloseModal = () => {
+      setNewItem({ name: "", type: "", location: "", quantity: "1", unit: "pcs", brand: "", notes: "", customExpiry: "" });
+      setScannedBarcode(null);
+      setIsNewProduct(false);
+      setShowAdvanced(false);
+      setShowScanner(false);
+      setLookingUp(false);
+      scanLockRef.current = false;
+      setIsSaving(false);
+      setShowAddItemModal(false);
+    };
+
+    const handleCloseAttempt = (goBack = false) => {
+      const hasData = !!(newItem.name.trim() || newItem.brand.trim() || newItem.notes.trim());
+      if (hasData) {
+        Alert.alert(
+          "Discard Item?",
+          "You have unsaved changes. Closing will lose your progress.",
+          [
+            { text: "Keep Editing", style: "cancel" },
+            {
+              text: "Discard",
+              style: "destructive",
+              onPress: () => {
+                doCloseModal();
+                if (goBack) onBackToAddChoice?.();
+              },
+            },
+          ]
+        );
+      } else {
+        doCloseModal();
+        if (goBack) onBackToAddChoice?.();
+      }
+    };
+
+    const handleCloseModal = () => handleCloseAttempt(false);
+    // ── end close handlers ────────────────────────────────────────────────
+
     const labelStyle = {
       fontSize: 12, fontWeight: "600" as const, color: mutedText,
       marginBottom: 8, textTransform: "uppercase" as const, letterSpacing: 0.6,
@@ -890,13 +1354,12 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
       fontSize: 15, color: themeColors.textColor, backgroundColor: inputBg,
       borderColor: mutedBorder, marginBottom: 16,
     };
-
     return (
       <Modal
         visible={showAddItemModal}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowAddItemModal(false)}
+        onRequestClose={handleCloseModal}
       >
         {showScanner && (
           <Modal visible={showScanner} animationType="slide" onRequestClose={() => setShowScanner(false)}>
@@ -921,187 +1384,12 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
           </Modal>
         )}
 
-        {/* ── Receipt Camera Modal ── */}
-        {showReceiptCamera && (
-          <Modal visible={showReceiptCamera} animationType="slide" onRequestClose={() => setShowReceiptCamera(false)}>
-            <View style={{ flex: 1, backgroundColor: "#000" }}>
-              <CameraView ref={cameraRef} style={{ flex: 1 }} facing="back" />
-              {/* Overlay guide */}
-              <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "center", alignItems: "center", pointerEvents: "none" }}>
-                <View style={{ width: Dimensions.get("window").width * 0.88, height: Dimensions.get("window").height * 0.55, borderRadius: 12, borderWidth: 2, borderColor: "rgba(255,255,255,0.7)", backgroundColor: "transparent" }} />
-                <Text style={{ color: "#fff", marginTop: 14, fontSize: 13, fontWeight: "500", textAlign: "center" }}>
-                  Fit the receipt inside the frame
-                </Text>
-              </View>
-              {/* Cancel */}
-              <TouchableOpacity
-                onPress={() => setShowReceiptCamera(false)}
-                style={{ position: "absolute", top: 56, left: 20, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10 }}
-              >
-                <Text style={{ color: "#fff", fontWeight: "600" }}>Cancel</Text>
-              </TouchableOpacity>
-              {/* Capture */}
-              <TouchableOpacity
-                onPress={captureAndProcessReceipt}
-                style={{ position: "absolute", bottom: 48, alignSelf: "center", width: 72, height: 72, borderRadius: 36, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", borderWidth: 4, borderColor: "rgba(255,255,255,0.4)" }}
-              >
-                <Ionicons name="camera" size={32} color="#222" />
-              </TouchableOpacity>
-            </View>
-          </Modal>
-        )}
 
-        {/* ── Receipt Processing Overlay ── */}
-        {receiptProcessing && (
-          <Modal visible={receiptProcessing} transparent animationType="fade">
-            <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.65)", alignItems: "center", justifyContent: "center" }}>
-              <View style={{ backgroundColor: surfaceBg, borderRadius: 20, padding: 28, alignItems: "center", width: 260 }}>
-                <ActivityIndicator size="large" color={themeColors.accentColor} />
-                <Text style={{ color: themeColors.textColor, fontWeight: "700", fontSize: 16, marginTop: 16 }}>
-                  {receiptStep === 'ocr' ? 'Reading receipt…' : `Looking up items… (${receiptLookupProgress}/${receiptLookupTotal})`}
-                </Text>
-                <Text style={{ color: mutedText, fontSize: 13, marginTop: 6, textAlign: "center" }}>
-                  {receiptStep === 'ocr' ? 'Extracting text with OCR' : 'Fetching product info'}
-                </Text>
-                {receiptStep === 'lookup' && receiptLookupTotal > 0 && (
-                  <View style={{ width: "100%", height: 4, backgroundColor: mutedBorder, borderRadius: 2, marginTop: 14 }}>
-                    <View style={{ height: 4, borderRadius: 2, backgroundColor: themeColors.accentColor, width: `${(receiptLookupProgress / receiptLookupTotal) * 100}%` }} />
-                  </View>
-                )}
-              </View>
-            </View>
-          </Modal>
-        )}
-
-        {/* ── Receipt Review Modal ── */}
-        {showReceiptReview && (
-          <Modal visible={showReceiptReview} animationType="slide" onRequestClose={() => setShowReceiptReview(false)}>
-            <View style={{ flex: 1, backgroundColor: themeColors.backgroundColor }}>
-              {/* Header */}
-              <View style={{ backgroundColor: isDark ? '#1c1c1c' : '#fff', borderBottomWidth: 1, borderBottomColor: mutedBorder, paddingTop: 52, paddingBottom: 12, paddingHorizontal: 16, flexDirection: "row", alignItems: "center" }}>
-                <TouchableOpacity onPress={() => setShowReceiptReview(false)} style={{ marginRight: 12 }}>
-                  <Ionicons name="chevron-back" size={24} color={themeColors.accentColor} />
-                </TouchableOpacity>
-                <Text style={{ flex: 1, fontSize: 18, fontWeight: "700", color: themeColors.textColor }}>Review Receipt Items</Text>
-                <Text style={{ color: mutedText, fontSize: 13 }}>{receiptItems.filter(r => r.checked).length}/{receiptItems.length}</Text>
-              </View>
-
-              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 120 }}>
-                <Text style={{ color: mutedText, fontSize: 13, marginBottom: 16 }}>
-                  Uncheck items you don't want. Edit names, quantities, and categories as needed.
-                </Text>
-                {receiptItems.map((ri, idx) => {
-                  const foundTypeObj = itemTypes.find(t => t.value === ri.type);
-                  return (
-                    <View key={ri.id} style={{ backgroundColor: isDark ? "#2a2a2a" : "#fff", borderRadius: 14, marginBottom: 12, overflow: "hidden", borderWidth: 1.5, borderColor: ri.checked ? themeColors.accentColor : mutedBorder }}>
-                      {/* Row header: checkbox + name */}
-                      <TouchableOpacity
-                        onPress={() => setReceiptItems(prev => prev.map((r, i) => i === idx ? { ...r, checked: !r.checked } : r))}
-                        style={{ flexDirection: "row", alignItems: "center", padding: 14, gap: 12 }}
-                        activeOpacity={0.7}
-                      >
-                        <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: ri.checked ? themeColors.accentColor : mutedBorder, backgroundColor: ri.checked ? themeColors.accentColor : "transparent", alignItems: "center", justifyContent: "center" }}>
-                          {ri.checked && <Ionicons name="checkmark" size={14} color="#fff" />}
-                        </View>
-                        <TextInput
-                          style={{ flex: 1, fontSize: 15, fontWeight: "600", color: themeColors.textColor }}
-                          value={ri.name}
-                          onChangeText={text => setReceiptItems(prev => prev.map((r, i) => i === idx ? { ...r, name: text } : r))}
-                          placeholder="Item name"
-                          placeholderTextColor={mutedText}
-                        />
-                        <TouchableOpacity
-                          onPress={() => setReceiptItems(prev => prev.filter((_, i) => i !== idx))}
-                          style={{ padding: 4 }}
-                        >
-                          <Ionicons name="trash-outline" size={18} color={isDark ? "#666" : "#ccc"} />
-                        </TouchableOpacity>
-                      </TouchableOpacity>
-
-                      {ri.checked && (
-                        <View style={{ paddingHorizontal: 14, paddingBottom: 14, gap: 10 }}>
-                          {/* Quantity + Unit */}
-                          <View style={{ flexDirection: "row", gap: 10 }}>
-                            <View style={{ flex: 1 }}>
-                              <Text style={{ fontSize: 11, fontWeight: "600", color: mutedText, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Qty</Text>
-                              <TextInput
-                                style={{ borderWidth: 1.5, borderColor: mutedBorder, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, fontSize: 15, color: themeColors.textColor, backgroundColor: inputBg }}
-                                value={ri.quantity}
-                                onChangeText={text => setReceiptItems(prev => prev.map((r, i) => i === idx ? { ...r, quantity: text } : r))}
-                                keyboardType="decimal-pad"
-                              />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                              <Text style={{ fontSize: 11, fontWeight: "600", color: mutedText, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Unit</Text>
-                              <TextInput
-                                style={{ borderWidth: 1.5, borderColor: mutedBorder, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, fontSize: 15, color: themeColors.textColor, backgroundColor: inputBg }}
-                                value={ri.unit}
-                                onChangeText={text => setReceiptItems(prev => prev.map((r, i) => i === idx ? { ...r, unit: text } : r))}
-                              />
-                            </View>
-                          </View>
-                          {/* Category chips */}
-                          <View>
-                            <Text style={{ fontSize: 11, fontWeight: "600", color: mutedText, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Category</Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                              <View style={{ flexDirection: "row", gap: 6 }}>
-                                {itemTypes.map(t => {
-                                  const sel = ri.type === t.value;
-                                  return (
-                                    <TouchableOpacity
-                                      key={t.value}
-                                      onPress={() => {
-                                        const newType = itemTypes.find(it => it.value === t.value);
-                                        setReceiptItems(prev => prev.map((r, i) => i === idx ? { ...r, type: t.value, location: newType?.location ?? r.location, expirationDays: newType?.expirationDays ?? r.expirationDays } : r));
-                                      }}
-                                      style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1.5, flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: sel ? themeColors.accentColor : "transparent", borderColor: sel ? themeColors.accentColor : mutedBorder }}
-                                    >
-                                      <Ionicons name={t.icon} size={12} color={sel ? "#fff" : themeColors.textColor} />
-                                      <Text style={{ color: sel ? "#fff" : themeColors.textColor, fontSize: 12, fontWeight: sel ? "600" : "400" }}>{t.label}</Text>
-                                    </TouchableOpacity>
-                                  );
-                                })}
-                              </View>
-                            </ScrollView>
-                          </View>
-                          {/* Location + Expiry hint */}
-                          <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
-                            <Ionicons name="location-outline" size={13} color={mutedText} />
-                            <Text style={{ fontSize: 12, color: mutedText }}>{ri.location}</Text>
-                            <Text style={{ color: mutedBorder }}>·</Text>
-                            <Ionicons name="time-outline" size={13} color={mutedText} />
-                            <Text style={{ fontSize: 12, color: mutedText }}>~{ri.expirationDays}d shelf life</Text>
-                          </View>
-                        </View>
-                      )}
-                    </View>
-                  );
-                })}
-              </ScrollView>
-
-              {/* Bottom action bar */}
-              <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: isDark ? "#1c1c1c" : "#fff", borderTopWidth: 1, borderTopColor: mutedBorder, padding: 16, paddingBottom: Platform.OS === "ios" ? 36 : 16 }}>
-                <TouchableOpacity
-                  onPress={addReceiptItemsToPantry}
-                  style={{ backgroundColor: receiptItems.filter(r => r.checked).length > 0 ? themeColors.accentColor : (isDark ? "#333" : "#d0d0d0"), borderRadius: 14, paddingVertical: 16, alignItems: "center" }}
-                >
-                  <Text style={{ color: receiptItems.filter(r => r.checked).length > 0 ? "#fff" : mutedText, fontWeight: "700", fontSize: 16 }}>
-                    Add {receiptItems.filter(r => r.checked).length} Item{receiptItems.filter(r => r.checked).length !== 1 ? 's' : ''} to Pantry
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </Modal>
-        )}
-
-        <KeyboardAvoidingView
-          style={{ flex: 1, justifyContent: "flex-end" }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
+        <View style={{ flex: 1, justifyContent: "flex-end" }}>
           <TouchableOpacity
             style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.45)" }}
             activeOpacity={1}
-            onPress={() => setShowAddItemModal(false)}
+            onPress={handleCloseAttempt}
           />
 
           <View style={{
@@ -1110,15 +1398,31 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
             borderTopRightRadius: 24,
             paddingHorizontal: 20,
             paddingTop: 12,
-            paddingBottom: Platform.OS === "ios" ? 40 : 24,
-            minHeight: Dimensions.get("window").height * 0.75,
+            paddingBottom: 0,
             maxHeight: Dimensions.get("window").height * 0.92,
+            height: Dimensions.get("window").height * 0.88,
           }}>
-            <View style={{ width: 40, height: 4, backgroundColor: "#ddd", borderRadius: 2, alignSelf: "center", marginBottom: 16 }} />
 
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <Text style={{ fontSize: 22, fontWeight: "700", color: themeColors.textColor }}>Add Pantry Item</Text>
-              <TouchableOpacity onPress={() => setShowAddItemModal(false)} style={{ padding: 6 }}>
+              <TouchableOpacity
+                onPress={() => handleCloseAttempt(true)}
+                hitSlop={{ top: 16, bottom: 16, left: 20, right: 20 }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                  minHeight: 46,
+                  minWidth: 96,
+                }}
+              >
+                <Ionicons name="chevron-back" size={24} color={themeColors.accentColor} />
+                <Text style={{ fontSize: 15, fontWeight: "600", color: themeColors.accentColor }}>Back</Text>
+              </TouchableOpacity>
+              <Text style={{ fontSize: 22, fontWeight: "700", color: themeColors.textColor, flex: 1, textAlign: "center", marginLeft: -56 }}>Add Pantry Item</Text>
+              <TouchableOpacity onPress={() => handleCloseAttempt(false)} style={{ padding: 6 }}>
                 <Ionicons name="close" size={22} color="#999" />
               </TouchableOpacity>
             </View>
@@ -1142,19 +1446,18 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                   {lookingUp ? "Looking up…" : scannedBarcode ? "Scan Again" : "Barcode"}
                 </Text>
               </TouchableOpacity>
-              {/* Receipt */}
-              <TouchableOpacity
-                onPress={openReceiptCamera}
+              {/* Receipt (future update) */}
+              <View
                 style={{
                   flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-                  borderWidth: 1.5, borderColor: themeColors.accentColor, borderRadius: 12,
+                  borderWidth: 1.5, borderColor: mutedBorder, borderRadius: 12,
                   paddingVertical: 12,
-                  backgroundColor: isDark ? "#1a2e1a" : "#f0faf0",
+                  backgroundColor: isDark ? "#222" : "#f2f2f2",
                 }}
               >
-                <Ionicons name="receipt-outline" size={20} color={themeColors.accentColor} />
-                <Text style={{ color: themeColors.accentColor, fontWeight: "600", fontSize: 14 }}>Receipt</Text>
-              </TouchableOpacity>
+                <Ionicons name="receipt-outline" size={20} color={mutedText} />
+                <Text style={{ color: mutedText, fontWeight: "600", fontSize: 14 }}>Receipt (Soon)</Text>
+              </View>
             </View>
 
             {scannedBarcode && !lookingUp && (
@@ -1172,10 +1475,12 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
             )}
 
             <ScrollView
-              style={{ flexShrink: 1 }}
-              contentContainerStyle={{ paddingBottom: 8, flexGrow: 1 }}
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingBottom: 120, flexGrow: 1 }}
               showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
+              keyboardShouldPersistTaps="always"
+              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+              automaticallyAdjustKeyboardInsets={true}
             >
               {/* Name */}
               <Text style={labelStyle}>Item Name</Text>
@@ -1184,7 +1489,16 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                 placeholder="e.g. Chicken Breast"
                 placeholderTextColor={isDark ? "#555" : "#bbb"}
                 value={newItem.name}
-                onChangeText={(text) => setNewItem({ ...newItem, name: text })}
+                onChangeText={(text) => {
+                  const detectedCategory = detectItemCategory(text);
+                  const found = itemTypes.find(t => t.value === detectedCategory);
+                  setNewItem({
+                    ...newItem,
+                    name: text,
+                    type: detectedCategory,
+                    location: found?.location || "",
+                  });
+                }}
                 autoCapitalize="words"
                 returnKeyType="next"
               />
@@ -1353,207 +1667,530 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                 </View>
               )}
 
-              {/* Add button */}
+            </ScrollView>
+
+            <View style={{
+              marginHorizontal: -20,
+              paddingHorizontal: 20,
+              paddingTop: 10,
+              paddingBottom: Platform.OS === "ios" ? 34 : 18,
+              borderTopWidth: 1,
+              borderTopColor: mutedBorder,
+              backgroundColor: surfaceBg,
+            }}>
               <TouchableOpacity
                 onPress={handleAddItem}
+                disabled={isSaving || !allFilled}
                 style={{
-                  backgroundColor: allFilled ? themeColors.accentColor : (isDark ? "#333" : "#d0d0d0"),
-                  borderRadius: 14, paddingVertical: 16, alignItems: "center", marginBottom: 8,
+                  backgroundColor: (allFilled && !isSaving) ? themeColors.accentColor : (isDark ? "#333" : "#d0d0d0"),
+                  borderRadius: 14,
+                  paddingVertical: 16,
+                  alignItems: "center",
+                  flexDirection: "row",
+                  justifyContent: "center",
+                  gap: 8,
                 }}
               >
-                <Text style={{ color: allFilled ? "#fff" : mutedText, fontWeight: "700", fontSize: 16 }}>Add to Pantry</Text>
+                {isSaving && <ActivityIndicator size="small" color="#fff" />}
+                <Text style={{ color: (allFilled && !isSaving) ? "#fff" : mutedText, fontWeight: "700", fontSize: 16 }}>
+                  {isSaving ? "Saving…" : "Add to Pantry"}
+                </Text>
               </TouchableOpacity>
-
-            </ScrollView>
+            </View>
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
     );
   };
 
-  const ItemDetails = ({ item, isEditing }: ItemDetailsProps) => {
+  const ItemDetails = memo(({ item }: ItemDetailsProps) => {
     const itemKey = typeof item.id === 'string' ? item.id : item.id.toString();
-    const currentForm = editForm[itemKey] ?? { name: item.name, quantity: item.quantity.toString(), location: item.location };
-    
-    const handleEditChange = (field: string, value: string) => {
-      setEditForm({
-        ...editForm,
-        [itemKey]: { ...currentForm, [field]: value }
-      });
+    const convertedAmount = formatQuantityForPreference(item.quantity, item.unit, preferredWeightUnit, unitDisplayMode);
+
+    const renderDeleteAction = () => (
+      <View
+        style={{
+          width: 96,
+          backgroundColor: "#E53935",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <TouchableOpacity
+          onPress={() => handleDeleteItem(item.id, item.name)}
+          activeOpacity={0.85}
+          style={{
+            width: "100%",
+            height: "100%",
+            justifyContent: "center",
+            alignItems: "center",
+            gap: 2,
+          }}
+        >
+          <Ionicons name="trash" size={18} color="#fff" />
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>Delete</Text>
+        </TouchableOpacity>
+      </View>
+    );
+
+    return (
+      <View style={{ marginHorizontal: 16, marginBottom: 8, marginTop: 6, borderRadius: 12, overflow: "hidden" }}>
+        <Swipeable
+          renderRightActions={renderDeleteAction}
+          overshootRight={false}
+          friction={2}
+          rightThreshold={40}
+        >
+          <TouchableOpacity 
+            style={[
+              styles.itemDetails,
+              {
+                backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff",
+                borderBottomColor: themeColors.accentColor,
+                borderLeftColor: themeColors.accentColor,
+                marginHorizontal: 0,
+                marginBottom: 0,
+                marginTop: 0,
+                borderRadius: 0,
+              }
+            ]}
+            activeOpacity={1}
+            onLongPress={() => openEditModal(item)}
+            delayLongPress={350}
+          >
+          <View style={[styles.nameQuantity, styles.row]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.itemType, { color: themeColors.accentColor }]}>{item.type}</Text>
+              <Text style={[styles.itemName, { color: themeColors.textColor }]}>{item.name}</Text>
+            </View>
+            <Text style={[styles.itemQuantity, { color: themeColors.textColor }]}>
+              {convertedAmount.quantityText} {convertedAmount.unitText}
+            </Text>
+          </View>
+
+          <View style={[styles.expirationLocation, styles.row]}>
+            {(() => {
+              const expirationDays = calculateExpirationDays(item.expirationDate);
+              if (expirationDays >= 4) {
+                return <Text style={[styles.itemExpiration1, { color: "#4CAF50" }]}>{expirationDays} days left</Text>;
+              } else if (expirationDays === 0) {
+                return <Text style={[styles.itemExpiration2, { color: "#FF9800" }]}>Expires Today!</Text>;
+              } else if (expirationDays < 0) {
+                const daysExpired = Math.abs(expirationDays);
+                return <Text style={[styles.itemExpiration2, { color: "#F44336" }]}>Expired {daysExpired} day{daysExpired !== 1 ? 's' : ''} ago</Text>;
+              } else {
+                return <Text style={[styles.itemExpiration3, { color: "#FF9800" }]}>Expiring in {expirationDays} day{expirationDays !== 1 ? 's' : ''}!</Text>;
+              }
+            })()}
+
+            <Text style={[styles.itemLocation, { color: themeColors.textColor }]}>{item.location}</Text>
+          </View>
+
+          <View style={styles.itemActionsRow}>
+            {confirmShoppingItemId === itemKey ? (
+              <View style={styles.addMoreConfirmRow}>
+                <TouchableOpacity
+                  onPress={() => setConfirmShoppingItemId(null)}
+                  style={[styles.addMoreCancelButton, { borderColor: themeColors.mode === "dark" ? "#666" : "#bbb", backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5" }]}
+                >
+                  <Text style={[styles.addMoreCancelButtonText, { color: themeColors.textColor }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={async () => {
+                    await executeAddToShopping(item);
+                    setConfirmShoppingItemId(null);
+                  }}
+                  style={[styles.addMoreConfirmButton, { backgroundColor: themeColors.accentColor }]}
+                >
+                  <Ionicons name="cart" size={14} color="#fff" />
+                  <Text style={styles.addMoreConfirmButtonText}>Confirm Add</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity
+                onPress={() => handleAddMoreToShopping(item)}
+                style={[styles.addMoreButton, { borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#1f2b1f" : "#f0faf0" }]}
+              >
+                <Ionicons name="cart-outline" size={15} color={themeColors.accentColor} />
+                <Text style={[styles.addMoreButtonText, { color: themeColors.accentColor }]}>Add More to Shopping</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+            <Text style={[styles.deleteHint, { color: themeColors.mode === "dark" ? "#999" : "#999" }]}>Long press to edit • Swipe to delete</Text>
+          </TouchableOpacity>
+        </Swipeable>
+      </View>
+    );
+  });
+
+  const MainContainer = () => {
+    const getItemFoodType = (item: PantryItem): string => {
+      const detected = detectItemCategory(item.name || "");
+      const rawType = (item.type || "").toLowerCase().trim();
+
+      if (detected === "meat") return "protein";
+      if (detected !== "pantry") return detected;
+
+      if (rawType === "meat" || rawType === "protein") return "protein";
+      if (["dairy", "produce", "frozen", "beverages", "bakery", "pantry"].includes(rawType)) return rawType;
+
+      return "pantry";
+    };
+
+    const filteredItems = items.filter((item) => {
+      const searchValue = pantrySearchQuery.trim().toLowerCase();
+      const foodType = getItemFoodType(item);
+      const locationValue = (item.location || "").toLowerCase();
+
+      let matchesSearch = true;
+      if (searchValue) {
+        matchesSearch = (item.name || "").toLowerCase().includes(searchValue);
+      }
+
+      const matchesCategory = selectedPantryCategory === "all" || foodType === selectedPantryCategory;
+      const matchesStorageLocation = selectedStorageLocation === "all" || locationValue === selectedStorageLocation.toLowerCase();
+      
+      return matchesSearch && matchesCategory && matchesStorageLocation;
+    });
+
+    const stickyHeaderIndex = (pendingItems.length > 0 ? 1 : 0) + (expiredItems.length > 0 ? 1 : 0);
+
+    const snapBackNearTop = (offsetY: number) => {
+      if (isAutoSnapInProgressRef.current) return;
+      const nearTopThreshold = Math.max(120, stickySectionHeightRef.current + 24);
+      if (offsetY > 0 && offsetY < nearTopThreshold) {
+        isAutoSnapInProgressRef.current = true;
+        requestAnimationFrame(() => {
+          mainScrollRef.current?.scrollTo({ y: 0, animated: true });
+          setTimeout(() => {
+            isAutoSnapInProgressRef.current = false;
+          }, 220);
+        });
+      }
     };
 
     return (
-      <TouchableOpacity 
-        style={[styles.itemDetails, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff", borderBottomColor: themeColors.accentColor, borderLeftColor: themeColors.accentColor }]}
-        onLongPress={() => !isEditing && handleDeleteItem(item.id, item.name)}
-        delayLongPress={500}
+      <ScrollView 
+      ref={mainScrollRef}
+        contentContainerStyle={[styles.mainContainer, { backgroundColor: themeColors.backgroundColor }]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="none"
+        stickyHeaderIndices={items.length > 0 ? [stickyHeaderIndex] : undefined}
+      onScrollEndDrag={(event) => snapBackNearTop(event.nativeEvent.contentOffset.y)}
       >
-        <View style={[styles.nameQuantity, styles.row]}>
-          <View>
-            <Text style={[styles.itemType, { color: themeColors.accentColor }]}>{item.type}</Text>
-            {isEditing ? (
-                <>
-                <TextInput
-                  style={[styles.editItemNameInput, { color: themeColors.textColor, borderColor: themeColors.accentColor }]}
-                  placeholder={item.name}
-                  placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
-                  value={currentForm.name}
-                  onChangeText={(text) => handleEditChange("name", text)}
-                  submitBehavior="blurAndSubmit"
-                />
-                <TextInput
-                  style={[styles.editItemLocationInput, { color: themeColors.textColor, borderColor: themeColors.accentColor }]}
-                  placeholder={item.location}
-                  placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
-                  value={currentForm.location}
-                  onChangeText={(text) => handleEditChange("location", text)}
-                  submitBehavior="blurAndSubmit"
-                />
-                </>
-            ) : (
-              <Text style={[styles.itemName, { color: themeColors.textColor }]}>{item.name}</Text>
-            )}
-          </View>
-          {isEditing ? (
-            <TextInput
-              style={[styles.editItemQuantityInput, { color: themeColors.textColor, borderColor: themeColors.accentColor }]}
-              placeholder={item.quantity.toString()}
-              placeholderTextColor={themeColors.mode === "dark" ? "#999" : "#ccc"}
-              value={currentForm.quantity}
-              keyboardType="numeric"
-              onChangeText={(text) => handleEditChange("quantity", text)}
-            />
-          ) : (
-            <Text style={[styles.itemQuantity, { color: themeColors.textColor }]}>
-              {item.quantity} {item.unit}
-            </Text>
-          )}
-        </View>
-
-        <View style={[styles.expirationLocation, styles.row]}>
-          {(() => {
-            const expirationDays = calculateExpirationDays(item.expirationDate);
-            if (expirationDays >= 4) {
-              return <Text style={[styles.itemExpiration1, { color: "#4CAF50" }]}>{expirationDays} days left</Text>;
-            } else if (expirationDays === 0) {
-              return <Text style={[styles.itemExpiration2, { color: "#FF9800" }]}>Expires Today!</Text>;
-            } else if (expirationDays < 0) {
-              const daysExpired = Math.abs(expirationDays);
-              return <Text style={[styles.itemExpiration2, { color: "#F44336" }]}>Expired {daysExpired} day{daysExpired !== 1 ? 's' : ''} ago</Text>;
-            } else {
-              return <Text style={[styles.itemExpiration3, { color: "#FF9800" }]}>Expiring in {expirationDays} day{expirationDays !== 1 ? 's' : ''}!</Text>;
-            }
-          })()}
-
-          <Text style={[styles.itemLocation, { color: themeColors.textColor }]}>{item.location}</Text>
-        </View>
-
-        {!isEditing && (
-          <Text style={[styles.deleteHint, { color: themeColors.mode === "dark" ? "#999" : "#999" }]}>Long press to delete</Text>
-        )}
-      </TouchableOpacity>
-    );
-  };
-
-  const MainContainer = () => {
-    return (
-      <ScrollView contentContainerStyle={[styles.mainContainer, { backgroundColor: themeColors.backgroundColor }]}>
         {/* Pending Items Section */}
         {pendingItems.length > 0 && (
           <View>
-            <View style={[{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginHorizontal: 16, marginTop: 16, marginBottom: 8 }]}>
-              <Text style={[{ fontSize: 18, fontWeight: "bold", color: themeColors.accentColor }]}>
-                Pending Confirmation
-              </Text>
-              <TouchableOpacity
-                onPress={confirmAllPendingItems}
-                style={[{ backgroundColor: themeColors.accentColor, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }]}
-              >
-                <Text style={[{ color: "#fff", fontWeight: "600", fontSize: 12 }]}>Confirm All</Text>
-              </TouchableOpacity>
-            </View>
-            {pendingItems.map((item) => {
+            <TouchableOpacity
+              onPress={() => setShowPendingItems((prev) => !prev)}
+              activeOpacity={0.9}
+              style={[{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginHorizontal: 12,
+                marginTop: 12,
+                marginBottom: 6,
+                paddingHorizontal: 10,
+                paddingVertical: 9,
+                borderRadius: 9,
+                backgroundColor: themeColors.mode === "dark" ? "#242424" : "#fff",
+                borderWidth: 1,
+                borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#e3e8e5",
+              }]}
+            >
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={[{ fontSize: 17, fontWeight: "bold", color: themeColors.accentColor }]}>
+                  Pending Confirmation ({pendingItems.length})
+                </Text>
+                <Text style={{ marginTop: 1, fontSize: 11, color: themeColors.mode === "dark" ? "#aaa" : "#777" }}>
+                  {showPendingItems ? "Tap to collapse" : "Tap to expand"}
+                </Text>
+              </View>
+              <Ionicons
+                name={showPendingItems ? "chevron-up" : "chevron-down"}
+                size={18}
+                color={themeColors.mode === "dark" ? "#ddd" : "#666"}
+              />
+            </TouchableOpacity>
+
+            {showPendingItems && (
+              <View>
+                <View style={{ flexDirection: "row", justifyContent: "flex-end", marginHorizontal: 12, marginBottom: 6 }}>
+                  <TouchableOpacity
+                    onPress={confirmAllPendingItems}
+                    style={[{ backgroundColor: themeColors.accentColor, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 }]}
+                  >
+                    <Text style={[{ color: "#fff", fontWeight: "600", fontSize: 12 }]}>Confirm All</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {pendingItems.map((item) => {
               const currentQuantity = editingPending[item.id]?.quantity || item.quantity.toString();
               const currentName = editingPending[item.id]?.name || item.name;
               const currentUnit = editingPending[item.id]?.unit || item.unit;
               const currentLocation = editingPending[item.id]?.location || item.location;
-              
-              return (
-                <View key={item.id} style={[{ backgroundColor: themeColors.mode === "dark" ? "#444" : "#FFF9E6", borderLeftColor: "#FFC107", borderLeftWidth: 4, borderRadius: 8, marginHorizontal: 16, marginBottom: 12, padding: 12 }]}>
-                  <TextInput
-                    style={[{ color: themeColors.textColor, borderColor: themeColors.accentColor, borderWidth: 1, borderRadius: 6, padding: 8, marginBottom: 8, fontSize: 16, fontWeight: "500" }]}
-                    placeholder="Item name"
-                    placeholderTextColor={themeColors.mode === "dark" ? "#888" : "#ccc"}
-                    value={currentName}
-                    onChangeText={(text) => setEditingPending(prev => ({...prev, [item.id]: {...(prev[item.id] || {}), name: text}}))}
-                  />
-                  <View style={{ flexDirection: "row", gap: 8, marginBottom: 8, alignItems: "center" }}>
-                    <TextInput
-                      style={[{ flex: 1, color: themeColors.textColor, borderColor: themeColors.accentColor, borderWidth: 1, borderRadius: 6, padding: 8, fontSize: 14 }]}
-                      placeholder="Quantity"
-                      placeholderTextColor={themeColors.mode === "dark" ? "#888" : "#ccc"}
-                      value={currentQuantity}
-                      onChangeText={(text) => setEditingPending(prev => ({...prev, [item.id]: {...(prev[item.id] || {}), quantity: text}}))}
-                      keyboardType="decimal-pad"
-                    />
-                    <TextInput
-                      style={[{ flex: 0.5, color: themeColors.textColor, borderColor: themeColors.accentColor, borderWidth: 1, borderRadius: 6, padding: 8, fontSize: 14 }]}
-                      placeholder="Unit"
-                      placeholderTextColor={themeColors.mode === "dark" ? "#888" : "#ccc"}
-                      value={currentUnit}
-                      onChangeText={(text) => setEditingPending(prev => ({...prev, [item.id]: {...(prev[item.id] || {}), unit: text}}))}
-                    />
-                  </View>
-                  <TextInput
-                    style={[{ color: themeColors.textColor, borderColor: themeColors.accentColor, borderWidth: 1, borderRadius: 6, padding: 8, marginBottom: 8, fontSize: 14 }]}
-                    placeholder="Location"
-                    placeholderTextColor={themeColors.mode === "dark" ? "#888" : "#ccc"}
-                    value={currentLocation}
-                    onChangeText={(text) => setEditingPending(prev => ({...prev, [item.id]: {...(prev[item.id] || {}), location: text}}))}
-                  />
-                  <View style={{ marginBottom: 12 }}>
-                    <Text style={[{ color: themeColors.mode === "dark" ? "#aaa" : "#666", fontSize: 12, marginBottom: 6 }]}>
-                      Quick locations:
-                    </Text>
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-                      {["Pantry", "Fridge", "Freezer", "Cupboard", "Counter", "Cabinet"].map(loc => (
-                        <TouchableOpacity
-                          key={loc}
-                          onPress={() => setEditingPending(prev => ({...prev, [item.id]: {...(prev[item.id] || {}), location: loc}}))}
-                          style={[{ 
-                            paddingHorizontal: 10, 
-                            paddingVertical: 6, 
-                            borderRadius: 6, 
-                            backgroundColor: currentLocation === loc ? themeColors.accentColor : (themeColors.mode === "dark" ? "#555" : "#ddd")
-                          }]}
-                        >
-                          <Text style={[{ color: currentLocation === loc ? "#fff" : themeColors.textColor, fontSize: 12, fontWeight: "500" }]}>
-                            {loc}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
+              const expiresIn = calculateExpirationDays(item.expirationDate);
+              const expiryColor = expiresIn > 7 ? "#4CAF50" : expiresIn > 0 ? "#FF9800" : "#F44336";
+              const isExpanded = expandedPendingId === item.id;
+
+                  return (
+                    <View key={item.id} style={{ marginHorizontal: 12, marginBottom: isExpanded ? 10 : 6 }}>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      setEditingPending(prev => {
+                        if (prev[item.id]) return prev;
+                        return {
+                          ...prev,
+                          [item.id]: {
+                            name: item.name,
+                            quantity: item.quantity.toString(),
+                            unit: item.unit,
+                            location: item.location,
+                          },
+                        };
+                      });
+                      setExpandedPendingId(prev => (prev === item.id ? null : item.id));
+                    }}
+                    style={{
+                      backgroundColor: themeColors.mode === "dark" ? "#242424" : "#fff",
+                      borderLeftColor: isExpanded ? themeColors.accentColor : (themeColors.mode === "dark" ? "#555" : "#ddd"),
+                      borderLeftWidth: isExpanded ? 5 : 3,
+                      borderRadius: 9,
+                      paddingVertical: 8,
+                      paddingHorizontal: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                        <Text style={{ fontSize: 14, fontWeight: "700", color: themeColors.textColor, flex: 1 }} numberOfLines={1}>
+                          {currentName}
+                        </Text>
+                        {isExpanded && (
+                          <View style={{ backgroundColor: themeColors.accentColor + "22", paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10 }}>
+                            <Text style={{ fontSize: 10, fontWeight: "700", color: themeColors.accentColor }}>EDITING</Text>
+                          </View>
+                        )}
+                        <View style={{ backgroundColor: expiryColor + "22", paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10 }}>
+                          <Text style={{ fontSize: 10, fontWeight: "700", color: expiryColor }}>{expiresIn}d</Text>
+                        </View>
+                      </View>
+                      <Text style={{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#666", marginTop: 2 }}>
+                        {currentQuantity} {currentUnit} • {currentLocation}
+                      </Text>
                     </View>
-                  </View>
-                  <Text style={[{ color: themeColors.mode === "dark" ? "#aaa" : "#666", fontSize: 12, marginBottom: 12 }]}>
-                    Expires: {new Date(item.expirationDate).toLocaleDateString()}
+
+                    <Ionicons
+                      name={isExpanded ? "chevron-up" : "create-outline"}
+                      size={18}
+                      color={isExpanded ? themeColors.accentColor : (themeColors.mode === "dark" ? "#9a9a9a" : "#8a8a8a")}
+                      style={{ marginLeft: 8 }}
+                    />
+                  </TouchableOpacity>
+
+                  {isExpanded && (
+                    <View
+                      style={{
+                        backgroundColor: themeColors.mode === "dark" ? "#1a1a1a" : "#f7f9f8",
+                        borderRadius: 9,
+                        borderWidth: 1,
+                        borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#e4ece7",
+                        marginTop: 5,
+                        padding: 8,
+                      }}
+                    >
+                      <TextInput
+                        style={{
+                          backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#fff",
+                          color: themeColors.textColor,
+                          borderColor: themeColors.mode === "dark" ? "#4a4a4a" : "#d8e4db",
+                          borderWidth: 1,
+                          borderRadius: 7,
+                          paddingHorizontal: 10,
+                          paddingVertical: 7,
+                          marginBottom: 6,
+                          fontSize: 13,
+                          fontWeight: "500",
+                        }}
+                        value={currentName}
+                        onChangeText={(text) => setEditingPending(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || {}), name: text } }))}
+                        placeholder="Item name"
+                        placeholderTextColor={themeColors.mode === "dark" ? "#666" : "#aaa"}
+                        blurOnSubmit={false}
+                        autoCorrect={false}
+                      />
+
+                      <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
+                        <TextInput
+                          style={{
+                            flex: 1,
+                            backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#fff",
+                            color: themeColors.textColor,
+                            borderColor: themeColors.mode === "dark" ? "#4a4a4a" : "#d8e4db",
+                            borderWidth: 1,
+                            borderRadius: 7,
+                            paddingHorizontal: 10,
+                            paddingVertical: 7,
+                            fontSize: 13,
+                          }}
+                          placeholder="Qty"
+                          placeholderTextColor={themeColors.mode === "dark" ? "#666" : "#aaa"}
+                          value={currentQuantity}
+                          onChangeText={(text) => setEditingPending(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || {}), quantity: text } }))}
+                          keyboardType="decimal-pad"
+                          blurOnSubmit={false}
+                          autoCorrect={false}
+                        />
+
+                        <TouchableOpacity
+                          onPress={() => setPendingUnitPickerItemId(item.id)}
+                          style={{
+                            flex: 0.72,
+                            backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#fff",
+                            borderColor: themeColors.mode === "dark" ? "#4a4a4a" : "#d8e4db",
+                            borderWidth: 1,
+                            borderRadius: 7,
+                            paddingHorizontal: 10,
+                            paddingVertical: 7,
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                          }}
+                        >
+                          <Text style={{ color: themeColors.textColor, fontSize: 13, fontWeight: "600" }} numberOfLines={1}>
+                            {currentUnit || "Unit"}
+                          </Text>
+                          <Ionicons name="chevron-down" size={14} color={themeColors.mode === "dark" ? "#aaa" : "#666"} />
+                        </TouchableOpacity>
+                      </View>
+
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={{ gap: 6, marginBottom: 6 }}
+                        keyboardShouldPersistTaps="handled"
+                      >
+                        {locationOptions.map((loc) => {
+                          const selected = currentLocation === loc;
+                          return (
+                            <TouchableOpacity
+                              key={loc}
+                              onPress={() => setEditingPending(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || {}), location: loc } }))}
+                              style={{
+                                paddingHorizontal: 9,
+                                paddingVertical: 5,
+                                borderRadius: 14,
+                                backgroundColor: selected ? themeColors.accentColor : (themeColors.mode === "dark" ? "#333" : "#e9ecea"),
+                              }}
+                            >
+                              <Text style={{ color: selected ? "#fff" : themeColors.textColor, fontSize: 11, fontWeight: selected ? "700" : "500" }}>{loc}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+
+                      <View style={{ flexDirection: "row", gap: 6 }}>
+                        <TouchableOpacity
+                          onPress={() => confirmPendingItem(item)}
+                          style={{
+                            flex: 1,
+                            backgroundColor: themeColors.accentColor,
+                            borderRadius: 7,
+                            paddingVertical: 8,
+                            alignItems: "center",
+                            flexDirection: "row",
+                            justifyContent: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <Ionicons name="checkmark-circle" size={15} color="#fff" />
+                          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Confirm</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => rejectPendingItem(item.id, item.name)}
+                          style={{
+                            flex: 1,
+                            backgroundColor: "#e74c3c",
+                            borderRadius: 7,
+                            paddingVertical: 8,
+                            alignItems: "center",
+                            flexDirection: "row",
+                            justifyContent: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <Ionicons name="trash-outline" size={15} color="#fff" />
+                          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Reject</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            <Modal
+              visible={!!pendingUnitPickerItemId}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setPendingUnitPickerItemId(null)}
+            >
+              <TouchableOpacity
+                activeOpacity={1}
+                onPress={() => setPendingUnitPickerItemId(null)}
+                style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", paddingHorizontal: 24 }}
+              >
+                <TouchableOpacity
+                  activeOpacity={1}
+                  onPress={() => {}}
+                  style={{
+                    backgroundColor: themeColors.mode === "dark" ? "#252525" : "#fff",
+                    borderRadius: 14,
+                    padding: 14,
+                    maxHeight: 420,
+                  }}
+                >
+                  <Text style={{ fontSize: 16, fontWeight: "700", color: themeColors.textColor, marginBottom: 10 }}>
+                    Select Unit
                   </Text>
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    <TouchableOpacity
-                      onPress={() => confirmPendingItem(item)}
-                      style={[{ flex: 1, backgroundColor: themeColors.accentColor, borderRadius: 6, padding: 10, alignItems: "center" }]}
-                    >
-                      <Text style={[{ color: "#fff", fontWeight: "600", fontSize: 14 }]}>Confirm</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => rejectPendingItem(item.id, item.name)}
-                      style={[{ flex: 1, backgroundColor: "#e74c3c", borderRadius: 6, padding: 10, alignItems: "center" }]}
-                    >
-                      <Text style={[{ color: "#fff", fontWeight: "600", fontSize: 14 }]}>Reject</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              );
-            })}
+                  <ScrollView>
+                    {PENDING_UNIT_OPTIONS.map((unitOpt) => (
+                      <TouchableOpacity
+                        key={unitOpt}
+                        onPress={() => {
+                          if (pendingUnitPickerItemId) {
+                            setEditingPending(prev => ({
+                              ...prev,
+                              [pendingUnitPickerItemId]: {
+                                ...(prev[pendingUnitPickerItemId] || {}),
+                                unit: unitOpt,
+                              },
+                            }));
+                          }
+                          setPendingUnitPickerItemId(null);
+                        }}
+                        style={{
+                          paddingVertical: 12,
+                          paddingHorizontal: 10,
+                          borderRadius: 8,
+                          marginBottom: 6,
+                          backgroundColor: themeColors.mode === "dark" ? "#333" : "#f3f3f3",
+                        }}
+                      >
+                        <Text style={{ color: themeColors.textColor, fontSize: 14, fontWeight: "600" }}>{unitOpt}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            </Modal>
           </View>
         )}
 
@@ -1582,6 +2219,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                 {expiredItems.map((item) => {
                   const expirationDays = calculateExpirationDays(item.expirationDate);
                   const daysExpired = Math.abs(expirationDays);
+                  const expiredConverted = formatQuantityForPreference(item.quantity, item.unit, preferredWeightUnit, unitDisplayMode);
                   
                   return (
                     <View 
@@ -1600,7 +2238,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                         <View>
                           <Text style={[{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#666" }]}>
-                            {item.quantity} {item.unit}
+                            {expiredConverted.quantityText} {expiredConverted.unitText}
                           </Text>
                           <Text style={[{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#666", marginTop: 2 }]}>
                             {item.location}
@@ -1633,28 +2271,168 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
           </View>
         )}
         
-        {/* Regular Items Section */}
+        {/* Search and Filter Section */}
         {items.length > 0 && (
-          <Text style={[{ fontSize: 18, fontWeight: "bold", color: themeColors.accentColor, marginHorizontal: 16, marginTop: 16, marginBottom: 8 }]}>
-            Pantry Items
-          </Text>
+          <View
+            style={{ backgroundColor: themeColors.backgroundColor, paddingTop: 8, paddingBottom: 6, zIndex: 20, elevation: 8 }}
+            onLayout={(event) => {
+              stickySectionHeightRef.current = event.nativeEvent.layout.height;
+            }}
+          >
+            <View style={[{ marginHorizontal: 12, marginTop: 0, marginBottom: 0 }]}>
+              {/* Search Bar */}
+              <View style={[{ backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#fff", borderRadius: 9, paddingHorizontal: 10, paddingVertical: 8, marginBottom: 8, flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: themeColors.mode === "dark" ? "#444" : "#e3e3e3" }]}>
+                <Text style={[{ color: themeColors.mode === "dark" ? "#888" : "#999", marginRight: 6 }]}>⌕</Text>
+                <TextInput
+                  ref={pantrySearchInputRef}
+                  style={[{ flex: 1, color: themeColors.textColor }]}
+                  placeholder="Search pantry items..."
+                  placeholderTextColor={themeColors.mode === "dark" ? "#777" : "#aaa"}
+                  value={pantrySearchQuery}
+                  onChangeText={handlePantrySearchChange}
+                  blurOnSubmit={false}
+                />
+                {pantrySearchQuery ? (
+                  <TouchableOpacity onPress={() => setPantrySearchQuery("")} style={{ paddingHorizontal: 6 }}>
+                    <Text style={[{ color: themeColors.mode === "dark" ? "#bbb" : "#888" }]}>Clear</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
+            {/* Filter Mode Toggle */}
+            <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
+              <TouchableOpacity
+                onPress={() => setActiveFilterPanel((prev) => (prev === "food" ? null : "food"))}
+                style={{
+                  flex: 1,
+                  paddingVertical: 8,
+                  borderRadius: 9,
+                  alignItems: "center",
+                  backgroundColor: activeFilterPanel === "food" ? themeColors.accentColor : (themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5"),
+                  borderWidth: activeFilterPanel === "food" ? 0 : 1,
+                  borderColor: activeFilterPanel === "food" ? "transparent" : (themeColors.mode === "dark" ? "#444" : "#e0e0e0"),
+                }}
+              >
+                <Text style={{ color: activeFilterPanel === "food" ? "#fff" : themeColors.textColor, fontWeight: "700", fontSize: 13 }}>
+                  Food Type{selectedPantryCategory !== "all" ? " *" : ""}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setActiveFilterPanel((prev) => (prev === "location" ? null : "location"))}
+                style={{
+                  flex: 1,
+                  paddingVertical: 8,
+                  borderRadius: 9,
+                  alignItems: "center",
+                  backgroundColor: activeFilterPanel === "location" ? themeColors.accentColor : (themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5"),
+                  borderWidth: activeFilterPanel === "location" ? 0 : 1,
+                  borderColor: activeFilterPanel === "location" ? "transparent" : (themeColors.mode === "dark" ? "#444" : "#e0e0e0"),
+                }}
+              >
+                <Text style={{ color: activeFilterPanel === "location" ? "#fff" : themeColors.textColor, fontWeight: "700", fontSize: 13 }}>
+                  Storage Location{selectedStorageLocation !== "all" ? " *" : ""}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {activeFilterPanel === "food" && (
+              <>
+                <Text style={[{ fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4, color: themeColors.mode === "dark" ? "#bbb" : "#666", marginBottom: 6 }]}>Food Type</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 6 }}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="none"
+                >
+                  {PANTRY_CATEGORIES.map((category) => {
+                    const isSelected = selectedPantryCategory === category.key;
+                    return (
+                      <TouchableOpacity
+                        key={category.key}
+                        onPress={() => setSelectedPantryCategory(category.key)}
+                        style={[
+                          { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 7, backgroundColor: isSelected ? themeColors.accentColor : (themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5"), borderWidth: isSelected ? 0 : 1, borderColor: isSelected ? "transparent" : (themeColors.mode === "dark" ? "#444" : "#e0e0e0") }
+                        ]}
+                      >
+                        <Text style={[{ color: isSelected ? "#fff" : themeColors.textColor, fontWeight: isSelected ? "700" : "500", fontSize: 13 }]}>{category.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            )}
+
+            {activeFilterPanel === "location" && (
+              <>
+                <Text style={[{ fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4, color: themeColors.mode === "dark" ? "#bbb" : "#666", marginBottom: 6 }]}>Storage Location</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 6 }}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="none"
+                >
+                  {["all", ...locationOptions].map((location) => {
+                    const key = location.toLowerCase();
+                    const label = location === "all" ? "All" : location;
+                    const isSelected = selectedStorageLocation === key;
+
+                    return (
+                      <TouchableOpacity
+                        key={location}
+                        onPress={() => setSelectedStorageLocation(key)}
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 7,
+                          borderRadius: 7,
+                          backgroundColor: isSelected ? themeColors.accentColor : (themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5"),
+                          borderWidth: isSelected ? 0 : 1,
+                          borderColor: isSelected ? "transparent" : (themeColors.mode === "dark" ? "#444" : "#e0e0e0"),
+                        }}
+                      >
+                        <Text style={{ color: isSelected ? "#fff" : themeColors.textColor, fontWeight: isSelected ? "700" : "500", fontSize: 13 }}>{label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            )}
+
+              {filteredItems.length > 0 && (
+                <Text style={[{ fontSize: 18, fontWeight: "bold", color: themeColors.accentColor, marginTop: 6, marginBottom: 4 }]}>
+                  Pantry Items
+                </Text>
+              )}
+            </View>
+          </View>
         )}
-        {items.map((item) => (
+        
+        {filteredItems.map((item) => (
           <ItemDetails 
             key={item.id} 
-            item={item} 
-            isEditing={editingMode}
+            item={item}
           />
         ))}
+        {items.length > 0 && filteredItems.length === 0 && (
+          <View style={[{ marginHorizontal: 16, marginTop: 20, padding: 16, backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5", borderRadius: 10, alignItems: "center" }]}>
+            <Text style={[{ color: themeColors.textColor, fontSize: 15, fontWeight: "600" }]}>No items found</Text>
+            <Text style={[{ color: themeColors.mode === "dark" ? "#aaa" : "#666", fontSize: 13, marginTop: 4 }]}>Try adjusting your search or filters</Text>
+          </View>
+        )}
       </ScrollView>
     );
   };
 
+  const insets = useSafeAreaInsets();
+
   return (
-    <View style={[styles.container, { backgroundColor: themeColors.backgroundColor, paddingTop: 50 }]}>
+    <View style={[styles.container, { backgroundColor: themeColors.backgroundColor, paddingTop: insets.top }]}>
       <Header />
       <AddItemModal />
-      <MainContainer />
+      {EditItemModal()}
+      {MainContainer()}
     </View>
   );
 }
