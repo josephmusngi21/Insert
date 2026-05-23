@@ -6,6 +6,7 @@ import { getAuth } from "firebase/auth";
 import { onSnapshot, orderBy, query, limit, updateDoc, arrayUnion, arrayRemove, collection, getDocs, where, setDoc, doc, serverTimestamp, addDoc, getDoc, deleteDoc } from "firebase/firestore";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { pantryCol, socialPostsCol, socialPostDoc, friendsCol, friendRequestsCol, outgoingFriendRequestsCol, recipeSharesCol, recipesCol, recipesDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
+import { getSourceHost } from "@/screens/utils/urlUtils";
 import styles from "./SocialScreen.styles";
 
 type ThemeColors = {
@@ -274,15 +275,6 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
     if (cooked) parts.push(`Cooked ${cooked}`);
     if (shared) parts.push(`Shared ${shared}`);
     return parts.join(" • ");
-  };
-
-  const getSourceHost = (url?: string): string => {
-    if (!url) return "";
-    try {
-      return new URL(url).hostname.replace(/^www\./, "");
-    } catch {
-      return url;
-    }
   };
 
   const getAttributionLabel = (post: SocialPostItem): string => {
@@ -813,8 +805,19 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
     >
-      <View style={styles.headerRow}>
+      <View style={[styles.headerRow, { backgroundColor: cardBg, borderColor: border }]}>
         <Text style={[styles.title, { color: theme.textColor }]}>Social</Text>
+        <Text style={[styles.subtitle, { color: muted }]}>See what people cooked and what you can make right now.</Text>
+
+        <View style={styles.headerMetaRow}>
+          <View style={[styles.tag, { backgroundColor: theme.accentColor + "22" }]}>
+            <Text style={[styles.tagText, { color: theme.accentColor }]}>Pantry-Aware Feed</Text>
+          </View>
+          <View style={[styles.tag, { backgroundColor: isDark ? "#2b2b2b" : "#f4f4f4" }]}>
+            <Text style={[styles.tagText, { color: muted }]}>{posts.length} posts</Text>
+          </View>
+        </View>
+
         <View style={styles.headerActions}>
           <TouchableOpacity
             onPress={() => setShowAddFriendModal(true)}
@@ -823,9 +826,6 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
             <Ionicons name="person-add-outline" size={14} color={theme.accentColor} />
             <Text style={[styles.addFriendText, { color: theme.accentColor }]}>Add Friend</Text>
           </TouchableOpacity>
-          <View style={[styles.tag, { backgroundColor: theme.accentColor + "22" }]}>
-            <Text style={[styles.tagText, { color: theme.accentColor }]}>Pantry-Aware Feed</Text>
-          </View>
           <TouchableOpacity
             onPress={() => Alert.alert(
               "Cookability estimate",
@@ -838,8 +838,6 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
           </TouchableOpacity>
         </View>
       </View>
-
-      <Text style={[styles.subtitle, { color: muted }]}>See what people cooked and what you can make right now.</Text>
 
       {posts.length === 0 ? (
         <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor: border }]}>
