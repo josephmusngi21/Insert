@@ -1,10 +1,11 @@
-import { useState, useCallback, useLayoutEffect, useEffect, useMemo, memo } from "react";
-import { Text, View, TouchableOpacity, Dimensions, Modal, Platform, Alert } from "react-native";
+import { useState, useCallback, useLayoutEffect, useEffect, useMemo, memo, useRef } from "react";
+import { Text, View, TouchableOpacity, Dimensions, Modal, Platform, Alert, InteractionManager } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring, runOnJS, cancelAnimation } from "react-native-reanimated";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { onSnapshot } from "firebase/firestore";
+import { getDoc, onSnapshot, setDoc } from "firebase/firestore";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import styles from "./index.styles";
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -38,6 +39,8 @@ type QuickSwitchAccount = {
 type Screen = 'recipes' | 'pantry' | 'social' | 'shopping' | 'more' | 'recipeDetail';
 const SWIPEABLE_TABS: Screen[] = ['recipes', 'pantry', 'social', 'shopping', 'more'];
 const TABS_LEN = SWIPEABLE_TABS.length;
+const RECIPES_TAB_INDEX = 0;
+const PANTRY_TAB_INDEX = 1;
 
 type TabDef = {
   name: 'kitchen' | 'social' | 'add' | 'shopping' | 'more';
@@ -84,13 +87,16 @@ const TabIcon: React.FC<TabIconProps> = memo(({ icon, activeIcon, label, isActiv
 ));
 
 export default function Index() {
+  const insets = useSafeAreaInsets();
   const auth = getAuth();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAuthBooting, setIsAuthBooting] = useState(true);
   const [isLoginLoading, setIsLoginLoading] = useState(false);
-  // currentScreen is only used for tab-bar highlight — the row never re-mounts
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  // currentScreen is committed after transitions; tabBarScreen drives instant tab icon feedback.
   const [currentScreen, setCurrentScreen] = useState<Screen>('recipes');
-  const [selectedRecipeId, setSelectedRecipeId] = useState<string>("local_1");
+  const [tabBarScreen, setTabBarScreen] = useState<Screen>('recipes');
+  const [selectedRecipeId, setSelectedRecipeId] = useState<string | undefined>(undefined);
   const [showRecipeForm, setShowRecipeForm] = useState(false);
   const [theme, setTheme] = useState<ThemeColors>({
     mode: "light",
@@ -111,7 +117,23 @@ export default function Index() {
   const [showAddChoice, setShowAddChoice] = useState(false);
   const [moreSubScreenActive, setMoreSubScreenActive] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
-  const [showPantryShortcut, setShowPantryShortcut] = useState(true);
+  const pendingInteractionTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
+  const kitchenLongPressTriggeredRef = useRef(false);
+  const tabTransitionTokenRef = useRef(0);
+
+  const sanitizeTheme = useCallback((raw: any): ThemeColors | null => {
+    if (!raw || typeof raw !== "object") return null;
+    const mode = raw.mode;
+    const textColor = raw.textColor;
+    const accentColor = raw.accentColor;
+    const backgroundColor = raw.backgroundColor;
+    const validMode = mode === "light" || mode === "dark" || mode === "custom";
+    if (!validMode) return null;
+    if (typeof textColor !== "string" || typeof accentColor !== "string" || typeof backgroundColor !== "string") {
+      return null;
+    }
+    return { mode, textColor, accentColor, backgroundColor };
+  }, []);
 
   // Row position: translateX = -tabIdx * SCREEN_WIDTH
   const translateX   = useSharedValue(0);
@@ -120,42 +142,78 @@ export default function Index() {
   const isDetailSV   = useSharedValue(0);
   const moreSubSV    = useSharedValue(0);
   const detailOffset = useSharedValue(SCREEN_WIDTH);
+  const kitchenSwitcherVisibilitySV = useSharedValue(1);
 
   const rowStyle    = useAnimatedStyle(() => ({ transform: [{ translateX: translateX.value }] }));
   const detailStyle = useAnimatedStyle(() => ({ transform: [{ translateX: detailOffset.value }] }));
+  const kitchenSwitcherStyle = useAnimatedStyle(() => ({
+    opacity: kitchenSwitcherVisibilitySV.value,
+    transform: [{ translateY: (1 - kitchenSwitcherVisibilitySV.value) * -8 }],
+  }));
 
-  const choiceSheetY = useSharedValue(0);
-  const choiceSheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: Math.max(0, choiceSheetY.value) }] }));
-  const closeChoiceSheet = () => { choiceSheetY.value = 0; setShowAddChoice(false); };
+  const clearPendingInteractionTask = useCallback(() => {
+    pendingInteractionTaskRef.current?.cancel?.();
+    pendingInteractionTaskRef.current = null;
+  }, []);
+
+  const runAfterInteractions = useCallback((task: () => void) => {
+    clearPendingInteractionTask();
+    pendingInteractionTaskRef.current = InteractionManager.runAfterInteractions(() => {
+      pendingInteractionTaskRef.current = null;
+      task();
+    });
+  }, [clearPendingInteractionTask]);
+
+  const closeChoiceSheet = useCallback(() => {
+    setShowAddChoice(false);
+  }, []);
+
+  const openAddChoice = useCallback(() => {
+    setShowAddChoice(true);
+  }, []);
+
+  const openRecipeFromAddChoice = useCallback(() => {
+    closeChoiceSheet();
+    runAfterInteractions(() => setShowRecipeForm(true));
+  }, [closeChoiceSheet, runAfterInteractions]);
+
+  const openPantryFromAddChoice = useCallback(() => {
+    closeChoiceSheet();
+    runAfterInteractions(() => setShowPantryAdd(true));
+  }, [closeChoiceSheet, runAfterInteractions]);
+
+  const openShoppingFromAddChoice = useCallback(() => {
+    closeChoiceSheet();
+    runAfterInteractions(() => {
+      switchToTab(getSwipeTabIndex('shopping'));
+      setShowShoppingAdd(true);
+    });
+  }, [closeChoiceSheet, runAfterInteractions]);
+
   const returnToAddChoiceFromRecipe = () => {
     setShowRecipeForm(false);
-    setTimeout(() => setShowAddChoice(true), 120);
+    runAfterInteractions(openAddChoice);
   };
   const returnToAddChoiceFromPantry = () => {
     setShowPantryAdd(false);
-    setTimeout(() => setShowAddChoice(true), 120);
+    runAfterInteractions(openAddChoice);
   };
   const returnToAddChoiceFromShopping = () => {
     setShowShoppingAdd(false);
-    setTimeout(() => setShowAddChoice(true), 120);
+    runAfterInteractions(openAddChoice);
   };
 
   const getSwipeTabIndex = (name: Exclude<Screen, 'recipeDetail'>) => {
     return SWIPEABLE_TABS.indexOf(name);
   };
-  const choiceSwipeDown = Gesture.Pan()
-    .activeOffsetY([15, 9999])
-    .failOffsetX([-20, 20])
-    .onUpdate(e => { 'worklet'; choiceSheetY.value = e.translationY > 0 ? e.translationY : e.translationY * 0.08; })
-    .onEnd(e => {
-      'worklet';
-      if (e.translationY > 60 || e.velocityY > 400) runOnJS(closeChoiceSheet)();
-      else choiceSheetY.value = withSpring(0, { damping: 20, stiffness: 200 });
-    });
 
   useLayoutEffect(() => {
     moreSubSV.value = moreSubScreenActive ? 1 : 0;
   }, [moreSubScreenActive]);
+
+  useEffect(() => {
+    return () => clearPendingInteractionTask();
+  }, [clearPendingInteractionTask]);
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (nextUser) => {
@@ -224,6 +282,28 @@ export default function Index() {
     return () => unsubscribeSwitchConfig();
   }, [userId]);
 
+  useEffect(() => {
+    if (!userId) return;
+
+    let active = true;
+    void (async () => {
+      try {
+        const snap = await getDoc(settingsDoc(userId, "theme"));
+        if (!active || !snap.exists()) return;
+        const savedTheme = sanitizeTheme(snap.data());
+        if (savedTheme) {
+          setTheme(savedTheme);
+        }
+      } catch {
+        // Keep local fallback theme when remote theme cannot be loaded.
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [sanitizeTheme, userId]);
+
   const handleAllergiesChange = useCallback((nextAllergies: string[]) => {
     setUserAllergies(nextAllergies);
     if (userId) {
@@ -246,33 +326,108 @@ export default function Index() {
     return () => clearTimeout(bootTimer);
   }, []);
 
-  useEffect(() => {
-    setShowPantryShortcut(currentScreen === 'recipes');
-  }, [currentScreen]);
-
   const syncScreenState = useCallback((screen: Screen) => {
     setCurrentScreen(screen);
-    setShowPantryShortcut(screen === 'recipes');
   }, []);
+
+  const commitScreenAfterTransition = useCallback((token: number, screen: Screen) => {
+    if (token !== tabTransitionTokenRef.current) return;
+    setCurrentScreen(screen);
+  }, []);
+
+  const showKitchenSwitcher =
+    (tabBarScreen === 'recipes' || tabBarScreen === 'pantry') &&
+    !moreSubScreenActive &&
+    !detailVisible;
+
+  useEffect(() => {
+    kitchenSwitcherVisibilitySV.value = withTiming(showKitchenSwitcher ? 1 : 0, { duration: 170 });
+  }, [kitchenSwitcherVisibilitySV, showKitchenSwitcher]);
+
+  useEffect(() => {
+    if (!isSigningOut || isLoggedIn) return;
+    const transitionTimer = setTimeout(() => {
+      setIsSigningOut(false);
+    }, 1100);
+    return () => clearTimeout(transitionTimer);
+  }, [isLoggedIn, isSigningOut]);
+
+  const handleThemeChange = useCallback((nextTheme: ThemeColors) => {
+    setTheme(nextTheme);
+    if (!userId) return;
+
+    void setDoc(
+      settingsDoc(userId, "theme"),
+      {
+        ...nextTheme,
+        updatedAt: Date.now(),
+      },
+      { merge: true }
+    );
+  }, [userId]);
+
+  const animateToTabIndex = useCallback((
+    targetIdx: number,
+    nextScreen: Screen,
+    options?: { useSpring?: boolean; duration?: number }
+  ) => {
+    const token = ++tabTransitionTokenRef.current;
+    cancelAnimation(translateX);
+    tabIndexSV.value = targetIdx;
+    isDetailSV.value = nextScreen === 'recipeDetail' ? 1 : 0;
+    const useSpringTransition = options?.useSpring ?? false;
+    if (useSpringTransition) {
+      translateX.value = withSpring(-targetIdx * SCREEN_WIDTH, TAB_SPRING, (finished) => {
+        if (finished) {
+          runOnJS(commitScreenAfterTransition)(token, nextScreen);
+        }
+      });
+      return;
+    }
+
+    translateX.value = withTiming(-targetIdx * SCREEN_WIDTH, { duration: options?.duration ?? 205 }, (finished) => {
+      if (finished) {
+        runOnJS(commitScreenAfterTransition)(token, nextScreen);
+      }
+    });
+  }, [commitScreenAfterTransition, isDetailSV, tabIndexSV, translateX]);
 
   const handleCloseDetail = useCallback(() => {
     setDetailVisible(false);
+    setSelectedRecipeId(undefined);
     isDetailSV.value = 0;
     syncScreenState('recipes');
-  }, [syncScreenState]);
+  }, [isDetailSV, syncScreenState]);
 
   const handleLogout = useCallback(() => {
-    void (async () => {
-      try {
-        await signOut(auth);
-      } catch {
-        // Fall back to local state reset if auth sign out fails.
-      }
-      setIsLoggedIn(false);
-      syncScreenState('recipes');
-      translateX.value = 0;
-      tabIndexSV.value = 0;
-    })();
+    Alert.alert(
+      "Sign out?",
+      "You will be returned to the login screen.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Sign Out",
+          style: "destructive",
+          onPress: () => {
+            setIsSigningOut(true);
+            void (async () => {
+              try {
+                await signOut(auth);
+                setIsLoggedIn(false);
+                syncScreenState('recipes');
+                setDetailVisible(false);
+                setSelectedRecipeId(undefined);
+                translateX.value = 0;
+                tabIndexSV.value = 0;
+              } catch {
+                setIsSigningOut(false);
+                Alert.alert("Sign out failed", "We could not sign you out right now. Please try again.");
+              }
+            })();
+          },
+        },
+      ]
+    );
   }, [auth, syncScreenState, tabIndexSV, translateX]);
 
   const handleQuickSwitchUser = useCallback((targetEmail: string) => {
@@ -320,13 +475,17 @@ export default function Index() {
   );
 
   const handleRecipeSelect = useCallback((recipeId: string) => {
+    const token = ++tabTransitionTokenRef.current;
     setSelectedRecipeId(recipeId);
     setDetailVisible(true);
     detailOffset.value = SCREEN_WIDTH;
-    detailOffset.value = withTiming(0, { duration: 220 });
+    detailOffset.value = withTiming(0, { duration: 220 }, (finished) => {
+      if (finished) {
+        runOnJS(commitScreenAfterTransition)(token, 'recipeDetail');
+      }
+    });
     isDetailSV.value = 1;
-    syncScreenState('recipeDetail');
-  }, [syncScreenState]);
+  }, [commitScreenAfterTransition, detailOffset, isDetailSV]);
 
   const swipeGesture = Gesture.Pan()
     .activeOffsetX([-12, 12])
@@ -379,12 +538,140 @@ export default function Index() {
       let targetIdx = startIdx;
       if ((dx < -THRESHOLD || fastLeft) && startIdx < TABS_LEN - 1) targetIdx = startIdx + 1;
       else if ((dx > THRESHOLD || fastRight) && startIdx > 0)        targetIdx = startIdx - 1;
-      tabIndexSV.value = targetIdx;
       const nextScreen = targetIdx === 0 && detailVisible ? 'recipeDetail' : SWIPEABLE_TABS[targetIdx];
+      const isKitchenPairSwipe =
+        (startIdx === RECIPES_TAB_INDEX && targetIdx === PANTRY_TAB_INDEX) ||
+        (startIdx === PANTRY_TAB_INDEX && targetIdx === RECIPES_TAB_INDEX);
+      const token = ++tabTransitionTokenRef.current;
+      tabIndexSV.value = targetIdx;
       isDetailSV.value = nextScreen === 'recipeDetail' ? 1 : 0;
-      runOnJS(syncScreenState)(nextScreen);
-      translateX.value = withSpring(-targetIdx * SCREEN_WIDTH, TAB_SPRING);
+      runOnJS(setTabBarScreen)(nextScreen);
+      if (isKitchenPairSwipe) {
+        translateX.value = withTiming(-targetIdx * SCREEN_WIDTH, { duration: 205 }, (finished) => {
+          if (finished) {
+            runOnJS(commitScreenAfterTransition)(token, nextScreen);
+          }
+        });
+      } else {
+        translateX.value = withSpring(-targetIdx * SCREEN_WIDTH, TAB_SPRING, (finished) => {
+          if (finished) {
+            runOnJS(commitScreenAfterTransition)(token, nextScreen);
+          }
+        });
+      }
     });
+
+  const switchToTab = useCallback((idx: number) => {
+    const nextScreen = idx === 0 && detailVisible ? 'recipeDetail' : SWIPEABLE_TABS[idx];
+    setTabBarScreen(nextScreen);
+    animateToTabIndex(idx, nextScreen);
+  }, [animateToTabIndex, detailVisible]);
+
+  const goToPantryFromKitchen = useCallback(() => {
+    const pantryIdx = getSwipeTabIndex('pantry');
+    setTabBarScreen('pantry');
+    animateToTabIndex(pantryIdx, 'pantry');
+  }, [animateToTabIndex]);
+
+  const goToRecipesFromKitchen = useCallback(() => {
+    const recipesIdx = getSwipeTabIndex('recipes');
+    setTabBarScreen('recipes');
+    isDetailSV.value = 0;
+    setDetailVisible(false);
+    detailOffset.value = SCREEN_WIDTH;
+    setSelectedRecipeId(undefined);
+    animateToTabIndex(recipesIdx, 'recipes');
+  }, [animateToTabIndex, detailOffset, isDetailSV]);
+
+  const recipeListScreen = useMemo(() => (
+    <RecipeListScreen
+      onRecipeSelect={handleRecipeSelect}
+      theme={theme}
+      userAllergies={userAllergies}
+      userDietaryRestrictions={userDietaryRestrictions}
+      showRecipeForm={showRecipeForm}
+      setShowRecipeForm={setShowRecipeForm}
+      onBackToAddChoice={returnToAddChoiceFromRecipe}
+      kitchenTab={currentScreen === 'pantry' ? 'pantry' : 'recipes'}
+      showKitchenToggle={false}
+      onKitchenTabChange={(tab) => {
+        if (tab === 'pantry') {
+          goToPantryFromKitchen();
+          return;
+        }
+        goToRecipesFromKitchen();
+      }}
+    />
+  ), [currentScreen, goToPantryFromKitchen, goToRecipesFromKitchen, handleRecipeSelect, returnToAddChoiceFromRecipe, showRecipeForm, theme, userAllergies, userDietaryRestrictions]);
+
+  const pantryDetailScreen = useMemo(() => (
+    <PantryItemDetailScreen
+      theme={theme}
+      showAddItemModal={showPantryAdd}
+      setShowAddItemModal={setShowPantryAdd}
+      onBackToAddChoice={returnToAddChoiceFromPantry}
+      kitchenTab={currentScreen === 'pantry' ? 'pantry' : 'recipes'}
+      showKitchenToggle={false}
+      onKitchenTabChange={(tab) => {
+        if (tab === 'pantry') {
+          goToPantryFromKitchen();
+          return;
+        }
+        goToRecipesFromKitchen();
+      }}
+    />
+  ), [currentScreen, goToPantryFromKitchen, goToRecipesFromKitchen, returnToAddChoiceFromPantry, showPantryAdd, theme]);
+
+  const socialScreen = useMemo(() => (
+    <SocialScreen
+      theme={theme}
+      currentUserDisplayName={userDisplayName}
+      currentUserEmail={userEmail}
+    />
+  ), [theme, userDisplayName, userEmail]);
+
+  const shoppingScreen = useMemo(() => (
+    <ShoppingListScreen
+      theme={theme}
+      showAddItemModal={showShoppingAdd}
+      setShowAddItemModal={setShowShoppingAdd}
+      onBackToAddChoice={returnToAddChoiceFromShopping}
+    />
+  ), [returnToAddChoiceFromShopping, showShoppingAdd, theme]);
+
+  const moreScreen = useMemo(() => (
+    <MoreScreen
+      userEmail={userEmail}
+      userDisplayName={userDisplayName}
+      onLogout={handleLogout}
+      theme={theme}
+      userAllergies={userAllergies}
+      onAllergiesChange={handleAllergiesChange}
+      userDietaryRestrictions={userDietaryRestrictions}
+      onDietaryRestrictionsChange={handleDietaryRestrictionsChange}
+      onThemeChange={handleThemeChange}
+      onSubScreenChange={setMoreSubScreenActive}
+      isAdminUser={isAdminUser}
+      isSwitchingUser={isSwitchingUser}
+      quickSwitchTargets={quickSwitchTargetsForCurrentUser}
+      onQuickSwitchUser={handleQuickSwitchUser}
+    />
+  ), [handleAllergiesChange, handleDietaryRestrictionsChange, handleLogout, handleQuickSwitchUser, handleThemeChange, isAdminUser, isSwitchingUser, quickSwitchTargetsForCurrentUser, theme, userAllergies, userDietaryRestrictions, userDisplayName, userEmail]);
+
+  const recipeDetailScreen = useMemo(() => (
+    <RecipeDetailScreen
+      recipeId={selectedRecipeId}
+      onBack={() => {
+        isDetailSV.value = 0;
+        detailOffset.value = withTiming(SCREEN_WIDTH, { duration: 220 }, () => {
+          runOnJS(handleCloseDetail)();
+        });
+      }}
+      theme={theme}
+    />
+  ), [detailOffset, handleCloseDetail, isDetailSV, selectedRecipeId, theme]);
+
+  if (isLoginLoading || isSigningOut) return <SplashScreen />;
 
   if (!isLoggedIn) {
     if (isAuthBooting) return <SplashScreen />;
@@ -399,139 +686,112 @@ export default function Index() {
     );
   }
 
-  if (isLoginLoading) return <SplashScreen />;
-
-  const switchToTab = (idx: number) => {
-    tabIndexSV.value = idx;
-    const nextScreen = idx === 0 && detailVisible ? 'recipeDetail' : SWIPEABLE_TABS[idx];
-    isDetailSV.value = nextScreen === 'recipeDetail' ? 1 : 0;
-    setShowPantryShortcut(false);
-    syncScreenState(nextScreen);
-    translateX.value = withSpring(-idx * SCREEN_WIDTH, TAB_SPRING);
-  };
-
-  const goToRecipesFromKitchen = () => {
-    const recipesIdx = getSwipeTabIndex('recipes');
-    tabIndexSV.value = recipesIdx;
-    isDetailSV.value = 0;
-    setDetailVisible(false);
-    detailOffset.value = SCREEN_WIDTH;
-    setShowPantryShortcut(true);
-    syncScreenState('recipes');
-    translateX.value = withSpring(-recipesIdx * SCREEN_WIDTH, TAB_SPRING);
-  };
-
   return (
-    <GestureDetector gesture={swipeGesture}>
       <View style={{ flex: 1, overflow: 'hidden' }}>
+
+        <GestureDetector gesture={swipeGesture}>
+          <View style={{ flex: 1, overflow: 'hidden' }}>
 
         {/* Permanent row — all 4 tabs always mounted, positions never change */}
         <Animated.View style={[{ flex: 1, flexDirection: 'row', width: SCREEN_WIDTH * TABS_LEN }, rowStyle]}>
           <View style={{ width: SCREEN_WIDTH }}>
-            <RecipeListScreen
-              onRecipeSelect={handleRecipeSelect}
-              theme={theme}
-              userAllergies={userAllergies}
-              userDietaryRestrictions={userDietaryRestrictions}
-              showRecipeForm={showRecipeForm}
-              setShowRecipeForm={setShowRecipeForm}
-              onBackToAddChoice={returnToAddChoiceFromRecipe}
-            />
+            {recipeListScreen}
           </View>
           <View style={{ width: SCREEN_WIDTH }}>
-            <PantryItemDetailScreen
-              theme={theme}
-              showAddItemModal={showPantryAdd}
-              setShowAddItemModal={setShowPantryAdd}
-              onBackToAddChoice={returnToAddChoiceFromPantry}
-            />
+            {pantryDetailScreen}
           </View>
           <View style={{ width: SCREEN_WIDTH }}>
-            <SocialScreen
-              theme={theme}
-              currentUserDisplayName={userDisplayName}
-              currentUserEmail={userEmail}
-            />
+            {socialScreen}
           </View>
           <View style={{ width: SCREEN_WIDTH }}>
-            <ShoppingListScreen
-              theme={theme}
-              showAddItemModal={showShoppingAdd}
-              setShowAddItemModal={setShowShoppingAdd}
-              onBackToAddChoice={returnToAddChoiceFromShopping}
-            />
+            {shoppingScreen}
           </View>
           <View style={{ width: SCREEN_WIDTH }}>
-            <MoreScreen
-              userEmail={userEmail}
-              userDisplayName={userDisplayName}
-              onLogout={handleLogout}
-              theme={theme}
-              userAllergies={userAllergies}
-              onAllergiesChange={handleAllergiesChange}
-              userDietaryRestrictions={userDietaryRestrictions}
-              onDietaryRestrictionsChange={handleDietaryRestrictionsChange}
-              onThemeChange={setTheme}
-              onSubScreenChange={setMoreSubScreenActive}
-              isAdminUser={isAdminUser}
-              isSwitchingUser={isSwitchingUser}
-              quickSwitchTargets={quickSwitchTargetsForCurrentUser}
-              onQuickSwitchUser={handleQuickSwitchUser}
-            />
+            {moreScreen}
           </View>
         </Animated.View>
 
         {/* Recipe detail — kept mounted, but only visible/interactive on Recipes */}
-        {detailVisible && (
-          <Animated.View
-            pointerEvents={currentScreen === 'recipeDetail' ? 'auto' : 'none'}
-            style={[
-              {
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: theme.backgroundColor,
-                opacity: currentScreen === 'recipeDetail' ? 1 : 0,
-                zIndex: currentScreen === 'recipeDetail' ? 20 : -1,
-              },
-              detailStyle,
-            ]}
-          >
-            <RecipeDetailScreen
-              recipeId={selectedRecipeId}
-              onBack={() => {
-                isDetailSV.value = 0;
-                detailOffset.value = withTiming(SCREEN_WIDTH, { duration: 220 }, () => {
-                  runOnJS(handleCloseDetail)();
-                });
-              }}
-              theme={theme}
-            />
-          </Animated.View>
-        )}
+        <Animated.View
+          pointerEvents={detailVisible ? 'auto' : 'none'}
+          style={[
+            {
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: theme.backgroundColor,
+              opacity: detailVisible ? 1 : 0,
+              zIndex: detailVisible ? 30 : -1,
+            },
+            detailStyle,
+          ]}
+        >
+          {recipeDetailScreen}
+        </Animated.View>
 
-        {currentScreen === 'recipes' && showPantryShortcut && !moreSubScreenActive && (
-          <TouchableOpacity
-            onPress={() => {
-              setShowPantryShortcut(false);
-              switchToTab(getSwipeTabIndex('pantry'));
-            }}
-            style={[
-              styles.quickPantryButton,
-              {
-                backgroundColor: theme.mode === "dark" ? "#2b2b2b" : "#fff",
-                borderColor: theme.accentColor,
-              },
-            ]}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="basket" size={15} color={theme.accentColor} />
-            <Text style={[styles.quickPantryButtonText, { color: theme.accentColor }]}>Pantry</Text>
-            <Ionicons name="arrow-forward" size={13} color={theme.accentColor} />
-          </TouchableOpacity>
-        )}
+        <Animated.View
+          pointerEvents={showKitchenSwitcher ? 'auto' : 'none'}
+          style={[
+            styles.kitchenSwitcher,
+            kitchenSwitcherStyle,
+            {
+              top: insets.top + 10,
+              backgroundColor: theme.mode === "dark" ? "#2b2b2b" : "#fff",
+              borderColor: theme.mode === "dark" ? "#3c3c3c" : "#e6e6e6",
+            },
+          ]}
+        >
+            <TouchableOpacity
+              onPress={goToRecipesFromKitchen}
+              style={[
+                styles.kitchenSwitcherOption,
+                (tabBarScreen === 'recipes' || tabBarScreen === 'recipeDetail') && { backgroundColor: theme.accentColor },
+              ]}
+              activeOpacity={0.9}
+            >
+              <Ionicons
+                name={tabBarScreen === 'recipes' || tabBarScreen === 'recipeDetail' ? "restaurant" : "restaurant-outline"}
+                size={14}
+                color={tabBarScreen === 'recipes' || tabBarScreen === 'recipeDetail' ? "#fff" : theme.accentColor}
+              />
+              <Text
+                style={[
+                  styles.kitchenSwitcherText,
+                  { color: tabBarScreen === 'recipes' || tabBarScreen === 'recipeDetail' ? "#fff" : theme.accentColor },
+                ]}
+              >
+                Recipes
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={goToPantryFromKitchen}
+              style={[
+                styles.kitchenSwitcherOption,
+                tabBarScreen === 'pantry' && { backgroundColor: theme.accentColor },
+              ]}
+              activeOpacity={0.9}
+            >
+              <Ionicons
+                name={tabBarScreen === 'pantry' ? "basket" : "basket-outline"}
+                size={14}
+                color={tabBarScreen === 'pantry' ? "#fff" : theme.accentColor}
+              />
+              <Text
+                style={[
+                  styles.kitchenSwitcherText,
+                  { color: tabBarScreen === 'pantry' ? "#fff" : theme.accentColor },
+                ]}
+              >
+                Pantry
+              </Text>
+            </TouchableOpacity>
+        </Animated.View>
+
+          </View>
+        </GestureDetector>
 
         {!moreSubScreenActive && (
           <View style={[styles.bottomTabContainer, { backgroundColor: theme.mode === "dark" ? "#222" : "#fff", borderTopColor: theme.mode === "dark" ? "#444" : "#eee" }]}>
@@ -540,16 +800,16 @@ export default function Index() {
               const tabScreenName = isKitchen ? 'recipes' : (tab.name as Exclude<Screen, 'recipeDetail'>);
               const tabInRowIdx = getSwipeTabIndex(tabScreenName);
               const isFocused = isKitchen
-                ? currentScreen === 'recipes' || currentScreen === 'pantry' || currentScreen === 'recipeDetail'
-                : currentScreen === tabScreenName;
-              const kitchenIsPantry = currentScreen === 'pantry';
+                ? tabBarScreen === 'recipes' || tabBarScreen === 'pantry' || tabBarScreen === 'recipeDetail'
+                : tabBarScreen === tabScreenName;
+              const kitchenIsPantry = tabBarScreen === 'pantry';
               const isCenterButton = tab.isCenter;
 
               if (isCenterButton) {
                 return (
                   <TouchableOpacity
                     key={tab.name}
-                    onPress={() => setShowAddChoice(true)}
+                    onPress={openAddChoice}
                     style={[styles.centerButton, { backgroundColor: "transparent", borderColor: theme.accentColor }]}
                   >
                     <Ionicons name="add" size={32} color={theme.accentColor} />
@@ -560,14 +820,30 @@ export default function Index() {
               return (
                 <TouchableOpacity
                   key={tab.name}
-                  onPress={() => {
+                  delayPressIn={0}
+                  onPressIn={() => {
                     if (isKitchen) {
-                      goToRecipesFromKitchen();
+                      kitchenLongPressTriggeredRef.current = false;
+                      setTabBarScreen('recipes');
                       return;
                     }
-                    if (tabInRowIdx !== -1) switchToTab(tabInRowIdx);
+                    if (tabInRowIdx !== -1) {
+                      switchToTab(tabInRowIdx);
+                    }
                   }}
-                  onLongPress={isKitchen ? () => switchToTab(getSwipeTabIndex('pantry')) : undefined}
+                  onPress={() => {
+                    if (!isKitchen) return;
+                    if (kitchenLongPressTriggeredRef.current) {
+                      kitchenLongPressTriggeredRef.current = false;
+                      return;
+                    }
+                    goToRecipesFromKitchen();
+                  }}
+                  onLongPress={isKitchen ? () => {
+                    kitchenLongPressTriggeredRef.current = true;
+                    setTabBarScreen('pantry');
+                    goToPantryFromKitchen();
+                  } : undefined}
                   delayLongPress={220}
                   style={styles.tabButton}
                 >
@@ -586,25 +862,42 @@ export default function Index() {
         )}
 
         {/* Add Choice Sheet */}
-        <Modal visible={showAddChoice} transparent animationType="slide" onRequestClose={closeChoiceSheet}>
+        <Modal visible={showAddChoice} transparent animationType="fade" onRequestClose={closeChoiceSheet}>
           <TouchableOpacity
-            style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" }}
+            style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", paddingHorizontal: 18 }}
             activeOpacity={1}
             onPress={closeChoiceSheet}
           >
-            <TouchableOpacity activeOpacity={1}>
-              <GestureDetector gesture={choiceSwipeDown}>
-                <Animated.View style={[{
+            <TouchableOpacity activeOpacity={1} onPress={() => undefined}>
+              <View
+                style={{
                   backgroundColor: theme.mode === "dark" ? "#1e1e1e" : "#fff",
-                  borderTopLeftRadius: 24, borderTopRightRadius: 24,
-                  paddingTop: 12, paddingHorizontal: 20,
-                  paddingBottom: Platform.OS === "ios" ? 44 : 28,
-                }, choiceSheetStyle]}>
-                  <View style={{ width: 40, height: 4, backgroundColor: "#ddd", borderRadius: 2, alignSelf: "center", marginBottom: 20 }} />
-                <Text style={{ fontSize: 13, fontWeight: "700", color: theme.mode === "dark" ? "#888" : "#aaa", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 14 }}>What would you like to add?</Text>
+                  borderRadius: 26,
+                  paddingTop: 18,
+                  paddingHorizontal: 18,
+                  paddingBottom: Platform.OS === "ios" ? 28 : 22,
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: 10 },
+                  shadowOpacity: 0.16,
+                  shadowRadius: 24,
+                  elevation: 18,
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                  <View>
+                    <Text style={{ fontSize: 13, fontWeight: "700", color: theme.mode === "dark" ? "#888" : "#aaa", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>Quick Add</Text>
+                    <Text style={{ fontSize: 20, fontWeight: "800", color: theme.textColor }}>What would you like to add?</Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={closeChoiceSheet}
+                    style={{ width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: theme.mode === "dark" ? "#2a2a2a" : "#f4f4f4" }}
+                  >
+                    <Ionicons name="close" size={18} color={theme.mode === "dark" ? "#ddd" : "#666"} />
+                  </TouchableOpacity>
+                </View>
                 <TouchableOpacity
-                  onPress={() => { closeChoiceSheet(); setTimeout(() => setShowRecipeForm(true), 150); }}
-                  style={{ flexDirection: "row", alignItems: "center", gap: 16, backgroundColor: theme.mode === "dark" ? "#2a2a2a" : "#f8f8f8", borderRadius: 16, padding: 18, marginBottom: 12 }}
+                  onPress={openRecipeFromAddChoice}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 16, backgroundColor: theme.mode === "dark" ? "#262626" : "#f8f8f8", borderRadius: 18, padding: 18, marginBottom: 12, borderWidth: 1, borderColor: theme.mode === "dark" ? "#333" : "#efefef" }}
                 >
                   <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: theme.accentColor + "22", alignItems: "center", justifyContent: "center" }}>
                     <Ionicons name="restaurant-outline" size={24} color={theme.accentColor} />
@@ -616,8 +909,8 @@ export default function Index() {
                   <Ionicons name="chevron-forward" size={20} color={theme.mode === "dark" ? "#555" : "#ccc"} />
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => { closeChoiceSheet(); setTimeout(() => setShowPantryAdd(true), 150); }}
-                  style={{ flexDirection: "row", alignItems: "center", gap: 16, backgroundColor: theme.mode === "dark" ? "#2a2a2a" : "#f8f8f8", borderRadius: 16, padding: 18 }}
+                  onPress={openPantryFromAddChoice}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 16, backgroundColor: theme.mode === "dark" ? "#262626" : "#f8f8f8", borderRadius: 18, padding: 18, marginBottom: 12, borderWidth: 1, borderColor: theme.mode === "dark" ? "#333" : "#efefef" }}
                 >
                   <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: theme.accentColor + "22", alignItems: "center", justifyContent: "center" }}>
                     <Ionicons name="basket-outline" size={24} color={theme.accentColor} />
@@ -629,14 +922,8 @@ export default function Index() {
                   <Ionicons name="chevron-forward" size={20} color={theme.mode === "dark" ? "#555" : "#ccc"} />
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => {
-                    closeChoiceSheet();
-                    setTimeout(() => {
-                      switchToTab(getSwipeTabIndex('shopping'));
-                      setShowShoppingAdd(true);
-                    }, 150);
-                  }}
-                  style={{ flexDirection: "row", alignItems: "center", gap: 16, backgroundColor: theme.mode === "dark" ? "#2a2a2a" : "#f8f8f8", borderRadius: 16, padding: 18, marginTop: 12 }}
+                  onPress={openShoppingFromAddChoice}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 16, backgroundColor: theme.mode === "dark" ? "#262626" : "#f8f8f8", borderRadius: 18, padding: 18, borderWidth: 1, borderColor: theme.mode === "dark" ? "#333" : "#efefef" }}
                 >
                   <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: theme.accentColor + "22", alignItems: "center", justifyContent: "center" }}>
                     <Ionicons name="cart-outline" size={24} color={theme.accentColor} />
@@ -647,13 +934,11 @@ export default function Index() {
                   </View>
                   <Ionicons name="chevron-forward" size={20} color={theme.mode === "dark" ? "#555" : "#ccc"} />
                 </TouchableOpacity>
-              </Animated.View>
-              </GestureDetector>
+              </View>
             </TouchableOpacity>
           </TouchableOpacity>
         </Modal>
 
       </View>
-    </GestureDetector>
   );
 }
