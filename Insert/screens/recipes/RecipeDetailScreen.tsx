@@ -8,12 +8,14 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, RefreshCon
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { db, storage } from "@/screens/firebaseAuthLoginRegister/firebase/config";
+import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { onSnapshot, doc, getDoc, addDoc, deleteDoc, writeBatch, getDocs, collection, query, orderBy, limit, serverTimestamp, setDoc, where } from "firebase/firestore";
-import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { shoppingCol, pantryCol, recipesDoc, cookHistoryCol, settingsDoc, socialPostsCol, friendsCol, recipeSharesCol, friendRequestsCol, outgoingFriendRequestsCol, userDoc, publicRecipeDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import { formatQuantityForPreference, PreferredWeightUnit, UnitDisplayMode } from "@/screens/utils/unitUtils";
+import { getDietaryConflicts } from "@/screens/utils/dietaryConflicts";
+import { getAllergyMatches } from "@/screens/utils/allergyMatching";
+import { uploadLocalFileToFirebaseStorage } from "@/screens/utils/firebaseStorageUpload";
 import RecipeFormScreen from "./RecipeFormScreen";
 
 // ── Ingredient categorization ────────────────────────────────────────────
@@ -676,12 +678,11 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
 
   const uploadCookStepPhoto = async (uri: string): Promise<string> => {
     if (!userId) throw new Error("User not signed in");
-    const response = await fetch(uri);
-    const blob = await response.blob();
-    const path = `social/${userId}/cook-steps/${Date.now()}-${Math.floor(Math.random() * 10000)}.jpg`;
-    const fileRef = storageRef(storage, path);
-    await uploadBytes(fileRef, blob, { contentType: "image/jpeg" });
-    return getDownloadURL(fileRef);
+    return uploadLocalFileToFirebaseStorage({
+      contentType: "image/jpeg",
+      fileUri: uri,
+      storagePath: `social/${userId}/cook-steps/${Date.now()}-${Math.floor(Math.random() * 10000)}.jpg`,
+    });
   };
 
   const publishCookResult = async (cookedAtOverride?: number, sourceCookHistoryId?: string) => {
@@ -930,32 +931,16 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
   };
 
   const recipeContainsAllergy = (allergies: string[] = []) => {
-    const combined = recipe?.ingredients.map((ingredient) => ingredient.name.toLowerCase()).join(" ") || "";
-    return allergies.filter((allergen) => combined.includes(allergen.toLowerCase()));
-  };
-
-  const DIETARY_CONFLICT_KEYWORDS: Record<string, string[]> = {
-    vegan: ["beef", "pork", "chicken", "fish", "salmon", "tuna", "shrimp", "egg", "milk", "cheese", "butter", "yogurt", "honey", "gelatin"],
-    vegetarian: ["beef", "pork", "chicken", "fish", "salmon", "tuna", "shrimp", "anchovy", "gelatin", "bacon", "sausage", "ham"],
-    pescatarian: ["beef", "pork", "chicken", "turkey", "lamb", "bacon", "sausage", "ham", "gelatin"],
-    "gluten-free": ["wheat", "barley", "rye", "flour", "bread", "pasta", "noodle", "soy sauce", "breadcrumbs", "cracker"],
-    "dairy-free": ["milk", "cheese", "butter", "cream", "yogurt", "ghee", "whey"],
-    keto: ["sugar", "honey", "syrup", "bread", "pasta", "rice", "potato", "flour", "corn", "beans"],
-    "low-carb": ["sugar", "honey", "syrup", "bread", "pasta", "rice", "potato", "flour", "corn"],
-    halal: ["pork", "ham", "bacon", "lard", "gelatin", "wine", "beer", "rum", "vodka"],
-    kosher: ["pork", "shellfish", "shrimp", "crab", "lobster"],
+    return getAllergyMatches(
+      recipe?.ingredients.map((ingredient) => ingredient.name || "") || [],
+      allergies,
+      [recipe?.name || "", recipe?.description || ""]
+    );
   };
 
   const recipeConflictsDietaryRestrictions = (dietaryRestrictions: string[] = []) => {
-    const combined = recipe?.ingredients.map((ingredient) => ingredient.name.toLowerCase()).join(" ") || "";
-    return dietaryRestrictions.filter((restriction) => {
-      const key = restriction.toLowerCase().trim();
-      const conflictKeywords = DIETARY_CONFLICT_KEYWORDS[key];
-      if (conflictKeywords?.length) {
-        return conflictKeywords.some((keyword) => combined.includes(keyword));
-      }
-      return combined.includes(key);
-    });
+    const ingredientNames = recipe?.ingredients.map((ingredient) => ingredient.name || "") || [];
+    return getDietaryConflicts(ingredientNames, dietaryRestrictions);
   };
 
   const sendRecipeToFriend = async (friend: FriendItem) => {
