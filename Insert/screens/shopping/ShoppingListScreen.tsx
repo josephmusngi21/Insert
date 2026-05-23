@@ -393,21 +393,28 @@ export default function ShoppingListScreen({ theme, showAddItemModal, setShowAdd
         </View>
       </View>
 
-      <View style={styles.summaryContainer}>
+      <View style={[styles.heroCard, { backgroundColor: theme.mode === "dark" ? "#2b2b2b" : "#fff", borderColor: theme.mode === "dark" ? "#3b3b3b" : "#ececec" }]}>
+        <Text style={[styles.heroSubtitle, { color: theme.mode === "dark" ? "#aaa" : "#666" }]}>
+          Build your list quickly, then finish shopping to move selected items into Pantry confirmation.
+        </Text>
+
         <View style={styles.summaryRow}>
-          <View style={[styles.summaryChip, { backgroundColor: theme.mode === "dark" ? "#2c2c2c" : "#f2f2f2" }]}>
+          <View style={[styles.summaryChip, { backgroundColor: theme.mode === "dark" ? "#222" : "#f3f3f3" }]}>
             <Text style={[styles.summaryText, { color: theme.textColor }]}>{remainingCount} remaining</Text>
           </View>
           <View style={[styles.summaryChip, { backgroundColor: theme.mode === "dark" ? "#233529" : "#eaf8ef" }]}>
             <Text style={[styles.summaryText, { color: theme.accentColor }]}>{completedCount} selected</Text>
           </View>
+          <View style={[styles.summaryChip, { backgroundColor: theme.accentColor + "22" }]}>
+            <Text style={[styles.summaryText, { color: theme.accentColor }]}>{items.length} total</Text>
+          </View>
         </View>
-      </View>
 
-      <View style={[styles.inputContainer, { backgroundColor: theme.mode === "dark" ? "#2f2f2f" : "#fff", borderColor: theme.mode === "dark" ? "#3b3b3b" : "#ececec" }]}>
-        <Text style={[styles.bulkAddHint, { color: theme.mode === "dark" ? "#aaa" : "#666" }]}>
+        <View style={[styles.inputContainer, { backgroundColor: theme.mode === "dark" ? "#242424" : "#fafafa", borderColor: theme.mode === "dark" ? "#3b3b3b" : "#ececec" }]}>
+          <Text style={[styles.bulkAddHint, { color: theme.mode === "dark" ? "#aaa" : "#666" }]}>
           Use Add to quickly create multiple shopping items with dropdown quantity and unit.
-        </Text>
+          </Text>
+        </View>
       </View>
 
       {loading ? (
