@@ -3,20 +3,21 @@
  * Bottom-sheet modal with URL import + single-page manual form
  */
 
-import { useState, useMemo, useCallback, memo, useEffect } from "react";
+import { useState, useMemo, useCallback, memo, useEffect, useRef } from "react";
 import {
   View, Text, TextInput, ScrollView, TouchableOpacity,
   Modal, Platform, Dimensions, ActivityIndicator, Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import { addDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { recipesCol, recipesDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
-import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
-import { storage } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import { parseAllRecipesFromUrl, ParsedRecipe } from "@/screens/utils/recipeImport";
+import { uploadLocalFileToFirebaseStorage } from "@/screens/utils/firebaseStorageUpload";
+import styles from "./RecipeFormScreen.styles";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 
@@ -81,6 +82,10 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
   const [isImporting, setIsImporting] = useState(false);
   const [pickerRecipes, setPickerRecipes] = useState<ParsedRecipe[] | null>(null);
   const [pickerSelected, setPickerSelected] = useState<Set<number>>(new Set());
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const cameraRef = useRef<CameraView | null>(null);
 
   // When opening in edit mode, seed the form with initialData
   useEffect(() => {
@@ -114,6 +119,8 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
     setExpandedSourceIngredientIds(new Set());
     setPickerRecipes(null);
     setPickerSelected(new Set());
+    setShowCameraModal(false);
+    setIsUploadingPhoto(false);
   };
 
   // Close without any check — call after confirmation or when form is blank
@@ -218,9 +225,45 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
     setPickerRecipes(null);
   };
 
-  const showPhotoComingSoon = () => {
-    Alert.alert("Coming Soon", "Recipe photo capture is a future feature.");
-  };
+  const uploadRecipePhoto = useCallback(async (photoUri: string) => {
+    return uploadLocalFileToFirebaseStorage({
+      contentType: "image/jpeg",
+      fileUri: photoUri,
+      storagePath: `recipePhotos/${userId || "anonymous"}/${Date.now()}.jpg`,
+    });
+  }, [userId]);
+
+  const openCameraCapture = useCallback(async () => {
+    if (!cameraPermission?.granted) {
+      const permissionResult = await requestCameraPermission();
+      if (!permissionResult.granted) {
+        Alert.alert("Camera Permission Needed", "Allow camera access to take a recipe photo.");
+        return;
+      }
+    }
+    setShowCameraModal(true);
+  }, [cameraPermission?.granted, requestCameraPermission]);
+
+  const captureRecipePhoto = useCallback(async () => {
+    if (!cameraRef.current || isUploadingPhoto) return;
+
+    try {
+      setIsUploadingPhoto(true);
+      const capturedPhoto = await cameraRef.current.takePictureAsync({ quality: 0.8 });
+      if (!capturedPhoto?.uri) {
+        throw new Error("No photo file was captured.");
+      }
+
+      const uploadedPhotoUrl = await uploadRecipePhoto(capturedPhoto.uri);
+      setFormData((currentForm) => ({ ...currentForm, imageUrl: uploadedPhotoUrl }));
+      setShowCameraModal(false);
+    } catch (error: any) {
+      const errorMessage = typeof error?.message === "string" ? error.message : "Unable to capture and upload the recipe photo right now.";
+      Alert.alert("Photo Upload Failed", errorMessage);
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  }, [isUploadingPhoto, uploadRecipePhoto]);
 
   // Ingredients
   const addIngredient = useCallback(() => {
@@ -416,27 +459,27 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
       {/* Multi-recipe picker sub-screen */}
       {pickerRecipes && (
         <Modal visible={!!pickerRecipes} animationType="slide" onRequestClose={() => setPickerRecipes(null)}>
-          <View style={{ flex: 1, backgroundColor: tc.backgroundColor }}>
-            <View style={{ backgroundColor: isDark ? "#1c1c1c" : "#fff", borderBottomWidth: 1, borderBottomColor: mutedBorder, paddingTop: 52, paddingBottom: 12, paddingHorizontal: 16, flexDirection: "row", alignItems: "center" }}>
-              <TouchableOpacity onPress={() => setPickerRecipes(null)} style={{ marginRight: 12 }}>
+          <View style={[styles.pickerRoot, { backgroundColor: tc.backgroundColor }]}>
+            <View style={[styles.pickerHeader, { backgroundColor: isDark ? "#1c1c1c" : "#fff", borderBottomColor: mutedBorder }]}>
+              <TouchableOpacity onPress={() => setPickerRecipes(null)} style={styles.pickerBackButton}>
                 <Ionicons name="chevron-back" size={24} color={tc.accentColor} />
               </TouchableOpacity>
-              <Text style={{ flex: 1, fontSize: 18, fontWeight: "700", color: tc.textColor }}>
+              <Text style={[styles.pickerTitle, { color: tc.textColor }]}>
                 {pickerRecipes.length} Recipes Found
               </Text>
             </View>
-            <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120 }}>
-              <Text style={{ color: mutedText, fontSize: 14, marginBottom: 16, lineHeight: 20 }}>
+            <ScrollView contentContainerStyle={styles.pickerScrollContent}>
+              <Text style={[styles.pickerIntro, { color: mutedText }]}>
                 Select one to edit it, or select multiple to save them all at once.
               </Text>
               <TouchableOpacity
                 onPress={() => pickerSelected.size === pickerRecipes.length ? setPickerSelected(new Set()) : setPickerSelected(new Set(pickerRecipes.map((_, i) => i)))}
-                style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}
+                style={styles.pickerSelectAllRow}
               >
-                <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: tc.accentColor, backgroundColor: pickerSelected.size === pickerRecipes.length ? tc.accentColor : "transparent", alignItems: "center", justifyContent: "center", marginRight: 10 }}>
+                <View style={[styles.pickerSelectAllBox, { borderColor: tc.accentColor, backgroundColor: pickerSelected.size === pickerRecipes.length ? tc.accentColor : "transparent" }]}>
                   {pickerSelected.size === pickerRecipes.length && <Ionicons name="checkmark" size={13} color="#fff" />}
                 </View>
-                <Text style={{ color: tc.textColor, fontWeight: "600" }}>{pickerSelected.size === pickerRecipes.length ? "Deselect All" : "Select All"}</Text>
+                <Text style={[styles.pickerSelectAllText, { color: tc.textColor }]}>{pickerSelected.size === pickerRecipes.length ? "Deselect All" : "Select All"}</Text>
               </TouchableOpacity>
               {pickerRecipes.map((r, i) => {
                 const sel = pickerSelected.has(i);
@@ -445,39 +488,39 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
                   <TouchableOpacity
                     key={i}
                     onPress={() => { const s = new Set(pickerSelected); sel ? s.delete(i) : s.add(i); setPickerSelected(s); }}
-                    style={{ backgroundColor: isDark ? "#2a2a2a" : "#fff", borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 2, borderColor: sel ? tc.accentColor : mutedBorder, flexDirection: "row", alignItems: "flex-start", gap: 12 }}
+                    style={[styles.pickerRecipeCard, { backgroundColor: isDark ? "#2a2a2a" : "#fff", borderColor: sel ? tc.accentColor : mutedBorder }]}
                   >
-                    <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: sel ? tc.accentColor : mutedBorder, backgroundColor: sel ? tc.accentColor : "transparent", alignItems: "center", justifyContent: "center", marginTop: 2, flexShrink: 0 }}>
+                    <View style={[styles.pickerRecipeBox, { borderColor: sel ? tc.accentColor : mutedBorder, backgroundColor: sel ? tc.accentColor : "transparent" }]}>
                       {sel && <Ionicons name="checkmark" size={13} color="#fff" />}
                     </View>
                     {previewImage ? (
-                      <Image source={{ uri: previewImage }} contentFit="cover" transition={160} style={{ width: 62, height: 62, borderRadius: 10 }} />
+                      <Image source={{ uri: previewImage }} contentFit="cover" transition={160} style={styles.pickerRecipeImage} />
                     ) : null}
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 15, fontWeight: "700", color: tc.textColor, marginBottom: 4 }} numberOfLines={2}>{r.name || "Untitled"}</Text>
-                      {r.description ? <Text style={{ fontSize: 13, color: mutedText, marginBottom: 6 }} numberOfLines={2}>{r.description}</Text> : null}
-                      <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
-                        {r.servings ? <Text style={{ fontSize: 12, color: mutedText }}>{r.servings} servings</Text> : null}
-                        {r.cookTime ? <Text style={{ fontSize: 12, color: mutedText }}>{r.cookTime} min</Text> : null}
-                        <Text style={{ fontSize: 12, color: mutedText }}>{r.ingredients.length} ingredients · {r.instructions.length} steps</Text>
+                    <View style={styles.pickerRecipeBody}>
+                      <Text style={[styles.pickerRecipeName, { color: tc.textColor }]} numberOfLines={2}>{r.name || "Untitled"}</Text>
+                      {r.description ? <Text style={[styles.pickerRecipeDescription, { color: mutedText }]} numberOfLines={2}>{r.description}</Text> : null}
+                      <View style={styles.pickerRecipeMetaRow}>
+                        {r.servings ? <Text style={[styles.pickerRecipeMetaText, { color: mutedText }]}>{r.servings} servings</Text> : null}
+                        {r.cookTime ? <Text style={[styles.pickerRecipeMetaText, { color: mutedText }]}>{r.cookTime} min</Text> : null}
+                        <Text style={[styles.pickerRecipeMetaText, { color: mutedText }]}>{r.ingredients.length} ingredients · {r.instructions.length} steps</Text>
                       </View>
                     </View>
                   </TouchableOpacity>
                 );
               })}
             </ScrollView>
-            <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: isDark ? "#1c1c1c" : "#fff", borderTopWidth: 1, borderTopColor: mutedBorder, padding: 16, paddingBottom: Platform.OS === "ios" ? 36 : 16, flexDirection: "row", gap: 10 }}>
-              <TouchableOpacity onPress={() => setPickerRecipes(null)} style={{ flex: 1, borderRadius: 12, paddingVertical: 14, alignItems: "center", backgroundColor: chipInactive }}>
-                <Text style={{ color: tc.textColor, fontWeight: "600" }}>Cancel</Text>
+            <View style={[styles.pickerFooter, { backgroundColor: isDark ? "#1c1c1c" : "#fff", borderTopColor: mutedBorder, paddingBottom: Platform.OS === "ios" ? 36 : 16 }]}>
+              <TouchableOpacity onPress={() => setPickerRecipes(null)} style={[styles.pickerCancelButton, { backgroundColor: chipInactive }]}>
+                <Text style={[styles.pickerCancelText, { color: tc.textColor }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={handlePickerConfirm}
                 disabled={pickerSelected.size === 0 || isImporting}
-                style={{ flex: 2, borderRadius: 12, paddingVertical: 14, alignItems: "center", backgroundColor: pickerSelected.size === 0 ? mutedBorder : tc.accentColor, opacity: isImporting ? 0.7 : 1 }}
+                style={[styles.pickerConfirmButton, { backgroundColor: pickerSelected.size === 0 ? mutedBorder : tc.accentColor, opacity: isImporting ? 0.7 : 1 }]}
               >
                 {isImporting
                   ? <ActivityIndicator size="small" color="#fff" />
-                  : <Text style={{ color: "#fff", fontWeight: "700" }}>
+                  : <Text style={styles.pickerConfirmText}>
                       {pickerSelected.size === 0 ? "Select a Recipe" : pickerSelected.size === 1 ? "Edit in Form" : `Save All ${pickerSelected.size}`}
                     </Text>}
               </TouchableOpacity>
@@ -486,53 +529,35 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
         </Modal>
       )}
 
-      <View style={{ flex: 1, justifyContent: "flex-end" }}>
+      <View style={styles.modalRoot}>
         {/* Backdrop */}
         <TouchableOpacity
-          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.45)" }}
+          style={styles.modalBackdrop}
           activeOpacity={1}
           onPress={handleRequestClose}
         />
 
-        <View style={{
-          backgroundColor: surfaceBg,
-          borderTopLeftRadius: 24,
-          borderTopRightRadius: 24,
-          paddingHorizontal: 20,
-          paddingTop: 12,
-          paddingBottom: 0,
-          height: SCREEN_HEIGHT * 0.88,
-          maxHeight: SCREEN_HEIGHT * 0.93,
-        }}>
+        <View style={[styles.modalSheet, { backgroundColor: surfaceBg, height: SCREEN_HEIGHT * 0.88, maxHeight: SCREEN_HEIGHT * 0.93 }]}>
 
           {/* Header */}
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <View style={styles.modalHeaderRow}>
             <TouchableOpacity
               onPress={handleBackAction}
               hitSlop={{ top: 16, bottom: 16, left: 20, right: 20 }}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                paddingHorizontal: 14,
-                paddingVertical: 12,
-                borderRadius: 12,
-                minHeight: 46,
-                minWidth: 96,
-              }}
+              style={styles.modalBackButton}
             >
               <Ionicons name="chevron-back" size={24} color={tc.accentColor} />
-              <Text style={{ fontSize: 15, fontWeight: "600", color: tc.accentColor }}>Back</Text>
+              <Text style={[styles.modalBackText, { color: tc.accentColor }]}>Back</Text>
             </TouchableOpacity>
-            <Text style={{ fontSize: 22, fontWeight: "700", color: tc.textColor, flex: 1, textAlign: "center", marginLeft: -56 }}>{isEditMode ? "Edit Recipe" : "Add Recipe"}</Text>
-            <TouchableOpacity onPress={handleRequestClose} style={{ padding: 6 }}>
+            <Text style={[styles.modalTitle, { color: tc.textColor }]}>{isEditMode ? "Edit Recipe" : "Add Recipe"}</Text>
+            <TouchableOpacity onPress={handleRequestClose} style={styles.modalCloseButton}>
               <Ionicons name="close" size={22} color="#999" />
             </TouchableOpacity>
           </View>
 
           <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ paddingBottom: 120 }}
+            style={styles.modalScroll}
+            contentContainerStyle={styles.modalScrollContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             scrollEventThrottle={16}
@@ -544,10 +569,10 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
             {/* URL Import — hidden in edit mode */}
             {!isEditMode ? (
               <>
-                <View style={{ backgroundColor: isDark ? "#1a2e1a" : "#f0faf0", borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1.5, borderColor: tc.accentColor + "55" }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <View style={[styles.formImportCard, { backgroundColor: isDark ? "#1a2e1a" : "#f0faf0", borderColor: tc.accentColor + "55" }]}>
+                  <View style={styles.formImportHeaderRow}>
                     <Ionicons name="link" size={16} color={tc.accentColor} />
-                    <Text style={{ fontWeight: "700", fontSize: 14, color: tc.textColor }}>Import from a Website</Text>
+                    <Text style={[styles.formImportTitle, { color: tc.textColor }]}>Import from a Website</Text>
                     <TouchableOpacity
                       onPress={() => Alert.alert(
                         "Import accuracy note",
@@ -558,12 +583,12 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
                       <Ionicons name="information-circle-outline" size={14} color={mutedText} />
                     </TouchableOpacity>
                   </View>
-                  <Text style={{ fontSize: 12, color: mutedText, marginBottom: 10, lineHeight: 18 }}>
+                  <Text style={[styles.formImportSubtitle, { color: mutedText }]}>
                     AllRecipes, Food Network, Simply Recipes, Serious Eats, Epicurious, and most recipe blogs.
                   </Text>
-                  <View style={{ flexDirection: "row", gap: 8 }}>
+                  <View style={styles.formImportInputRow}>
                     <TextInput
-                      style={{ flex: 1, borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: tc.textColor, backgroundColor: inputBg, borderColor: mutedBorder }}
+                      style={[styles.formImportInput, { color: tc.textColor, backgroundColor: inputBg, borderColor: mutedBorder }]}
                       placeholder="https://www.allrecipes.com/recipe/..."
                       placeholderTextColor={isDark ? "#555" : "#bbb"}
                       value={importUrl}
@@ -579,78 +604,79 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
                     <TouchableOpacity
                       onPress={handleImport}
                       disabled={isImporting}
-                      style={{ backgroundColor: tc.accentColor, borderRadius: 10, paddingHorizontal: 16, alignItems: "center", justifyContent: "center", opacity: isImporting ? 0.7 : 1 }}
+                      style={[styles.formImportButton, { backgroundColor: tc.accentColor, opacity: isImporting ? 0.7 : 1 }]}
                     >
                       {isImporting
                         ? <ActivityIndicator size="small" color="#fff" />
-                        : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Import</Text>}
+                        : <Text style={styles.formImportButtonText}>Import</Text>}
                     </TouchableOpacity>
                   </View>
                 </View>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 }}>
-                  <View style={{ flex: 1, height: 1, backgroundColor: mutedBorder }} />
-                  <Text style={{ color: mutedText, fontSize: 12 }}>or fill in manually</Text>
-                  <View style={{ flex: 1, height: 1, backgroundColor: mutedBorder }} />
+                <View style={styles.formManualDividerRow}>
+                  <View style={[styles.formManualDividerLine, { backgroundColor: mutedBorder }]} />
+                  <Text style={[styles.formManualDividerText, { color: mutedText }]}>or fill in manually</Text>
+                  <View style={[styles.formManualDividerLine, { backgroundColor: mutedBorder }]} />
                 </View>
               </>
             ) : null}
             <Text style={labelStyle}>Recipe Photo</Text>
-            <View style={{ marginBottom: 16 }}>
+            <View style={styles.formPhotoSection}>
               <TouchableOpacity
                 onPress={() => {
-                  if (importImageCandidates.length === 0) showPhotoComingSoon();
+                  if (importImageCandidates.length === 0) {
+                    void openCameraCapture();
+                  }
                 }}
                 activeOpacity={importImageCandidates.length > 0 ? 1 : 0.8}
-                style={{
-                  borderRadius: 16,
-                  overflow: "hidden",
-                  backgroundColor: isDark ? "#2a2a2a" : "#fff4ea",
-                  borderWidth: 1.5,
-                  borderColor: formData.imageUrl ? tc.accentColor : mutedBorder,
-                  minHeight: 190,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
+                style={[styles.formPhotoCard, { backgroundColor: isDark ? "#2a2a2a" : "#fff4ea", borderColor: formData.imageUrl ? tc.accentColor : mutedBorder }]}
               >
                 {formData.imageUrl ? (
-                  <Image source={{ uri: formData.imageUrl }} contentFit="cover" transition={220} style={{ width: "100%", height: 210 }} />
+                  <Image source={{ uri: formData.imageUrl }} contentFit="cover" transition={220} style={styles.formPhotoPreview} />
                 ) : (
-                  <View style={{ alignItems: "center", paddingHorizontal: 20 }}>
+                  <View style={styles.formPhotoEmpty}>
                     <Ionicons name="camera-outline" size={32} color={tc.accentColor} />
-                    <Text style={{ marginTop: 8, color: tc.textColor, fontWeight: "700", fontSize: 15 }}>
-                      {importImageCandidates.length > 0 ? "Choose one image below" : "Recipe photo (Coming Soon)"}
+                    <Text style={[styles.formPhotoTitle, { color: tc.textColor }]}>
+                      {importImageCandidates.length > 0 ? "Choose one image below" : "Take a recipe photo"}
                     </Text>
-                    <Text style={{ marginTop: 4, color: mutedText, fontSize: 12 }}>
-                      {importImageCandidates.length > 0 ? "Tap one imported image to select it." : "Photo capture will be available in a future update."}
+                    <Text style={[styles.formPhotoSubtitle, { color: mutedText }]}>
+                      {importImageCandidates.length > 0 ? "Tap one imported image to select it." : "Capture a photo now or import one from a supported recipe site."}
                     </Text>
                   </View>
                 )}
               </TouchableOpacity>
 
+              <TouchableOpacity
+                onPress={() => { void openCameraCapture(); }}
+                disabled={isUploadingPhoto}
+                style={[styles.formPhotoActionButton, { backgroundColor: tc.accentColor, opacity: isUploadingPhoto ? 0.7 : 1 }]}
+              >
+                {isUploadingPhoto ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="camera-outline" size={15} color="#fff" />
+                    <Text style={styles.formPhotoActionButtonText}>{formData.imageUrl ? "Retake photo" : "Take photo"}</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
               {importImageCandidates.length > 0 ? (
-                <View style={{ marginTop: 10 }}>
-                  <Text style={{ color: mutedText, fontSize: 12, marginBottom: 8 }}>
+                <View style={styles.formPhotoOptionsWrap}>
+                  <Text style={[styles.formPhotoOptionsLabel, { color: mutedText }]}>
                     Imported image options (select one)
                   </Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.formPhotoOptionsRow}>
                     {importImageCandidates.map((imageUrl, index) => {
                       const selected = formData.imageUrl === imageUrl;
                       return (
                         <TouchableOpacity
                           key={`${imageUrl}-${index}`}
                           onPress={() => setFormData((f) => ({ ...f, imageUrl }))}
-                          style={{
-                            width: 94,
-                            borderRadius: 12,
-                            borderWidth: 2,
-                            borderColor: selected ? tc.accentColor : mutedBorder,
-                            overflow: "hidden",
-                            backgroundColor: isDark ? "#2a2a2a" : "#fff",
-                          }}
+                          style={[styles.formPhotoOptionCard, { borderColor: selected ? tc.accentColor : mutedBorder, backgroundColor: isDark ? "#2a2a2a" : "#fff" }]}
                         >
-                          <Image source={{ uri: imageUrl }} contentFit="cover" transition={160} style={{ width: "100%", height: 68 }} />
-                          <View style={{ paddingVertical: 6, alignItems: "center" }}>
-                            <Text style={{ color: selected ? tc.accentColor : mutedText, fontSize: 11, fontWeight: "700" }}>
+                          <Image source={{ uri: imageUrl }} contentFit="cover" transition={160} style={styles.formPhotoOptionImage} />
+                          <View style={styles.formPhotoOptionLabelWrap}>
+                            <Text style={[styles.formPhotoOptionLabel, { color: selected ? tc.accentColor : mutedText }]}>
                               {selected ? "Selected" : "Select"}
                             </Text>
                           </View>
@@ -662,8 +688,8 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
               ) : null}
 
               {formData.imageUrl ? (
-                <TouchableOpacity onPress={() => setFormData((f) => ({ ...f, imageUrl: "" }))} style={{ marginTop: 8, alignSelf: "flex-start" }}>
-                  <Text style={{ color: "#cc5031", fontWeight: "700", fontSize: 13 }}>Remove photo</Text>
+                <TouchableOpacity onPress={() => setFormData((f) => ({ ...f, imageUrl: "" }))} style={styles.formPhotoRemoveButton}>
+                  <Text style={styles.formPhotoRemoveText}>Remove photo</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -912,24 +938,48 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
 
           </ScrollView>
 
-          <View style={{
-            marginHorizontal: -20,
-            paddingHorizontal: 20,
-            paddingTop: 10,
-            paddingBottom: Platform.OS === "ios" ? 34 : 18,
-            borderTopWidth: 1,
-            borderTopColor: mutedBorder,
-            backgroundColor: surfaceBg,
-          }}>
+          <View style={[styles.formSaveFooter, { paddingBottom: Platform.OS === "ios" ? 34 : 18, borderTopColor: mutedBorder, backgroundColor: surfaceBg }]}>
             <TouchableOpacity
               onPress={handleSave}
-              style={{ backgroundColor: allFilled ? tc.accentColor : (isDark ? "#333" : "#d0d0d0"), borderRadius: 14, paddingVertical: 16, alignItems: "center" }}
+              style={[styles.formSaveButton, { backgroundColor: allFilled ? tc.accentColor : (isDark ? "#333" : "#d0d0d0") }]}
             >
-              <Text style={{ color: allFilled ? "#fff" : mutedText, fontWeight: "700", fontSize: 16 }}>
+              <Text style={[styles.formSaveButtonText, { color: allFilled ? "#fff" : mutedText }]}>
                 {isEditMode ? "Update Recipe" : "Save Recipe"}
               </Text>
             </TouchableOpacity>
           </View>
+
+          {showCameraModal && (
+            <View style={styles.formCameraOverlay}>
+              <CameraView ref={cameraRef} style={styles.formCameraView} facing="back" />
+              <View style={styles.formCameraHeader}>
+                <View style={styles.formCameraHeaderBadge}>
+                  <Text style={styles.formCameraHeaderBadgeText}>Recipe Photo</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => {
+                    if (!isUploadingPhoto) {
+                      setShowCameraModal(false);
+                    }
+                  }}
+                  disabled={isUploadingPhoto}
+                  style={styles.formCameraCancelButton}
+                >
+                  <Text style={styles.formCameraCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.formCameraFooter}>
+                <TouchableOpacity
+                  onPress={() => { void captureRecipePhoto(); }}
+                  disabled={isUploadingPhoto}
+                  style={[styles.formCameraCaptureButton, isUploadingPhoto && styles.formCameraCaptureButtonDisabled]}
+                >
+                  {isUploadingPhoto && <ActivityIndicator size="small" color="#fff" />}
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
       </View>
     </Modal>
