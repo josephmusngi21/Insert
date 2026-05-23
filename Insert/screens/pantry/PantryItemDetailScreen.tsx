@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, memo } from "react";
-import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity, FlatList, StyleSheet, Modal, Platform, Dimensions, ActivityIndicator, Keyboard, TouchableWithoutFeedback } from "react-native";
+import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity, FlatList, StyleSheet, Modal, Platform, Dimensions, ActivityIndicator, Keyboard, TouchableWithoutFeedback, Animated } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Swipeable from "react-native-gesture-handler/Swipeable";
@@ -102,6 +102,9 @@ interface PantryItemDetailScreenProps {
   showAddItemModal: boolean;
   setShowAddItemModal: (v: boolean) => void;
   onBackToAddChoice?: () => void;
+  kitchenTab?: "recipes" | "pantry";
+  showKitchenToggle?: boolean;
+  onKitchenTabChange?: (tab: "recipes" | "pantry") => void;
 }
 
 const PENDING_UNIT_OPTIONS = ["g", "kg", "lb", "oz", "ml", "l", "cup", "tbsp", "tsp", "pcs", "qty", "pack", "can", "bottle"];
@@ -192,7 +195,7 @@ const normalizeItemTypes = (raw: unknown): AddItemTypeOption[] => {
   });
 };
 
-export default function PantryItemDetailScreen({ onLogout, theme, showAddItemModal, setShowAddItemModal, onBackToAddChoice }: PantryItemDetailScreenProps) {
+export default function PantryItemDetailScreen({ onLogout, theme, showAddItemModal, setShowAddItemModal, onBackToAddChoice, kitchenTab = "pantry", showKitchenToggle = true, onKitchenTabChange }: PantryItemDetailScreenProps) {
   const themeColors = theme || {
     mode: "light",
     textColor: "#333",
@@ -223,8 +226,17 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
   const stickySectionHeightRef = useRef(0);
   const isAutoSnapInProgressRef = useRef(false);
   const pantrySearchInputRef = useRef<any>(null);
+  const kitchenToggleAnim = useRef(new Animated.Value(kitchenTab === "recipes" ? 0 : 1)).current;
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
+
+  useEffect(() => {
+    Animated.timing(kitchenToggleAnim, {
+      toValue: kitchenTab === "recipes" ? 0 : 1,
+      duration: 190,
+      useNativeDriver: true,
+    }).start();
+  }, [kitchenTab, kitchenToggleAnim]);
 
   const locationOptions = availableStorageLocations.length > 0 ? availableStorageLocations : STORAGE_LOCATIONS;
 
@@ -811,6 +823,56 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
       <View style={[styles.header, { backgroundColor: themeColors.backgroundColor }]}>
         <View style={styles.titleAndMenu}>
           <Text style={[styles.title, { color: themeColors.textColor }]}>Pantry</Text>
+          {showKitchenToggle && (
+          <View
+            style={{
+              width: 150,
+              borderRadius: 999,
+              padding: 2,
+              borderWidth: 1,
+              borderColor: themeColors.mode === "dark" ? "#3c3c3c" : "#e6e6e6",
+              backgroundColor: themeColors.mode === "dark" ? "#252525" : "#fff",
+              overflow: "hidden",
+            }}
+          >
+            <Animated.View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                top: 2,
+                left: 2,
+                width: 72,
+                height: 32,
+                borderRadius: 999,
+                backgroundColor: themeColors.accentColor,
+                transform: [
+                  {
+                    translateX: kitchenToggleAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, 74],
+                    }),
+                  },
+                ],
+              }}
+            />
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <TouchableOpacity
+                onPress={() => onKitchenTabChange?.("recipes")}
+                style={{ flex: 1, minHeight: 36, alignItems: "center", justifyContent: "center" }}
+                activeOpacity={0.9}
+              >
+                <Text style={{ color: kitchenTab === "recipes" ? "#fff" : themeColors.accentColor, fontSize: 12, fontWeight: "800" }}>Recipes</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => onKitchenTabChange?.("pantry")}
+                style={{ flex: 1, minHeight: 36, alignItems: "center", justifyContent: "center" }}
+                activeOpacity={0.9}
+              >
+                <Text style={{ color: kitchenTab === "pantry" ? "#fff" : themeColors.accentColor, fontSize: 12, fontWeight: "800" }}>Pantry</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          )}
         </View>
       </View>
     );

@@ -18,6 +18,7 @@ import PreferencesScreen from "@/screens/more/PreferencesScreen";
 import PrivacyPolicy from "@/screens/misc/PrivacyPolicy";
 import TermsOfService from "@/screens/misc/TermsOfService";
 import AboutScreen from "@/screens/misc/AboutScreen";
+import UserGuideScreen from "@/screens/misc/UserGuideScreen";
 import CookHistoryScreen from "@/screens/more/CookHistoryScreen";
 import FriendsScreen from "./FriendsScreen";
 import SettingsScreen from "@/screens/profile/SettingsScreen";
@@ -25,7 +26,7 @@ import { friendRequestsCol, outgoingFriendRequestsCol } from "@/screens/firebase
 import styles from "./MoreScreen.styles";
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
-type SubScreen = 'theme' | 'account' | 'friends' | 'locations' | 'preferences' | 'privacy' | 'terms' | 'about' | 'cookHistory' | null;
+type SubScreen = 'theme' | 'account' | 'friends' | 'locations' | 'preferences' | 'privacy' | 'terms' | 'about' | 'guide' | 'cookHistory' | null;
 
 interface MoreScreenProps {
   userEmail?: string;
@@ -214,16 +215,18 @@ export default function MoreScreen({
     privacy: 'Privacy Policy',
     terms: 'Terms of Service',
     about: 'About Insert',
+    guide: 'How To Use Insert',
     cookHistory: 'Cook History',
   };
 
   const sections: Section[] = [
     {
-      title: "PERSONALIZE",
+      title: "ACCOUNT",
       items: [
-        { icon: "color-palette-outline",     label: "Customize Theme",  sub: "Colors, fonts, and dark mode",      subScreen: 'theme' },
-        { icon: "location-outline",          label: "Locations",         sub: "Track your regular stores",         subScreen: 'locations' },
-        { icon: "options-outline",           label: "Preferences",       sub: "App defaults and behavior",         subScreen: 'preferences' },
+        { icon: "person-outline",            label: "Account Settings",  sub: "Profile, allergies, and account info", subScreen: 'account' },
+        { icon: "options-outline",           label: "Preferences",       sub: "App defaults and behavior",            subScreen: 'preferences' },
+        { icon: "location-outline",          label: "Locations",         sub: "Track your regular stores",            subScreen: 'locations' },
+        { icon: "flame-outline",             label: "Cook History",      sub: "All recipes you've cooked",            subScreen: 'cookHistory' },
       ],
     },
     {
@@ -233,18 +236,18 @@ export default function MoreScreen({
       ],
     },
     {
-      title: "ACCOUNT",
+      title: "PERSONALIZE",
       items: [
-        { icon: "person-outline",            label: "Account Settings",  sub: "Profile, allergies, and account info",  subScreen: 'account' },
-        { icon: "flame-outline",             label: "Cook History",      sub: "All recipes you've cooked",         subScreen: 'cookHistory' },
+        { icon: "color-palette-outline",     label: "Customize Theme",  sub: "Colors and dark mode",                  subScreen: 'theme' },
       ],
     },
     {
-      title: "LEGAL & INFO",
+      title: "HELP & INFO",
       items: [
+        { icon: "book-outline",              label: "How To Use Insert", sub: "A quick guide to key app features",     subScreen: 'guide' },
+        { icon: "information-circle-outline",label: "About Insert",      sub: "Version, credits, and overview",         subScreen: 'about' },
         { icon: "lock-closed-outline",       label: "Privacy Policy",    sub: "How we handle your data",           subScreen: 'privacy' },
         { icon: "document-text-outline",     label: "Terms of Service",  sub: "Usage terms and conditions",        subScreen: 'terms' },
-        { icon: "information-circle-outline",label: "About Insert",      sub: "Version, credits, and licenses",    subScreen: 'about' },
       ],
     },
   ];
@@ -504,6 +507,7 @@ export default function MoreScreen({
               <LocationsScreen
                 onBack={doCloseSub}
                 theme={themeColors}
+                showInternalHeader={false}
               />
             )}
             {subScreen === 'preferences' && (
@@ -512,13 +516,16 @@ export default function MoreScreen({
               />
             )}
             {subScreen === 'privacy' && (
-              <PrivacyPolicy />
+              <PrivacyPolicy theme={themeColors} />
             )}
             {subScreen === 'terms' && (
-              <TermsOfService />
+              <TermsOfService theme={themeColors} />
             )}
             {subScreen === 'about' && (
-              <AboutScreen />
+              <AboutScreen theme={themeColors} />
+            )}
+            {subScreen === 'guide' && (
+              <UserGuideScreen theme={themeColors} />
             )}
             {subScreen === 'cookHistory' && (
               <CookHistoryScreen theme={themeColors} />
