@@ -11,57 +11,15 @@ import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { onSnapshot, addDoc, deleteDoc, setDoc, serverTimestamp, updateDoc, doc, query, orderBy, limit, getDoc, collection, getDocs, where } from "firebase/firestore";
 import { friendRequestsCol, friendsCol, outgoingFriendRequestsCol, recipeSharesCol, recipesCol, recipesDoc, publicRecipeDoc, userDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import { RECIPE_CATEGORY_OPTIONS, RecipeBrowseCategory, getRecipeBrowseCategory, matchesSearch } from "@/screens/utils/categorization";
+import { getDietaryConflicts } from "@/screens/utils/dietaryConflicts";
+import { getAllergyMatches, isAllergySafe } from "@/screens/utils/allergyMatching";
+import { getSourceHost } from "@/screens/utils/urlUtils";
+import { DIETARY_RESTRICTIONS } from "./recipeSchematics";
 import styles from "./RecipeListScreen.styles";
 import RecipeFormScreen from "./RecipeFormScreen";
-
-// Dietary restrictions with their allowed ingredients
-const DIETARY_RESTRICTIONS: Record<string, { name: string; allowedIngredients: string[] }> = {
-  vegan: {
-    name: "Vegan",
-    allowedIngredients: [
-      "pasta", "rice", "flour", "sugar", "salt", "pepper", "black pepper",
-      "olive oil", "oil", "garlic", "onion", "tomato", "canned tomato",
-      "bell pepper", "basil", "lettuce", "lemon", "vegetable", "carrot",
-      "broccoli", "spinach", "mushroom", "bean", "chickpea", "tofu",
-      "soy sauce", "vinegar", "herbs", "spices", "nuts", "seeds"
-    ]
-  },
-  vegetarian: {
-    name: "Vegetarian",
-    allowedIngredients: [
-      "pasta", "rice", "flour", "sugar", "salt", "pepper", "black pepper",
-      "olive oil", "oil", "garlic", "onion", "tomato", "canned tomato",
-      "bell pepper", "basil", "lettuce", "lemon", "vegetable", "carrot",
-      "broccoli", "spinach", "mushroom", "bean", "chickpea", "tofu",
-      "soy sauce", "vinegar", "herbs", "spices", "nuts", "seeds",
-      "eggs", "cheese", "parmesan cheese", "milk", "butter", "yogurt"
-    ]
-  },
-  glutenfree: {
-    name: "Gluten-Free",
-    allowedIngredients: [
-      "rice", "sugar", "salt", "pepper", "black pepper", "olive oil",
-      "oil", "garlic", "onion", "tomato", "canned tomato", "bell pepper",
-      "basil", "lettuce", "lemon", "vegetable", "carrot", "broccoli",
-      "spinach", "mushroom", "bean", "chickpea", "eggs", "cheese",
-      "parmesan cheese", "milk", "butter", "yogurt", "chicken", "chicken breast",
-      "salmon", "fish", "beef", "ground beef", "meat", "soy sauce", "vinegar"
-    ]
-  },
-  dairyfree: {
-    name: "Dairy-Free",
-    allowedIngredients: [
-      "pasta", "rice", "flour", "sugar", "salt", "pepper", "black pepper",
-      "olive oil", "oil", "garlic", "onion", "tomato", "canned tomato",
-      "bell pepper", "basil", "lettuce", "lemon", "vegetable", "carrot",
-      "broccoli", "spinach", "mushroom", "bean", "chickpea", "tofu",
-      "soy sauce", "vinegar", "herbs", "spices", "nuts", "seeds",
-      "chicken", "chicken breast", "salmon", "fish", "beef", "ground beef", "meat", "eggs"
-    ]
-  }
-};
 
 type Recipe = {
   id: string;
@@ -140,12 +98,17 @@ interface RecipeListScreenProps {
   showRecipeForm?: boolean;
   setShowRecipeForm?: (show: boolean) => void;
   onBackToAddChoice?: () => void;
+  kitchenTab?: "recipes" | "pantry";
+  showKitchenToggle?: boolean;
+  onKitchenTabChange?: (tab: "recipes" | "pantry") => void;
 }
 
-export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies = [], userDietaryRestrictions = [], showRecipeForm = false, setShowRecipeForm = () => {}, onBackToAddChoice }: RecipeListScreenProps) {
+export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies = [], userDietaryRestrictions = [], showRecipeForm = false, setShowRecipeForm = () => {}, onBackToAddChoice, kitchenTab = "recipes", showKitchenToggle = true, onKitchenTabChange }: RecipeListScreenProps) {
+  const insets = useSafeAreaInsets();
   const [recipeList, setRecipeList] = useState<Recipe[]>([]);
   const [filterByAllergies, setFilterByAllergies] = useState(false);
   const [selectedDiets, setSelectedDiets] = useState<string[]>([]);
+  const [showAllDietaryFilters, setShowAllDietaryFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<RecipeBrowseCategory>("all");
   const [toast, setToast] = useState<{ message: string; success: boolean } | null>(null);
@@ -161,7 +124,16 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
   const [selectedImporterRecipe, setSelectedImporterRecipe] = useState<ImporterProfilePreview["publicRecipes"][number] | null>(null);
   const recipeSearchInputRef = useRef<any>(null);
   const toastAnim = useRef(new Animated.Value(0)).current;
+  const kitchenToggleAnim = useRef(new Animated.Value(kitchenTab === "recipes" ? 0 : 1)).current;
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    Animated.timing(kitchenToggleAnim, {
+      toValue: kitchenTab === "recipes" ? 0 : 1,
+      duration: 190,
+      useNativeDriver: true,
+    }).start();
+  }, [kitchenTab, kitchenToggleAnim]);
 
   const handleRecipeSearchChange = (value: string) => {
     setSearchQuery(value);
@@ -263,7 +235,13 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
 
     return dietKeys.every((dietKey) => {
       const diet = DIETARY_RESTRICTIONS[dietKey];
-      if (!diet) return true;
+      if (!diet) {
+        const customRestriction = dietKey.startsWith("custom:")
+          ? decodeURIComponent(dietKey.slice("custom:".length))
+          : dietKey;
+        const ingredientNames = recipe.ingredients.map((ingredient) => ingredient.name || "");
+        return getDietaryConflicts(ingredientNames, [customRestriction]).length === 0;
+      }
 
       return recipe.ingredients.every((ingredient) => {
         const ingredientName = ingredient.name.toLowerCase().trim();
@@ -276,10 +254,11 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
   const recipeSafeForAllergies = (recipe: Recipe): boolean => {
     if (userAllergies.length === 0) return true;
 
-    return recipe.ingredients.every((ingredient) => {
-      const ingredientName = ingredient.name.toLowerCase().trim();
-      return !userAllergies.some((allergen) => ingredientName.includes(allergen.toLowerCase()));
-    });
+    return isAllergySafe(
+      recipe.ingredients.map((ingredient) => ingredient.name || ""),
+      userAllergies,
+      [recipe.name || "", recipe.description || ""]
+    );
   };
 
   const filteredRecipes = useMemo(() => {
@@ -318,14 +297,37 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
     return next;
   }, [filterByAllergies, recipeList, searchQuery, selectedCategory, selectedDiets, userAllergies]);
 
-  const getSourceHost = (url?: string) => {
-    if (!url) return "";
-    try {
-      return new URL(url).hostname.replace(/^www\./, "");
-    } catch {
-      return url;
-    }
-  };
+  const dietaryEntries = useMemo(() => {
+    const dietaryOrder = ["vegan", "vegetarian", "dairyfree", "glutenfree"];
+    const dietaryRank = new Map(dietaryOrder.map((key, index) => [key, index]));
+    const baseEntries = Object.entries(DIETARY_RESTRICTIONS).sort(([keyA, dietA], [keyB, dietB]) => {
+      const rankA = dietaryRank.has(keyA) ? dietaryRank.get(keyA)! : Number.MAX_SAFE_INTEGER;
+      const rankB = dietaryRank.has(keyB) ? dietaryRank.get(keyB)! : Number.MAX_SAFE_INTEGER;
+      if (rankA !== rankB) return rankA - rankB;
+      return dietA.name.localeCompare(dietB.name);
+    });
+
+    const knownNames = new Set(baseEntries.map(([, diet]) => diet.name.toLowerCase().trim()));
+    const customNameSet = new Set<string>();
+    const customEntries: Array<[string, { name: string }]> = [];
+
+    userDietaryRestrictions.forEach((restriction) => {
+      const trimmed = restriction.trim();
+      const lower = trimmed.toLowerCase();
+      if (!trimmed || knownNames.has(lower) || customNameSet.has(lower)) return;
+      customNameSet.add(lower);
+      customEntries.push([`custom:${encodeURIComponent(lower)}`, { name: trimmed }]);
+    });
+
+    customEntries.sort(([, a], [, b]) => a.name.localeCompare(b.name));
+
+    return [...baseEntries, ...customEntries];
+  }, [userDietaryRestrictions]);
+  const visibleDietaryEntries = useMemo(
+    () => (showAllDietaryFilters ? dietaryEntries : dietaryEntries.slice(0, 4)),
+    [dietaryEntries, showAllDietaryFilters]
+  );
+  const hiddenDietaryCount = Math.max(0, dietaryEntries.length - visibleDietaryEntries.length);
 
   const getOriginAttribution = (recipe: Recipe) => {
     const isImported = recipe.originType === "imported" || !!recipe.sourceUrl;
@@ -538,34 +540,16 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
 
   const getShareMatchedAllergies = (share: SharedRecipeInvite) => {
     if (!userAllergies.length) return [] as string[];
-    const ingredientNames = (share.recipeIngredientsDetailed || []).map((ingredient) => ingredient.name || "").join(" ").toLowerCase();
-    return userAllergies.filter((allergy) => ingredientNames.includes(String(allergy).toLowerCase()));
-  };
-
-  const DIETARY_CONFLICT_KEYWORDS: Record<string, string[]> = {
-    vegan: ["beef", "pork", "chicken", "fish", "salmon", "tuna", "shrimp", "egg", "milk", "cheese", "butter", "yogurt", "honey", "gelatin"],
-    vegetarian: ["beef", "pork", "chicken", "fish", "salmon", "tuna", "shrimp", "anchovy", "gelatin", "bacon", "sausage", "ham"],
-    pescatarian: ["beef", "pork", "chicken", "turkey", "lamb", "bacon", "sausage", "ham", "gelatin"],
-    "gluten-free": ["wheat", "barley", "rye", "flour", "bread", "pasta", "noodle", "soy sauce", "breadcrumbs", "cracker"],
-    "dairy-free": ["milk", "cheese", "butter", "cream", "yogurt", "ghee", "whey"],
-    keto: ["sugar", "honey", "syrup", "bread", "pasta", "rice", "potato", "flour", "corn", "beans"],
-    "low-carb": ["sugar", "honey", "syrup", "bread", "pasta", "rice", "potato", "flour", "corn"],
-    halal: ["pork", "ham", "bacon", "lard", "gelatin", "wine", "beer", "rum", "vodka"],
-    kosher: ["pork", "shellfish", "shrimp", "crab", "lobster"],
+    return getAllergyMatches(
+      (share.recipeIngredientsDetailed || []).map((ingredient) => ingredient.name || ""),
+      userAllergies,
+      [share.recipeName || "", share.recipeDescription || "", share.description || ""]
+    );
   };
 
   const getShareDietaryConflicts = (share: SharedRecipeInvite) => {
-    if (!userDietaryRestrictions.length) return [] as string[];
-    const ingredientNames = (share.recipeIngredientsDetailed || []).map((ingredient) => ingredient.name || "").join(" ").toLowerCase();
-
-    return userDietaryRestrictions.filter((restriction) => {
-      const key = String(restriction).toLowerCase().trim();
-      const conflictKeywords = DIETARY_CONFLICT_KEYWORDS[key];
-      if (conflictKeywords?.length) {
-        return conflictKeywords.some((keyword) => ingredientNames.includes(keyword));
-      }
-      return ingredientNames.includes(key);
-    });
+    const ingredientNames = (share.recipeIngredientsDetailed || []).map((ingredient) => ingredient.name || "");
+    return getDietaryConflicts(ingredientNames, userDietaryRestrictions);
   };
 
   const markShareStatus = async (shareId: string, status: "accepted" | "denied") => {
@@ -741,20 +725,86 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
         theme={themeColors}
         existingRecipeNames={editingRecipe ? [] : recipeList.map(r => r.name)}
       />
-    <ScrollView style={[styles.container, { backgroundColor: themeColors.backgroundColor }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
-      <View style={styles.header}>
+    <View style={[styles.container, { backgroundColor: themeColors.backgroundColor, paddingTop: insets.top }]}>
+      <View
+        style={[
+          styles.header,
+          {
+            backgroundColor: themeColors.backgroundColor,
+            borderBottomColor: themeColors.mode === "dark" ? "#333" : "#e8e8e8",
+          },
+        ]}
+      >
         <Text style={[styles.title, { color: themeColors.textColor }]}>Recipes</Text>
+        {showKitchenToggle && (
+        <View
+          style={{
+            width: 150,
+            borderRadius: 999,
+            padding: 2,
+            borderWidth: 1,
+            borderColor: themeColors.mode === "dark" ? "#3c3c3c" : "#e6e6e6",
+            backgroundColor: themeColors.mode === "dark" ? "#252525" : "#fff",
+            overflow: "hidden",
+          }}
+        >
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              top: 2,
+              left: 2,
+              width: 72,
+              height: 32,
+              borderRadius: 999,
+              backgroundColor: themeColors.accentColor,
+              transform: [
+                {
+                  translateX: kitchenToggleAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, 74],
+                  }),
+                },
+              ],
+            }}
+          />
+
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <TouchableOpacity
+              onPress={() => onKitchenTabChange?.("recipes")}
+              style={{ flex: 1, minHeight: 36, alignItems: "center", justifyContent: "center" }}
+              activeOpacity={0.9}
+            >
+              <Text style={{ color: kitchenTab === "recipes" ? "#fff" : themeColors.accentColor, fontSize: 12, fontWeight: "800" }}>Recipes</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => onKitchenTabChange?.("pantry")}
+              style={{ flex: 1, minHeight: 36, alignItems: "center", justifyContent: "center" }}
+              activeOpacity={0.9}
+            >
+              <Text style={{ color: kitchenTab === "pantry" ? "#fff" : themeColors.accentColor, fontSize: 12, fontWeight: "800" }}>Pantry</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        )}
       </View>
 
+      <ScrollView
+        style={[styles.container, { backgroundColor: themeColors.backgroundColor }]}
+        contentContainerStyle={styles.contentContainer}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
+
       {pendingShares.length > 0 && (
-        <View style={{ marginHorizontal: 16, marginTop: 12, borderRadius: 14, borderWidth: 1, borderColor: themeColors.accentColor + "55", backgroundColor: themeColors.mode === "dark" ? "#243024" : "#edf8ef", padding: 12 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <View style={[styles.shareInboxCard, { borderColor: themeColors.accentColor + "55", backgroundColor: themeColors.mode === "dark" ? "#243024" : "#edf8ef" }]}>
+          <View style={styles.shareInboxHeaderRow}>
+            <View style={styles.shareInboxTitleRow}>
               <Ionicons name="mail-unread-outline" size={17} color={themeColors.accentColor} />
-              <Text style={{ color: themeColors.textColor, fontWeight: "700" }}>Shared Recipes</Text>
+              <Text style={[styles.shareInboxTitle, { color: themeColors.textColor }]}>Shared Recipes</Text>
             </View>
-            <View style={{ minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: 11, backgroundColor: themeColors.accentColor, alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ color: "#fff", fontSize: 12, fontWeight: "800" }}>{pendingShares.length}</Text>
+            <View style={[styles.shareInboxCountBubble, { backgroundColor: themeColors.accentColor }]}>
+              <Text style={styles.shareInboxCountText}>{pendingShares.length}</Text>
             </View>
           </View>
 
@@ -762,14 +812,14 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
             const matchedAllergies = getShareMatchedAllergies(share);
             const dietaryConflicts = getShareDietaryConflicts(share);
             return (
-              <View key={share.id} style={{ borderWidth: 1, borderColor: themeColors.mode === "dark" ? "#395239" : "#cde9d0", borderRadius: 10, padding: 10, marginBottom: 8, backgroundColor: themeColors.mode === "dark" ? "#1d281d" : "#fff" }}>
-                <Text style={{ color: themeColors.textColor, fontWeight: "700" }} numberOfLines={1}>{share.recipeName || "Shared recipe"}</Text>
-                <Text style={{ color: themeColors.mode === "dark" ? "#b8b8b8" : "#6f6f6f", marginTop: 2 }} numberOfLines={1}>
+              <View key={share.id} style={[styles.shareInboxItemCard, { borderColor: themeColors.mode === "dark" ? "#395239" : "#cde9d0", backgroundColor: themeColors.mode === "dark" ? "#1d281d" : "#fff" }]}>
+                <Text style={[styles.shareInboxItemTitle, { color: themeColors.textColor }]} numberOfLines={1}>{share.recipeName || "Shared recipe"}</Text>
+                <Text style={[styles.shareInboxItemFrom, { color: themeColors.mode === "dark" ? "#b8b8b8" : "#6f6f6f" }]} numberOfLines={1}>
                   From {share.fromDisplayName || "a friend"}
                 </Text>
                 {matchedAllergies.length > 0 && (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
-                    <Text style={{ color: "#c62828", fontWeight: "700", flex: 1 }} numberOfLines={2}>
+                  <View style={styles.shareInboxWarningRow}>
+                    <Text style={[styles.shareInboxWarningText, { color: "#c62828" }]} numberOfLines={2}>
                       Allergy match: {matchedAllergies.join(", ")}
                     </Text>
                     <TouchableOpacity
@@ -784,8 +834,8 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
                   </View>
                 )}
                 {dietaryConflicts.length > 0 && (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
-                    <Text style={{ color: "#ad1457", fontWeight: "700", flex: 1 }} numberOfLines={2}>
+                  <View style={styles.shareInboxWarningRow}>
+                    <Text style={[styles.shareInboxWarningText, { color: "#ad1457" }]} numberOfLines={2}>
                       Dietary conflict: {dietaryConflicts.join(", ")}
                     </Text>
                     <TouchableOpacity
@@ -799,26 +849,26 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
                     </TouchableOpacity>
                   </View>
                 )}
-                <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+                <View style={styles.shareInboxActionsRow}>
                   <TouchableOpacity
                     onPress={() => setSelectedShare(share)}
-                    style={{ borderRadius: 8, borderWidth: 1, borderColor: themeColors.accentColor, paddingHorizontal: 10, paddingVertical: 7 }}
+                    style={[styles.shareInboxActionButton, styles.shareInboxReviewButton, { borderColor: themeColors.accentColor }]}
                   >
-                    <Text style={{ color: themeColors.accentColor, fontWeight: "700" }}>Review</Text>
+                    <Text style={[styles.shareInboxActionText, { color: themeColors.accentColor }]}>Review</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     disabled={shareActionBusyId === share.id}
                     onPress={() => acceptSharedRecipe(share)}
-                    style={{ borderRadius: 8, backgroundColor: themeColors.accentColor, paddingHorizontal: 10, paddingVertical: 7, opacity: shareActionBusyId === share.id ? 0.7 : 1 }}
+                    style={[styles.shareInboxActionButton, styles.shareInboxAcceptButton, { backgroundColor: themeColors.accentColor, opacity: shareActionBusyId === share.id ? 0.7 : 1 }]}
                   >
-                    <Text style={{ color: "#fff", fontWeight: "700" }}>{shareActionBusyId === share.id ? "Adding..." : "Accept"}</Text>
+                    <Text style={[styles.shareInboxActionText, { color: "#fff" }]}>{shareActionBusyId === share.id ? "Adding..." : "Accept"}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     disabled={shareActionBusyId === share.id}
                     onPress={() => denySharedRecipe(share)}
-                    style={{ borderRadius: 8, borderWidth: 1, borderColor: "#ef9a9a", paddingHorizontal: 10, paddingVertical: 7 }}
+                    style={[styles.shareInboxActionButton, styles.shareInboxDenyButton]}
                   >
-                    <Text style={{ color: "#c62828", fontWeight: "700" }}>Deny</Text>
+                    <Text style={[styles.shareInboxActionText, { color: "#c62828" }]}>Deny</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -826,7 +876,7 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
           })}
 
           {pendingShares.length > 3 && (
-            <Text style={{ color: themeColors.mode === "dark" ? "#aaa" : "#666", marginTop: 2 }}>
+            <Text style={[styles.shareInboxMoreText, { color: themeColors.mode === "dark" ? "#aaa" : "#666" }]}>
               +{pendingShares.length - 3} more pending shares
             </Text>
           )}
@@ -835,7 +885,12 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
 
       <View style={[styles.searchSection, { borderBottomColor: themeColors.mode === "dark" ? "#333" : "#ececec" }]}>
         <View style={[styles.searchInputWrap, { backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#fff", borderColor: themeColors.mode === "dark" ? "#444" : "#e3e3e3" }]}>
-          <Text style={[styles.searchIcon, { color: themeColors.mode === "dark" ? "#888" : "#999" }]}>⌕</Text>
+          <Ionicons
+            name="search"
+            size={16}
+            color={themeColors.mode === "dark" ? "#888" : "#999"}
+            style={styles.searchIcon}
+          />
           <TextInput
             ref={recipeSearchInputRef}
             style={[styles.searchInput, { color: themeColors.textColor }]}
@@ -852,7 +907,9 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
           ) : null}
         </View>
 
-        <Text style={[styles.sectionLabel, { color: themeColors.mode === "dark" ? "#cfcfcf" : "#6c6c6c" }]}>Meal Type</Text>
+        <View style={styles.compactFilterHeaderRow}>
+          <Text style={[styles.compactFilterHeader, { color: themeColors.mode === "dark" ? "#cfcfcf" : "#6c6c6c" }]}>Meal Type</Text>
+        </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           {RECIPE_CATEGORY_OPTIONS.map((category) => {
             const selected = selectedCategory === category.key;
@@ -874,11 +931,19 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
             );
           })}
         </ScrollView>
-      </View>
 
-      <Text style={[styles.sectionLabel, { marginTop: 16, color: themeColors.mode === "dark" ? "#cfcfcf" : "#6c6c6c" }]}>Dietary Preferences</Text>
-      {/* Dietary Filter Buttons */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterContainer} keyboardShouldPersistTaps="handled">
+        <View style={styles.compactFilterHeaderRow}>
+          <Text style={[styles.compactFilterHeader, { color: themeColors.mode === "dark" ? "#cfcfcf" : "#6c6c6c" }]}>Dietary Preferences</Text>
+          {dietaryEntries.length > 4 && (
+            <TouchableOpacity onPress={() => setShowAllDietaryFilters((prev) => !prev)}>
+              <Text style={[styles.compactFilterAction, { color: themeColors.accentColor }]}> 
+                {showAllDietaryFilters ? "Show Less" : `Show ${hiddenDietaryCount} More`}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterContainer} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         <TouchableOpacity
           style={[
             styles.filterButton,
@@ -893,7 +958,7 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
           </Text>
         </TouchableOpacity>
 
-        {Object.entries(DIETARY_RESTRICTIONS).map(([key, diet]) => (
+        {visibleDietaryEntries.map(([key, diet]) => (
           <TouchableOpacity
             key={key}
             style={[
@@ -928,11 +993,12 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
             onPress={() => setFilterByAllergies(!filterByAllergies)}
           >
             <Text style={[styles.filterButtonText, filterByAllergies && { color: "#fff" }, !filterByAllergies && { color: themeColors.textColor }]}>
-              Safe 🚫
+              Allergy Safe
             </Text>
           </TouchableOpacity>
         )}
       </ScrollView>
+      </View>
 
       {filteredRecipes.length === 0 ? (
         <View style={styles.emptyState}>
@@ -1021,35 +1087,36 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
           </TouchableOpacity>
         ))
       )}
-    </ScrollView>
+      </ScrollView>
+    </View>
 
     <Modal visible={!!selectedShare} transparent animationType="fade" onRequestClose={() => setSelectedShare(null)}>
-      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", padding: 16 }}>
-        <View style={{ maxHeight: "88%", borderRadius: 16, borderWidth: 1, borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#e8e8e8", backgroundColor: themeColors.mode === "dark" ? "#202020" : "#fff" }}>
-          <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 18 }}>
-            <Text style={{ color: themeColors.textColor, fontSize: 18, fontWeight: "700" }}>
+      <View style={styles.shareReviewOverlay}>
+        <View style={[styles.shareReviewCard, { borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#e8e8e8", backgroundColor: themeColors.mode === "dark" ? "#202020" : "#fff" }]}>
+          <ScrollView contentContainerStyle={styles.shareReviewScrollContent}>
+            <Text style={[styles.shareReviewTitle, { color: themeColors.textColor }]}>
               {selectedShare?.recipeName || "Shared recipe"}
             </Text>
-            <Text style={{ color: themeColors.mode === "dark" ? "#aaa" : "#666", marginTop: 4 }}>
+            <Text style={[styles.shareReviewMeta, { color: themeColors.mode === "dark" ? "#aaa" : "#666" }]}>
               Shared by {selectedShare?.fromDisplayName || "a friend"}
             </Text>
-            <Text style={{ color: themeColors.mode === "dark" ? "#aaa" : "#666", marginTop: 3 }}>
+            <Text style={[styles.shareReviewSubMeta, { color: themeColors.mode === "dark" ? "#aaa" : "#666" }]}>
               {selectedShare?.originType === "imported"
                 ? `Original importer: ${selectedShare?.originalImporterDisplayName || selectedShare?.fromDisplayName || "Unknown"}`
                 : `Original creator: ${selectedShare?.originalCreatorDisplayName || selectedShare?.fromDisplayName || "Unknown"}`}
             </Text>
             {!!selectedShare?.sourceUrl && (
-              <Text style={{ color: themeColors.accentColor, marginTop: 3 }} numberOfLines={1}>
+              <Text style={[styles.shareReviewSource, { color: themeColors.accentColor }]} numberOfLines={1}>
                 Source: {selectedShare.sourceUrl}
               </Text>
             )}
 
             {!!selectedShare?.recipeImageUrl && (
-              <Image source={{ uri: selectedShare.recipeImageUrl }} contentFit="cover" transition={200} style={{ width: "100%", height: 180, borderRadius: 12, marginTop: 12 }} />
+              <Image source={{ uri: selectedShare.recipeImageUrl }} contentFit="cover" transition={200} style={styles.shareReviewImage} />
             )}
 
             {!!selectedShare?.recipeDescription && (
-              <Text style={{ color: themeColors.textColor, marginTop: 12, lineHeight: 20 }}>
+              <Text style={[styles.shareReviewDescription, { color: themeColors.textColor }]}>
                 {selectedShare.recipeDescription}
               </Text>
             )}
@@ -1059,19 +1126,19 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
               const dietaryConflicts = selectedShare ? getShareDietaryConflicts(selectedShare) : [];
               if (matched.length === 0 && dietaryConflicts.length === 0) return null;
               return (
-                <View style={{ marginTop: 12, borderRadius: 12, borderWidth: 1, borderColor: "#f4b5b5", backgroundColor: "#fff5f5", padding: 10 }}>
+                <View style={styles.shareReviewWarningCard}>
                   {matched.length > 0 && (
                     <>
-                      <Text style={{ color: "#b71c1c", fontWeight: "800" }}>Allergy warning</Text>
-                      <Text style={{ color: "#b71c1c", marginTop: 4 }}>
+                      <Text style={styles.shareReviewAllergyTitle}>Allergy warning</Text>
+                      <Text style={styles.shareReviewAllergyText}>
                         This recipe may contain: {matched.join(", ")}
                       </Text>
                     </>
                   )}
                   {dietaryConflicts.length > 0 && (
                     <>
-                      <Text style={{ color: "#ad1457", fontWeight: "800", marginTop: matched.length > 0 ? 8 : 0 }}>Dietary warning</Text>
-                      <Text style={{ color: "#ad1457", marginTop: 4 }}>
+                      <Text style={[styles.shareReviewDietaryTitle, { marginTop: matched.length > 0 ? 8 : 0 }]}>Dietary warning</Text>
+                      <Text style={styles.shareReviewDietaryText}>
                         This recipe may conflict with: {dietaryConflicts.join(", ")}
                       </Text>
                     </>
@@ -1080,7 +1147,7 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
               );
             })()}
 
-            <Text style={{ color: themeColors.textColor, fontWeight: "700", marginTop: 14, marginBottom: 8 }}>Ingredients</Text>
+            <Text style={[styles.shareReviewSectionTitle, { color: themeColors.textColor }]}>Ingredients</Text>
             {(selectedShare?.recipeIngredientsDetailed || []).length === 0 ? (
               <Text style={{ color: themeColors.mode === "dark" ? "#aaa" : "#666" }}>No ingredient list included.</Text>
             ) : (
@@ -1088,8 +1155,8 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
                 const lowerName = String(ingredient.name || "").toLowerCase();
                 const allergyHit = userAllergies.some((allergy) => lowerName.includes(String(allergy).toLowerCase()));
                 return (
-                  <View key={`${ingredient.name}-${index}`} style={{ borderRadius: 8, borderWidth: 1, borderColor: allergyHit ? "#ef9a9a" : (themeColors.mode === "dark" ? "#3a3a3a" : "#ececec"), backgroundColor: allergyHit ? "#fff5f5" : "transparent", paddingHorizontal: 10, paddingVertical: 8, marginBottom: 6 }}>
-                    <Text style={{ color: allergyHit ? "#b71c1c" : themeColors.textColor, fontWeight: allergyHit ? "700" : "500" }}>
+                  <View key={`${ingredient.name}-${index}`} style={[styles.shareReviewIngredientRow, { borderColor: allergyHit ? "#ef9a9a" : (themeColors.mode === "dark" ? "#3a3a3a" : "#ececec"), backgroundColor: allergyHit ? "#fff5f5" : "transparent" }]}>
+                    <Text style={[styles.shareReviewIngredientText, { color: allergyHit ? "#b71c1c" : themeColors.textColor, fontWeight: allergyHit ? "700" : "500" }]}>
                       {String(ingredient.quantity ?? "")} {String(ingredient.unit ?? "")} {ingredient.name}
                     </Text>
                   </View>
@@ -1097,36 +1164,36 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
               })
             )}
 
-            <Text style={{ color: themeColors.textColor, fontWeight: "700", marginTop: 14, marginBottom: 8 }}>Steps</Text>
+            <Text style={[styles.shareReviewSectionTitle, { color: themeColors.textColor }]}>Steps</Text>
             {(selectedShare?.recipeInstructions || []).length === 0 ? (
               <Text style={{ color: themeColors.mode === "dark" ? "#aaa" : "#666" }}>No steps included.</Text>
             ) : (
               (selectedShare?.recipeInstructions || []).map((step, index) => (
-                <View key={`step-${index}`} style={{ flexDirection: "row", alignItems: "flex-start", marginBottom: 8 }}>
-                  <Text style={{ color: themeColors.accentColor, fontWeight: "800", marginRight: 8 }}>{index + 1}.</Text>
-                  <Text style={{ color: themeColors.textColor, flex: 1, lineHeight: 20 }}>{step}</Text>
+                <View key={`step-${index}`} style={styles.shareReviewStepRow}>
+                  <Text style={[styles.shareReviewStepIndex, { color: themeColors.accentColor }]}>{index + 1}.</Text>
+                  <Text style={[styles.shareReviewStepText, { color: themeColors.textColor }]}>{step}</Text>
                 </View>
               ))
             )}
           </ScrollView>
 
-          <View style={{ flexDirection: "row", gap: 8, padding: 12, borderTopWidth: 1, borderTopColor: themeColors.mode === "dark" ? "#343434" : "#ededed" }}>
-            <TouchableOpacity onPress={() => setSelectedShare(null)} style={{ flex: 1, borderRadius: 10, borderWidth: 1, borderColor: themeColors.mode === "dark" ? "#4a4a4a" : "#ddd", paddingVertical: 11, alignItems: "center" }}>
-              <Text style={{ color: themeColors.mode === "dark" ? "#bbb" : "#666", fontWeight: "700" }}>Close</Text>
+          <View style={[styles.shareReviewActions, { borderTopColor: themeColors.mode === "dark" ? "#343434" : "#ededed" }]}>
+            <TouchableOpacity onPress={() => setSelectedShare(null)} style={[styles.shareReviewActionButton, styles.shareReviewCloseButton, { borderColor: themeColors.mode === "dark" ? "#4a4a4a" : "#ddd" }]}>
+              <Text style={[styles.shareReviewActionText, { color: themeColors.mode === "dark" ? "#bbb" : "#666" }]}>Close</Text>
             </TouchableOpacity>
             <TouchableOpacity
               disabled={shareActionBusyId === selectedShare?.id}
               onPress={() => selectedShare && denySharedRecipe(selectedShare)}
-              style={{ flex: 1, borderRadius: 10, borderWidth: 1, borderColor: "#ef9a9a", paddingVertical: 11, alignItems: "center" }}
+              style={[styles.shareReviewActionButton, styles.shareReviewDenyButton]}
             >
-              <Text style={{ color: "#c62828", fontWeight: "700" }}>Deny</Text>
+              <Text style={[styles.shareReviewActionText, { color: "#c62828" }]}>Deny</Text>
             </TouchableOpacity>
             <TouchableOpacity
               disabled={shareActionBusyId === selectedShare?.id}
               onPress={() => selectedShare && acceptSharedRecipe(selectedShare)}
-              style={{ flex: 1, borderRadius: 10, backgroundColor: themeColors.accentColor, paddingVertical: 11, alignItems: "center", opacity: shareActionBusyId === selectedShare?.id ? 0.75 : 1 }}
+              style={[styles.shareReviewActionButton, styles.shareReviewConfirmButton, { backgroundColor: themeColors.accentColor, opacity: shareActionBusyId === selectedShare?.id ? 0.75 : 1 }]}
             >
-              <Text style={{ color: "#fff", fontWeight: "700" }}>
+              <Text style={[styles.shareReviewActionText, { color: "#fff" }]}>
                 {shareActionBusyId === selectedShare?.id ? "Adding..." : "Confirm"}
               </Text>
             </TouchableOpacity>
