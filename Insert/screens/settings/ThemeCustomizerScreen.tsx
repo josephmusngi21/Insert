@@ -139,30 +139,57 @@ export default function ThemeCustomizerScreen({
       </View>
 
       <ScrollView style={[styles.container, { backgroundColor: tempTheme.backgroundColor }]} contentContainerStyle={styles.contentContainer}>
+        <View style={[styles.statusCard, { backgroundColor: cardBg, borderColor }] }>
+          <Text style={{ color: tempTheme.textColor, fontSize: 15, fontWeight: "800", marginBottom: 6 }}>Theme Status</Text>
+          <Text style={[styles.statusText, { color: tempTheme.textColor }]}>
+            Mode: {tempTheme.mode.toUpperCase()} • Accent: {tempTheme.accentColor.toUpperCase()}
+          </Text>
+          <Text style={[styles.statusText, { color: tempTheme.textColor, opacity: 0.8 }]}>Background: {tempTheme.backgroundColor.toUpperCase()} • Text: {tempTheme.textColor.toUpperCase()}</Text>
+        </View>
+
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: tempTheme.textColor }]}>Quick Theme</Text>
-          <View style={styles.modeRow}>
+          <View style={styles.modePillRow}>
             <TouchableOpacity
               onPress={applyLightBase}
               style={[
-                styles.modeCard,
-                { backgroundColor: "#ffffff", borderColor: tempTheme.mode === "light" ? tempTheme.accentColor : "#d1d5db" },
+                styles.modePill,
+                {
+                  borderColor: tempTheme.mode === "light" ? tempTheme.accentColor : borderColor,
+                  backgroundColor: tempTheme.mode === "light" ? tempTheme.accentColor + "22" : "transparent",
+                },
               ]}
             >
-              <Text style={[styles.modeCardTitle, { color: "#111827" }]}>Light</Text>
-              <Text style={[styles.modeCardSub, { color: "#6b7280" }]}>Clean daytime palette</Text>
+              <Text style={[styles.modePillText, { color: tempTheme.mode === "light" ? tempTheme.accentColor : tempTheme.textColor }]}>Light</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={applyDarkBase}
               style={[
-                styles.modeCard,
-                { backgroundColor: "#111827", borderColor: tempTheme.mode === "dark" ? tempTheme.accentColor : "#374151" },
+                styles.modePill,
+                {
+                  borderColor: tempTheme.mode === "dark" ? tempTheme.accentColor : borderColor,
+                  backgroundColor: tempTheme.mode === "dark" ? tempTheme.accentColor + "22" : "transparent",
+                },
               ]}
             >
-              <Text style={[styles.modeCardTitle, { color: "#f9fafb" }]}>Dark</Text>
-              <Text style={[styles.modeCardSub, { color: "#9ca3af" }]}>Low-glare nighttime palette</Text>
+              <Text style={[styles.modePillText, { color: tempTheme.mode === "dark" ? tempTheme.accentColor : tempTheme.textColor }]}>Dark</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setTempTheme(makeCustom(tempTheme))}
+              style={[
+                styles.modePill,
+                {
+                  borderColor: tempTheme.mode === "custom" ? tempTheme.accentColor : borderColor,
+                  backgroundColor: tempTheme.mode === "custom" ? tempTheme.accentColor + "22" : "transparent",
+                },
+              ]}
+            >
+              <Text style={[styles.modePillText, { color: tempTheme.mode === "custom" ? tempTheme.accentColor : tempTheme.textColor }]}>Custom</Text>
             </TouchableOpacity>
           </View>
+          <Text style={{ color: tempTheme.textColor, opacity: 0.75, marginTop: 10 }}>
+            Tip: choose Light or Dark for an instant full-base palette, then fine-tune below.
+          </Text>
         </View>
 
         <View style={styles.section}>
@@ -329,6 +356,18 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 24,
   },
+  statusCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 3,
+  },
   sectionTitle: {
     fontSize: 17,
     fontWeight: "700",
@@ -346,24 +385,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  modeRow: {
+  modePillRow: {
     flexDirection: "row",
     gap: 10,
   },
-  modeCard: {
+  modePill: {
     flex: 1,
     borderRadius: 12,
-    padding: 14,
-    borderWidth: 2,
+    paddingVertical: 10,
+    borderWidth: 1,
+    alignItems: "center",
   },
-  modeCardTitle: {
-    fontSize: 16,
+  modePillText: {
+    fontSize: 14,
     fontWeight: "800",
-    marginBottom: 4,
-  },
-  modeCardSub: {
-    fontSize: 12,
-    lineHeight: 16,
   },
   foundationRow: {
     gap: 10,
