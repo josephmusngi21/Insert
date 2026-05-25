@@ -6,6 +6,7 @@ import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring, run
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { getDoc, onSnapshot, setDoc } from "firebase/firestore";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { colors } from "@/screens/components/styles/colors";
 import styles from "./index.styles";
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -67,12 +68,13 @@ interface TabIconProps {
   label: string;
   isActive: boolean;
   accentColor?: string;
+  accentBgColor?: string;
   isDark?: boolean;
 }
 
-const TabIcon: React.FC<TabIconProps> = memo(({ icon, activeIcon, label, isActive, accentColor = "#FF8A3D", isDark = false }) => (
+const TabIcon: React.FC<TabIconProps> = memo(({ icon, activeIcon, label, isActive, accentColor = "#FF8A3D", accentBgColor, isDark = false }) => (
   <View style={styles.tabIcon}>
-    <View style={[styles.tabIconPill, isActive && { backgroundColor: accentColor + "22" }]}>
+    <View style={[styles.tabIconPill, isActive && { backgroundColor: accentBgColor || accentColor + "22" }]}>
       <Ionicons
         name={isActive ? activeIcon : icon}
         size={24}
@@ -344,6 +346,25 @@ export default function Index() {
     (tabBarScreen === 'recipes' || tabBarScreen === 'pantry') &&
     !moreSubScreenActive &&
     !detailVisible;
+
+  const getTabAccent = useCallback((tabName: TabDef['name']) => {
+    switch (tabName) {
+      case 'social':
+        return '#3A7BDE';
+      case 'shopping':
+        return '#4FAF8A';
+      case 'more':
+        return '#6F5BD8';
+      default:
+        return theme.accentColor;
+    }
+  }, [theme.accentColor]);
+
+  const getTabAccentBg = useCallback((tabName: TabDef['name']) => {
+    const accent = getTabAccent(tabName);
+    if (!accent.startsWith('#') || accent.length !== 7) return accent + '22';
+    return accent + (theme.mode === 'dark' ? '2B' : '1A');
+  }, [getTabAccent, theme.mode]);
 
   useEffect(() => {
     kitchenSwitcherVisibilitySV.value = withTiming(showKitchenSwitcher ? 1 : 0, { duration: SWITCHER_FADE_MS });
@@ -694,6 +715,23 @@ export default function Index() {
   return (
       <View style={{ flex: 1, overflow: 'hidden' }}>
 
+        <View pointerEvents="none" style={styles.shellDecorLayer}>
+          <View
+            style={[
+              styles.shellCircleTop,
+              { backgroundColor: theme.mode === "dark" ? theme.accentColor + "12" : theme.accentColor + "0D" },
+            ]}
+          />
+          <View
+            style={[
+              styles.shellCircleBottom,
+              { backgroundColor: theme.mode === "dark" ? "#ffffff08" : colors.glowCool },
+            ]}
+          />
+        </View>
+
+        <View style={styles.shellContentLayer}>
+
         <GestureDetector gesture={swipeGesture}>
           <View style={{ flex: 1, overflow: 'hidden' }}>
 
@@ -857,7 +895,8 @@ export default function Index() {
                     activeIcon={isKitchen ? (kitchenIsPantry ? 'basket' : 'restaurant') : tab.activeIcon}
                     label={isKitchen ? 'Kitchen' : tab.label}
                     isActive={isFocused}
-                    accentColor={theme.accentColor}
+                    accentColor={getTabAccent(tab.name)}
+                    accentBgColor={getTabAccentBg(tab.name)}
                     isDark={theme.mode === "dark"}
                   />
                 </TouchableOpacity>
@@ -944,6 +983,7 @@ export default function Index() {
           </TouchableOpacity>
         </Modal>
 
+        </View>
       </View>
   );
 }

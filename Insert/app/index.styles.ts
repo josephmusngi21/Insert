@@ -1,6 +1,35 @@
 import { StyleSheet } from "react-native";
 
 export default StyleSheet.create({
+  shellDecorLayer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1,
+  },
+  shellCircleTop: {
+    position: "absolute",
+    top: -130,
+    right: -95,
+    width: 230,
+    height: 230,
+    borderRadius: 115,
+  },
+  shellCircleBottom: {
+    position: "absolute",
+    bottom: -160,
+    left: -120,
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+  },
+  shellContentLayer: {
+    flex: 1,
+    overflow: "hidden",
+    zIndex: 2,
+  },
   blankScreen: {
     flex: 1,
     justifyContent: 'center',
