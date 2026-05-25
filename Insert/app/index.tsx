@@ -1,5 +1,5 @@
 import { useState, useCallback, useLayoutEffect, useEffect, useMemo, memo, useRef } from "react";
-import { Text, View, TouchableOpacity, Dimensions, Modal, Platform, Alert, InteractionManager } from "react-native";
+import { Text, View, TouchableOpacity, Dimensions, Modal, Platform, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring, runOnJS, cancelAnimation } from "react-native-reanimated";
@@ -9,13 +9,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import styles from "./index.styles";
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
+const TAB_TIMING_MS = 150;
+const DETAIL_TIMING_MS = 170;
+const SWITCHER_FADE_MS = 120;
 const TAB_SPRING = {
-  damping: 26,
-  stiffness: 135,
-  mass: 0.95,
+  damping: 22,
+  stiffness: 210,
+  mass: 0.82,
   overshootClamping: false,
-  restDisplacementThreshold: 0.25,
-  restSpeedThreshold: 0.25,
+  restDisplacementThreshold: 0.45,
+  restSpeedThreshold: 0.45,
 };
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
@@ -117,7 +120,7 @@ export default function Index() {
   const [showAddChoice, setShowAddChoice] = useState(false);
   const [moreSubScreenActive, setMoreSubScreenActive] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
-  const pendingInteractionTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
+  const pendingFrameRef = useRef<number | null>(null);
   const kitchenLongPressTriggeredRef = useRef(false);
   const tabTransitionTokenRef = useRef(0);
 
@@ -152,14 +155,16 @@ export default function Index() {
   }));
 
   const clearPendingInteractionTask = useCallback(() => {
-    pendingInteractionTaskRef.current?.cancel?.();
-    pendingInteractionTaskRef.current = null;
+    if (pendingFrameRef.current !== null) {
+      cancelAnimationFrame(pendingFrameRef.current);
+      pendingFrameRef.current = null;
+    }
   }, []);
 
   const runAfterInteractions = useCallback((task: () => void) => {
     clearPendingInteractionTask();
-    pendingInteractionTaskRef.current = InteractionManager.runAfterInteractions(() => {
-      pendingInteractionTaskRef.current = null;
+    pendingFrameRef.current = requestAnimationFrame(() => {
+      pendingFrameRef.current = null;
       task();
     });
   }, [clearPendingInteractionTask]);
@@ -341,7 +346,7 @@ export default function Index() {
     !detailVisible;
 
   useEffect(() => {
-    kitchenSwitcherVisibilitySV.value = withTiming(showKitchenSwitcher ? 1 : 0, { duration: 170 });
+    kitchenSwitcherVisibilitySV.value = withTiming(showKitchenSwitcher ? 1 : 0, { duration: SWITCHER_FADE_MS });
   }, [kitchenSwitcherVisibilitySV, showKitchenSwitcher]);
 
   useEffect(() => {
@@ -385,7 +390,7 @@ export default function Index() {
       return;
     }
 
-    translateX.value = withTiming(-targetIdx * SCREEN_WIDTH, { duration: options?.duration ?? 205 }, (finished) => {
+    translateX.value = withTiming(-targetIdx * SCREEN_WIDTH, { duration: options?.duration ?? TAB_TIMING_MS }, (finished) => {
       if (finished) {
         runOnJS(commitScreenAfterTransition)(token, nextScreen);
       }
@@ -479,7 +484,7 @@ export default function Index() {
     setSelectedRecipeId(recipeId);
     setDetailVisible(true);
     detailOffset.value = SCREEN_WIDTH;
-    detailOffset.value = withTiming(0, { duration: 220 }, (finished) => {
+    detailOffset.value = withTiming(0, { duration: DETAIL_TIMING_MS }, (finished) => {
       if (finished) {
         runOnJS(commitScreenAfterTransition)(token, 'recipeDetail');
       }
@@ -521,7 +526,7 @@ export default function Index() {
       if (isDetailSV.value === 1) {
         if (e.translationX > SCREEN_WIDTH * 0.18 || e.velocityX > 400) {
           isDetailSV.value = 0;
-          detailOffset.value = withTiming(SCREEN_WIDTH, { duration: 220 }, () => {
+          detailOffset.value = withTiming(SCREEN_WIDTH, { duration: DETAIL_TIMING_MS }, () => {
             runOnJS(handleCloseDetail)();
           });
         } else {
@@ -547,7 +552,7 @@ export default function Index() {
       isDetailSV.value = nextScreen === 'recipeDetail' ? 1 : 0;
       runOnJS(setTabBarScreen)(nextScreen);
       if (isKitchenPairSwipe) {
-        translateX.value = withTiming(-targetIdx * SCREEN_WIDTH, { duration: 205 }, (finished) => {
+        translateX.value = withTiming(-targetIdx * SCREEN_WIDTH, { duration: TAB_TIMING_MS }, (finished) => {
           if (finished) {
             runOnJS(commitScreenAfterTransition)(token, nextScreen);
           }
@@ -663,7 +668,7 @@ export default function Index() {
       recipeId={selectedRecipeId}
       onBack={() => {
         isDetailSV.value = 0;
-        detailOffset.value = withTiming(SCREEN_WIDTH, { duration: 220 }, () => {
+        detailOffset.value = withTiming(SCREEN_WIDTH, { duration: DETAIL_TIMING_MS }, () => {
           runOnJS(handleCloseDetail)();
         });
       }}
@@ -844,7 +849,7 @@ export default function Index() {
                     setTabBarScreen('pantry');
                     goToPantryFromKitchen();
                   } : undefined}
-                  delayLongPress={220}
+                  delayLongPress={160}
                   style={styles.tabButton}
                 >
                   <TabIcon

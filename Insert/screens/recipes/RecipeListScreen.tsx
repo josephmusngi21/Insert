@@ -130,7 +130,7 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
   useEffect(() => {
     Animated.timing(kitchenToggleAnim, {
       toValue: kitchenTab === "recipes" ? 0 : 1,
-      duration: 190,
+      duration: 130,
       useNativeDriver: true,
     }).start();
   }, [kitchenTab, kitchenToggleAnim]);
