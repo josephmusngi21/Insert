@@ -10,6 +10,7 @@ import { onSnapshot, deleteDoc, doc, addDoc, serverTimestamp, getDoc, updateDoc 
 import { cookHistoryCol, recipesDoc, socialPostsCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
+import { uploadLocalFileToFirebaseStorage } from "@/screens/utils/firebaseStorageUpload";
 
 interface CookEntry {
   id: string;
@@ -128,7 +129,33 @@ export default function CookHistoryScreen({ theme }: CookHistoryScreenProps) {
               const detailedIngredients = entry.recipeIngredientsDetailed || entry.ingredients;
               const instructions = entry.recipeInstructions || (recipeData?.instructions || []);
               const imageUrl = entry.recipeImageUrl || recipeData?.imageUrl || recipeData?.photoUrl || "";
-              const stepPhotos = entry.stepPhotos || [];
+              const historyStepPhotos = entry.stepPhotos || [];
+              const uploadedStepPhotos = await Promise.all(
+                historyStepPhotos.map(async (photo) => {
+                  const rawUrl = typeof photo?.url === "string" ? photo.url.trim() : "";
+                  if (!rawUrl) return null;
+
+                  // Keep hosted URLs; upload device-local files so Social can render consistently.
+                  if (/^https?:\/\//i.test(rawUrl)) {
+                    return { stepIndex: photo.stepIndex, url: rawUrl };
+                  }
+
+                  try {
+                    const remoteUrl = await uploadLocalFileToFirebaseStorage({
+                      fileUri: rawUrl,
+                      storagePath: `social/${userId}/cook-history/${entry.id}-${photo.stepIndex}-${Date.now()}.jpg`,
+                      contentType: "image/jpeg",
+                    });
+                    return { stepIndex: photo.stepIndex, url: remoteUrl };
+                  } catch {
+                    return null;
+                  }
+                })
+              );
+
+              const stepPhotos = uploadedStepPhotos
+                .filter((photo): photo is { stepIndex: number; url: string } => !!photo)
+                .sort((a, b) => a.stepIndex - b.stepIndex);
 
               await addDoc(socialPostsCol(), {
                 userId,
@@ -149,6 +176,12 @@ export default function CookHistoryScreen({ theme }: CookHistoryScreenProps) {
                 sharedAt: serverTimestamp(),
                 sourceCookHistoryId: entry.id,
               });
+
+              if (stepPhotos.length > 0) {
+                await updateDoc(doc(cookHistoryCol(userId), entry.id), {
+                  stepPhotos,
+                });
+              }
 
               await updateDoc(doc(cookHistoryCol(userId), entry.id), {
                 sharedAt: Date.now(),
