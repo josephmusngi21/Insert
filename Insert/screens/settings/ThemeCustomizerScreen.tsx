@@ -46,13 +46,17 @@ const foundations: ThemeFoundation[] = [
   { name: "Light Classic", mode: "light", textColor: "#1f2937", backgroundColor: "#f6f7fb" },
   { name: "Paper Warm", mode: "light", textColor: "#2b2b2b", backgroundColor: "#faf7f2" },
   { name: "Mint Day", mode: "light", textColor: "#1f2933", backgroundColor: "#eef9f1" },
+  { name: "Champagne", mode: "light", textColor: "#2a241c", backgroundColor: "#fbf6ee" },
   { name: "Graphite", mode: "dark", textColor: "#e6edf3", backgroundColor: "#12161d" },
   { name: "Blue Steel", mode: "dark", textColor: "#e7edf7", backgroundColor: "#141b26" },
   { name: "Deep Forest", mode: "dark", textColor: "#e9f6ef", backgroundColor: "#13201a" },
+  { name: "Midnight Navy", mode: "dark", textColor: "#e9eefc", backgroundColor: "#101827" },
 ];
 
 const accentPalette = [
-  "#2e7d32", "#22a06b", "#5fbf9f", "#0284c7", "#3b82f6", "#d97706", "#f97316", "#dc2626", "#e11d48", "#8b5cf6", "#0f766e", "#6366f1",
+  "#FF8A3D", "#D97706", "#C38A35", "#2E7D32", "#22A06B", "#4FAF8A",
+  "#0F766E", "#0284C7", "#3A7BDE", "#6366F1", "#6F5BD8", "#8B5CF6",
+  "#C1557A", "#E11D48", "#B45309", "#334155", "#5B6472", "#111827",
 ];
 
 const lightBackgrounds = ["#ffffff", "#f8fafc", "#f7f7f7", "#f3f7ff", "#f4fbf6", "#fff8f0"];
