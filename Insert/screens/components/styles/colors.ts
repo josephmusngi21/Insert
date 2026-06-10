@@ -8,6 +8,14 @@ export const colors = {
   accent:        '#FF8A3D',
   accentDark:    '#E86F1C',
   accentMuted:   '#FFD9B3',
+  accentSage:    '#4FAF8A',
+  accentOcean:   '#3A7BDE',
+  accentPlum:    '#6F5BD8',
+  accentGold:    '#C38A35',
+
+  // Soft decorative accents for minimal layered backgrounds
+  glowWarm:      '#FFF0E2',
+  glowCool:      '#EAF2FF',
 
   // Backgrounds
   bgLight:       '#F8F8F8',
