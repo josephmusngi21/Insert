@@ -39,7 +39,7 @@ type SocialPostItem = {
   originalImportedAt?: number | { seconds: number; nanoseconds: number };
   cookedAt?: number | { seconds: number; nanoseconds: number };
   sharedAt?: number | { seconds: number; nanoseconds: number };
-  stepPhotos: { stepIndex: number; url: string }[];
+  stepPhotos: Array<{ stepIndex: number; url?: string; uri?: string; imageUrl?: string }>;
   likes: string[];
 };
 
@@ -194,6 +194,23 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
   const cardBg = isDark ? "#232323" : "#fff";
   const muted = isDark ? "#9a9a9a" : "#6e6e6e";
   const border = isDark ? "#353535" : "#ececec";
+  const socialBlue = "#3A7BDE";
+  const socialRose = "#C1557A";
+  const socialSage = "#4FAF8A";
+
+  const withAlpha = (hex: string, alpha: string) => {
+    if (!hex || hex[0] !== "#" || hex.length !== 7) return hex;
+    return `${hex}${alpha}`;
+  };
+
+  const accentSoftBg = withAlpha(theme.accentColor, isDark ? "26" : "16");
+  const accentSoftBorder = withAlpha(theme.accentColor, isDark ? "70" : "3D");
+  const blueSoftBg = withAlpha(socialBlue, isDark ? "24" : "14");
+  const blueSoftBorder = withAlpha(socialBlue, isDark ? "70" : "40");
+  const roseSoftBg = withAlpha(socialRose, isDark ? "24" : "14");
+  const roseSoftBorder = withAlpha(socialRose, isDark ? "70" : "40");
+  const sageSoftBg = withAlpha(socialSage, isDark ? "24" : "14");
+  const sageSoftBorder = withAlpha(socialSage, isDark ? "70" : "40");
 
   const toMillis = (value?: number | { seconds: number; nanoseconds: number } | null): number | null => {
     if (!value) return null;
@@ -809,33 +826,22 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
         <Text style={[styles.title, { color: theme.textColor }]}>Social</Text>
         <Text style={[styles.subtitle, { color: muted }]}>See what people cooked and what you can make right now.</Text>
 
-        <View style={styles.headerMetaRow}>
-          <View style={[styles.tag, { backgroundColor: theme.accentColor + "22" }]}>
-            <Text style={[styles.tagText, { color: theme.accentColor }]}>Pantry-Aware Feed</Text>
-          </View>
-          <View style={[styles.tag, { backgroundColor: isDark ? "#2b2b2b" : "#f4f4f4" }]}>
-            <Text style={[styles.tagText, { color: muted }]}>{posts.length} posts</Text>
-          </View>
-        </View>
-
-        <View style={styles.headerActions}>
+        <View style={styles.headerFeatureRow}>
           <TouchableOpacity
             onPress={() => setShowAddFriendModal(true)}
-            style={[styles.addFriendButton, { borderColor: theme.accentColor, backgroundColor: theme.accentColor + "14" }]}
+            style={[styles.addFriendButton, { borderColor: socialSage, backgroundColor: sageSoftBg }]}
           >
-            <Ionicons name="person-add-outline" size={14} color={theme.accentColor} />
-            <Text style={[styles.addFriendText, { color: theme.accentColor }]}>Add Friend</Text>
+            <Ionicons name="person-add-outline" size={14} color={socialSage} />
+            <Text style={[styles.addFriendText, { color: socialSage }]}>Add Friend</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => Alert.alert(
-              "Cookability estimate",
-              "Cookable Now and Missing counts are estimated from ingredient name matching. Results are useful, but not always 100% exact."
-            )}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            style={{ paddingLeft: 2 }}
-          >
-            <Ionicons name="information-circle-outline" size={14} color={muted} />
-          </TouchableOpacity>
+
+          <View style={[styles.tag, { backgroundColor: accentSoftBg, borderColor: accentSoftBorder, borderWidth: 1 }]}>
+            <Text style={[styles.tagText, { color: theme.accentColor }]}>Pantry-Aware Feed</Text>
+          </View>
+
+          <View style={[styles.tag, { backgroundColor: blueSoftBg, borderColor: blueSoftBorder, borderWidth: 1 }]}>
+            <Text style={[styles.tagText, { color: socialBlue }]}>{posts.length} posts</Text>
+          </View>
         </View>
       </View>
 
@@ -850,7 +856,13 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
           const cookability = getCookability(post.ingredients || []);
           const liked = !!post.likes?.includes(userId);
           const likeCount = post.likes?.length || 0;
-          const sortedStepPhotos = (post.stepPhotos || []).slice().sort((a, b) => a.stepIndex - b.stepIndex);
+          const sortedStepPhotos = (post.stepPhotos || [])
+            .map((photo) => ({
+              stepIndex: Number(photo.stepIndex || 0),
+              url: (photo.url || photo.uri || photo.imageUrl || "").trim(),
+            }))
+            .filter((photo) => photo.url.length > 0)
+            .sort((a, b) => a.stepIndex - b.stepIndex);
           const hasRecipeImage = !!post.recipeImageUrl;
           const hasStepPhotos = sortedStepPhotos.length > 0;
           const resolvedPostDisplayName = post.userId === userId
@@ -868,8 +880,8 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
                   style={styles.userPressArea}
                   activeOpacity={0.8}
                 >
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{(resolvedPostDisplayName || "U").slice(0, 1).toUpperCase()}</Text>
+                  <View style={[styles.avatar, { backgroundColor: accentSoftBg }]}>
+                    <Text style={[styles.avatarText, { color: theme.accentColor }]}>{(resolvedPostDisplayName || "U").slice(0, 1).toUpperCase()}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.user, { color: theme.textColor }]}>{resolvedPostDisplayName}</Text>
@@ -891,15 +903,15 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
 
               <View style={styles.timestampRow}>
                 {formatTimestamp(post.cookedAt) ? (
-                  <View style={[styles.timestampPill, { borderColor: border, backgroundColor: isDark ? "#262626" : "#fafafa" }]}>
-                    <Ionicons name="restaurant-outline" size={12} color={muted} />
-                    <Text style={[styles.timestampText, { color: muted }]}>Cooked {formatTimestamp(post.cookedAt)}</Text>
+                  <View style={[styles.timestampPill, { borderColor: blueSoftBorder, backgroundColor: blueSoftBg }]}>
+                    <Ionicons name="restaurant-outline" size={12} color={socialBlue} />
+                    <Text style={[styles.timestampText, { color: socialBlue }]}>Cooked {formatTimestamp(post.cookedAt)}</Text>
                   </View>
                 ) : null}
                 {formatTimestamp(post.sharedAt) ? (
-                  <View style={[styles.timestampPill, { borderColor: border, backgroundColor: isDark ? "#262626" : "#fafafa" }]}>
-                    <Ionicons name="share-social-outline" size={12} color={muted} />
-                    <Text style={[styles.timestampText, { color: muted }]}>Shared {formatTimestamp(post.sharedAt)}</Text>
+                  <View style={[styles.timestampPill, { borderColor: accentSoftBorder, backgroundColor: accentSoftBg }]}>
+                    <Ionicons name="share-social-outline" size={12} color={theme.accentColor} />
+                    <Text style={[styles.timestampText, { color: theme.accentColor }]}>Shared {formatTimestamp(post.sharedAt)}</Text>
                   </View>
                 ) : null}
               </View>
@@ -940,22 +952,22 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
                   onPress={() => toggleLike(post)}
                   onLongPress={() => openLikesModal(post)}
                   delayLongPress={220}
-                  style={[styles.actionButton, { borderColor: border }]}
+                  style={[styles.actionButton, { borderColor: roseSoftBorder, backgroundColor: liked ? roseSoftBg : "transparent" }]}
                 >
                   <Ionicons name={liked ? "heart" : "heart-outline"} size={15} color={liked ? "#e64b5d" : muted} />
                   <Text style={[styles.actionText, { color: muted }]}>{likeCount}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => openCommentsModal(post)} style={[styles.actionButton, { borderColor: border }]}>
-                  <Ionicons name="chatbubble-ellipses-outline" size={15} color={muted} />
-                  <Text style={[styles.actionText, { color: muted }]}>Comments {commentCounts[post.id] || 0}</Text>
+                <TouchableOpacity onPress={() => openCommentsModal(post)} style={[styles.actionButton, { borderColor: blueSoftBorder, backgroundColor: blueSoftBg }]}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={15} color={socialBlue} />
+                  <Text style={[styles.actionText, { color: socialBlue }]}>Comments {commentCounts[post.id] || 0}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => saveRecipeFromPost(post)}
                   disabled={savingRecipePostId === post.id}
-                  style={[styles.actionButton, { borderColor: border }, savingRecipePostId === post.id && { opacity: 0.6 }]}
+                  style={[styles.actionButton, { borderColor: accentSoftBorder, backgroundColor: accentSoftBg }, savingRecipePostId === post.id && { opacity: 0.6 }]}
                 >
-                  <Ionicons name="download-outline" size={15} color={muted} />
-                  <Text style={[styles.actionText, { color: muted }]}>{savingRecipePostId === post.id ? "Saving" : "Save"}</Text>
+                  <Ionicons name="download-outline" size={15} color={theme.accentColor} />
+                  <Text style={[styles.actionText, { color: theme.accentColor }]}>{savingRecipePostId === post.id ? "Saving" : "Save"}</Text>
                 </TouchableOpacity>
                 {post.userId !== userId && (
                   <TouchableOpacity
@@ -963,12 +975,12 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
                     disabled={friendIds.has(post.userId) || outgoingIds.has(post.userId)}
                     style={[
                       styles.actionButton,
-                      { borderColor: border },
+                      { borderColor: sageSoftBorder, backgroundColor: sageSoftBg },
                       (friendIds.has(post.userId) || outgoingIds.has(post.userId)) && { opacity: 0.6 },
                     ]}
                   >
-                    <Ionicons name="person-add-outline" size={15} color={muted} />
-                    <Text style={[styles.actionText, { color: muted }]}>
+                    <Ionicons name="person-add-outline" size={15} color={socialSage} />
+                    <Text style={[styles.actionText, { color: socialSage }]}>
                       {friendIds.has(post.userId) ? "Friends" : outgoingIds.has(post.userId) ? "Requested" : "Add Friend"}
                     </Text>
                   </TouchableOpacity>

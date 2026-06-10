@@ -24,27 +24,21 @@ export default StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  headerActions: {
+  headerFeatureRow: {
     flexDirection: "row",
     alignItems: "center",
-    flexWrap: "wrap",
-    gap: 8,
+    justifyContent: "space-between",
+    gap: 6,
     width: "100%",
-  },
-  headerMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 8,
   },
   addFriendButton: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 4,
     borderWidth: 1,
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
   },
   addFriendText: {
     fontSize: 11,
@@ -62,7 +56,7 @@ export default StyleSheet.create({
   },
   tag: {
     borderRadius: 999,
-    paddingHorizontal: 10,
+    paddingHorizontal: 9,
     paddingVertical: 6,
   },
   tagText: {
@@ -90,6 +84,7 @@ export default StyleSheet.create({
     borderWidth: 1,
     borderRadius: 18,
     padding: 14,
+    borderLeftWidth: 2,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.08,
