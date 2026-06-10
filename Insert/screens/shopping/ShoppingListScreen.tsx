@@ -56,6 +56,14 @@ export default function ShoppingListScreen({ theme, showAddItemModal, setShowAdd
   const insets = useSafeAreaInsets();
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
+  const accentBlue = "#3A7BDE";
+  const accentSage = "#4FAF8A";
+  const accentPlum = "#6F5BD8";
+
+  const withAlpha = (hex: string, alpha: string) => {
+    if (!hex || hex[0] !== "#" || hex.length !== 7) return hex;
+    return `${hex}${alpha}`;
+  };
 
   useEffect(() => {
     if (!showAddItemModal) return;
@@ -323,7 +331,7 @@ export default function ShoppingListScreen({ theme, showAddItemModal, setShowAdd
         {
           backgroundColor: theme.mode === "dark" ? "#333" : "#fff",
           borderColor: theme.mode === "dark" ? "#3b3b3b" : "#ececec",
-          borderLeftColor: theme.accentColor,
+          borderLeftColor: item.completed ? accentSage : (item.source === "recipe" ? accentBlue : theme.accentColor),
         },
       ]}
     >
@@ -345,8 +353,15 @@ export default function ShoppingListScreen({ theme, showAddItemModal, setShowAdd
             {item.quantity} {item.unit}
           </Text>
           {item.source && (
-            <View style={[styles.sourceBadge, { backgroundColor: theme.mode === "dark" ? "#1f1f1f" : "#f4f4f4" }]}>
-              <Text style={[styles.sourceBadgeText, { color: theme.mode === "dark" ? "#bbb" : "#666" }]}>{item.source}</Text>
+            <View
+              style={[
+                styles.sourceBadge,
+                {
+                  backgroundColor: item.source === "recipe" ? withAlpha(accentBlue, theme.mode === "dark" ? "24" : "16") : withAlpha(accentPlum, theme.mode === "dark" ? "24" : "16"),
+                },
+              ]}
+            >
+              <Text style={[styles.sourceBadgeText, { color: item.source === "recipe" ? accentBlue : accentPlum }]}>{item.source}</Text>
             </View>
           )}
         </View>
@@ -399,13 +414,13 @@ export default function ShoppingListScreen({ theme, showAddItemModal, setShowAdd
         </Text>
 
         <View style={styles.summaryRow}>
-          <View style={[styles.summaryChip, { backgroundColor: theme.mode === "dark" ? "#222" : "#f3f3f3" }]}>
-            <Text style={[styles.summaryText, { color: theme.textColor }]}>{remainingCount} remaining</Text>
+          <View style={[styles.summaryChip, { backgroundColor: withAlpha(accentBlue, theme.mode === "dark" ? "24" : "12") }]}>
+            <Text style={[styles.summaryText, { color: accentBlue }]}>{remainingCount} remaining</Text>
           </View>
-          <View style={[styles.summaryChip, { backgroundColor: theme.mode === "dark" ? "#233529" : "#eaf8ef" }]}>
-            <Text style={[styles.summaryText, { color: theme.accentColor }]}>{completedCount} selected</Text>
+          <View style={[styles.summaryChip, { backgroundColor: withAlpha(accentSage, theme.mode === "dark" ? "26" : "14") }]}>
+            <Text style={[styles.summaryText, { color: accentSage }]}>{completedCount} selected</Text>
           </View>
-          <View style={[styles.summaryChip, { backgroundColor: theme.accentColor + "22" }]}>
+          <View style={[styles.summaryChip, { backgroundColor: withAlpha(theme.accentColor, theme.mode === "dark" ? "26" : "16") }]}>
             <Text style={[styles.summaryText, { color: theme.accentColor }]}>{items.length} total</Text>
           </View>
         </View>
