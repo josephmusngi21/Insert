@@ -1,3 +1,4 @@
+import { estimateRecipeMacros } from "@/screens/utils/nutritionUtils";
 import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity, FlatList, StyleSheet, Modal, Platform, Dimensions, ActivityIndicator, Keyboard, TouchableWithoutFeedback, Animated } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -739,8 +740,17 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
 
     const recipeName = `${item.name} Recipe`;
     const quantity = Number.isFinite(Number(item.quantity)) ? String(item.quantity) : "1";
+    const draftIngredients = [
+      {
+        id: 1,
+        name: item.name,
+        quantity,
+        unit: item.unit || "",
+      },
+    ];
 
     try {
+      const nutritionSummary = await estimateRecipeMacros(draftIngredients, "1");
       await addDoc(recipesCol(userId), {
         userId,
         name: recipeName,
@@ -751,15 +761,10 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
         cookTime: "",
         difficulty: "easy",
         visibility: "private",
-        ingredients: [
-          {
-            id: 1,
-            name: item.name,
-            quantity,
-            unit: item.unit || "",
-          },
-        ],
+        ingredients: draftIngredients,
         instructions: ["Add your cooking steps here."],
+        calories: nutritionSummary.perServing.calories,
+        nutritionSummary,
         originType: "created",
         originalCreatorUserId: userId,
         originalCreatorDisplayName: auth.currentUser?.displayName || auth.currentUser?.email?.split("@")[0] || "Insert Chef",
