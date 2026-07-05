@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, FlatList, TouchableOpacity, TextInput, Alert, ScrollView, Modal, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -382,6 +382,17 @@ export default function ShoppingListScreen({ theme, showAddItemModal, setShowAdd
 
   const completedCount = items.filter(item => item.completed).length;
   const remainingCount = items.length - completedCount;
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good morning";
+    if (hour < 18) return "Good afternoon";
+    return "Good evening";
+  }, []);
+  const todayLabel = useMemo(() => new Intl.DateTimeFormat(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  }).format(new Date()), []);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.backgroundColor, paddingTop: insets.top }]}>
@@ -409,8 +420,10 @@ export default function ShoppingListScreen({ theme, showAddItemModal, setShowAdd
       </View>
 
       <View style={[styles.heroCard, { backgroundColor: theme.mode === "dark" ? "#2b2b2b" : "#fff", borderColor: theme.mode === "dark" ? "#3b3b3b" : "#ececec" }]}>
+        <Text style={[styles.heroEyebrow, { color: theme.mode === "dark" ? "#a0a0a0" : "#888" }]}>{todayLabel}</Text>
+        <Text style={[styles.heroTitle, { color: theme.textColor }]}>{greeting}</Text>
         <Text style={[styles.heroSubtitle, { color: theme.mode === "dark" ? "#aaa" : "#666" }]}>
-          Build your list quickly, then finish shopping to move selected items into Pantry confirmation.
+          Keep shopping simple today. Pick what you need, then finish to move checked items into Pantry confirmation.
         </Text>
 
         <View style={styles.summaryRow}>
