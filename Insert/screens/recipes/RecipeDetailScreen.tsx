@@ -17,6 +17,7 @@ import { getDietaryConflicts } from "@/screens/utils/dietaryConflicts";
 import { getAllergyMatches } from "@/screens/utils/allergyMatching";
 import { uploadLocalFileToFirebaseStorage } from "@/screens/utils/firebaseStorageUpload";
 import RecipeFormScreen from "./RecipeFormScreen";
+import { RecipeMacroSummary } from "@/screens/utils/nutritionUtils";
 
 // ── Ingredient categorization ────────────────────────────────────────────
 const INGREDIENT_CATEGORIES: { category: string; color: string; bg: string; bgDark: string; keywords: string[] }[] = [
@@ -226,6 +227,7 @@ interface Recipe {
   servings: number | string;
   cookTime: number | string;
   calories?: number | string;
+  nutritionSummary?: RecipeMacroSummary;
   ingredients: Ingredient[];
   instructions: string[];
   difficulty: string;
@@ -309,6 +311,46 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
   const [importerProfile, setImporterProfile] = useState<{ userId: string; displayName: string; handle: string; allergies: string[]; dietaryRestrictions: string[]; publicRecipes: ImporterPublicRecipe[]; isFriend: boolean; hasPendingRequest: boolean } | null>(null);
   const [selectedImporterRecipeDetail, setSelectedImporterRecipeDetail] = useState<ImporterPublicRecipe | null>(null);
 
+  const buildConsumedNutrition = (nutritionSummary?: RecipeMacroSummary | null, consumedServings = 1) => {
+    if (!nutritionSummary?.perServing) return null;
+    return {
+      calories: Math.round(nutritionSummary.perServing.calories * consumedServings * 10) / 10,
+      protein: Math.round(nutritionSummary.perServing.protein * consumedServings * 10) / 10,
+      carbs: Math.round(nutritionSummary.perServing.carbs * consumedServings * 10) / 10,
+      fat: Math.round(nutritionSummary.perServing.fat * consumedServings * 10) / 10,
+      fiber: Math.round(nutritionSummary.perServing.fiber * consumedServings * 10) / 10,
+    };
+  };
+
+  const promptLowRemnantCleanup = (candidates: Array<{ id: string; name: string; remainingQuantity: number; remainingUnit: string; ref: any }>, index = 0) => {
+    if (index >= candidates.length) return;
+
+    const candidate = candidates[index];
+    const quantityText = Number.isFinite(candidate.remainingQuantity)
+      ? `${Math.round(candidate.remainingQuantity * 10) / 10}`
+      : "a small amount";
+
+    Alert.alert(
+      "Low pantry remainder",
+      `${candidate.name} has about ${quantityText} ${candidate.remainingUnit || "qty"} left after cooking. If that's mostly packaging, peel, or scraps, remove it from pantry?`,
+      [
+        {
+          text: "Keep it",
+          style: "cancel",
+          onPress: () => promptLowRemnantCleanup(candidates, index + 1),
+        },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            await deleteDoc(candidate.ref).catch(() => undefined);
+            promptLowRemnantCleanup(candidates, index + 1);
+          },
+        },
+      ]
+    );
+  };
+
   const getDisplayQuantityText = (quantity: number | string, unit: string) => {
     const converted = formatQuantityForPreference(quantity, unit || "", preferredWeightUnit, unitDisplayMode);
     if (!converted.unitText) return converted.quantityText;
@@ -332,6 +374,7 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
           servings: data.servings,
           cookTime: data.cookTime,
           calories: data.calories,
+          nutritionSummary: data.nutritionSummary,
           difficulty: data.difficulty,
           ingredients: data.ingredients || [],
           instructions: data.instructions || [],
@@ -764,11 +807,16 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
     if (!recipe || !userId) return;
     try {
       const cookedAt = Date.now();
+      const consumedServings = 1;
+      const consumedNutrition = buildConsumedNutrition(recipe.nutritionSummary, consumedServings);
       // 1. Log to cook history
       const cookHistoryRef = await addDoc(cookHistoryCol(userId), {
         recipeId: recipe.id,
         recipeName: recipe.name,
         cookedAt,
+        consumedServings,
+        consumedNutrition,
+        nutritionSummary: recipe.nutritionSummary || null,
         ingredients: recipe.ingredients.map(i => ({
           name: i.name,
           quantity: String(i.quantity),
@@ -788,35 +836,73 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
       });
 
       // 2. Deduct ingredients from pantry
+      const lowRemnantCandidates: Array<{ id: string; name: string; remainingQuantity: number; remainingUnit: string; ref: any }> = [];
       if (recipe.ingredients.length > 0) {
         const batch = writeBatch(db);
+        const pantrySnap = await getDocs(pantryCol(userId));
+        const pantryPool = pantrySnap.docs.map((pDoc) => {
+          const data = pDoc.data();
+          return {
+            ref: pDoc.ref,
+            id: pDoc.id,
+            name: String(data.name || ""),
+            unit: String(data.unit || "qty"),
+            originalQuantity: Number(data.quantity) || 0,
+            quantityLeft: Number(data.quantity) || 0,
+          };
+        });
+
         for (const ing of recipe.ingredients) {
           const nameLower = ing.name.toLowerCase();
           const needed = typeof ing.quantity === 'string' ? parseFloat(ing.quantity) : (ing.quantity ?? 0);
           if (needed <= 0) continue;
 
-          // Find matching pantry docs
-          const pantrySnap = await getDocs(pantryCol(userId));
           let remaining = needed;
-          for (const pDoc of pantrySnap.docs) {
+          for (const pantryItem of pantryPool) {
             if (remaining <= 0) break;
-            const d = pDoc.data();
-            const pName = (d.name || "").toLowerCase();
+            const pName = pantryItem.name.toLowerCase();
             if (pName.includes(nameLower) || nameLower.includes(pName)) {
-              const have = Number(d.quantity) || 0;
+              const have = pantryItem.quantityLeft;
               if (have <= remaining) {
-                // Use all of this item
-                batch.delete(pDoc.ref);
+                pantryItem.quantityLeft = 0;
                 remaining -= have;
               } else {
-                // Partially deduct
-                batch.update(pDoc.ref, { quantity: have - remaining });
+                pantryItem.quantityLeft = have - remaining;
                 remaining = 0;
               }
             }
           }
         }
+
+        pantryPool.forEach((pantryItem) => {
+          if (pantryItem.quantityLeft <= 0 && pantryItem.originalQuantity > 0) {
+            batch.delete(pantryItem.ref);
+            return;
+          }
+
+          if (pantryItem.quantityLeft < pantryItem.originalQuantity) {
+            batch.update(pantryItem.ref, { quantity: pantryItem.quantityLeft });
+
+            const remainderRatio = pantryItem.originalQuantity > 0 ? pantryItem.quantityLeft / pantryItem.originalQuantity : 0;
+            const normalizedUnit = pantryItem.unit.trim().toLowerCase();
+            const pieceLikeUnit = ["pcs", "pc", "piece", "pieces", "qty", "banana", "bananas"].includes(normalizedUnit);
+            if (pantryItem.quantityLeft > 0 && (remainderRatio <= 0.1 || (pieceLikeUnit && pantryItem.quantityLeft <= 1))) {
+              lowRemnantCandidates.push({
+                id: pantryItem.id,
+                name: pantryItem.name,
+                remainingQuantity: pantryItem.quantityLeft,
+                remainingUnit: pantryItem.unit,
+                ref: pantryItem.ref,
+              });
+            }
+          }
+        });
+
         await batch.commit();
+      }
+
+      if (lowRemnantCandidates.length > 0) {
+        promptLowRemnantCleanup(lowRemnantCandidates);
       }
 
       setCookMode(false);
@@ -1920,9 +2006,38 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
                 </View>
                 <View style={styles.metaPill}>
                   <Ionicons name="flame-outline" size={14} color={primaryColor} />
-                  <Text style={styles.metaPillText}>{recipe.calories ? `${recipe.calories} cal` : 'No cal'}</Text>
+                  <Text style={styles.metaPillText}>
+                    {recipe.nutritionSummary?.perServing?.calories
+                      ? `${recipe.nutritionSummary.perServing.calories} cal/serv`
+                      : recipe.calories
+                        ? `${recipe.calories} cal`
+                        : 'No cal'}
+                  </Text>
                 </View>
               </View>
+
+              {!!recipe.nutritionSummary?.perServing && (
+                <View style={[styles.sectionCard, { backgroundColor: isDark ? '#292929' : '#FFFDF9', marginTop: 14 }]}> 
+                  <Text style={[styles.sectionTitle, { color: themeColors.textColor, fontFamily: titleFont }]}>Macros Per Serving</Text>
+                  <View style={[styles.metaRow, { marginTop: 10 }]}> 
+                    <View style={styles.metaPill}>
+                      <Ionicons name="barbell-outline" size={14} color={primaryColor} />
+                      <Text style={styles.metaPillText}>P {recipe.nutritionSummary.perServing.protein}g</Text>
+                    </View>
+                    <View style={styles.metaPill}>
+                      <Ionicons name="leaf-outline" size={14} color={primaryColor} />
+                      <Text style={styles.metaPillText}>C {recipe.nutritionSummary.perServing.carbs}g</Text>
+                    </View>
+                    <View style={styles.metaPill}>
+                      <Ionicons name="water-outline" size={14} color={primaryColor} />
+                      <Text style={styles.metaPillText}>F {recipe.nutritionSummary.perServing.fat}g</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.description, { color: '#6F6F6F', fontFamily: bodyFont, marginTop: 10 }]}>
+                    Recipe total: {recipe.nutritionSummary.calories} cal • Fiber {recipe.nutritionSummary.perServing.fiber}g/serving • Coverage {Math.round(recipe.nutritionSummary.coverage.ratio * 100)}% • Source {recipe.nutritionSummary.source.toUpperCase()}
+                  </Text>
+                </View>
+              )}
 
               <View style={[styles.sectionCard, { backgroundColor: isDark ? '#292929' : '#FFFDF9' }]}> 
                 <Text style={[styles.sectionTitle, { color: themeColors.textColor, fontFamily: titleFont }]}>Ingredients</Text>
