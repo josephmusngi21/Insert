@@ -17,6 +17,7 @@ import { getAuth } from "firebase/auth";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import { parseAllRecipesFromUrl, ParsedRecipe } from "@/screens/utils/recipeImport";
 import { uploadLocalFileToFirebaseStorage } from "@/screens/utils/firebaseStorageUpload";
+import { estimateRecipeMacros } from "@/screens/utils/nutritionUtils";
 import styles from "./RecipeFormScreen.styles";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
@@ -375,6 +376,7 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
 
       if (isEditMode && editRecipeId && userId) {
         try {
+          const nutritionSummary = await estimateRecipeMacros(finalData.ingredients, finalData.servings);
           await updateDoc(recipesDoc(userId, editRecipeId), {
             name: finalData.name,
             description: finalData.description || "",
@@ -386,6 +388,8 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
             visibility: finalData.visibility,
             ingredients: finalData.ingredients,
             instructions: finalData.instructions,
+            calories: nutritionSummary.perServing.calories,
+            nutritionSummary,
           });
           onRecipeSaved?.(finalData);
           resetForm();
@@ -424,13 +428,17 @@ export default memo(function RecipeFormScreen({ visible, onRecipeSaved, onCancel
       // Skip if a recipe with the same name already exists
       if (existingLower.includes(r.name.trim().toLowerCase())) { skipped++; continue; }
       try {
+        const cleanedIngredients = cleanIngredientsForSave((r.ingredients as any[]) || []);
+        const nutritionSummary = await estimateRecipeMacros(cleanedIngredients, r.servings);
         await addDoc(recipesCol(userId), {
           userId, name: r.name, description: r.description || "",
           imageUrl: r.imageUrl || (Array.isArray(r.imageCandidates) ? r.imageCandidates[0] : "") || "",
           sourceUrl: lastImportedUrl || "",
           servings: r.servings, cookTime: r.cookTime, difficulty: r.difficulty,
           visibility: "private",
-          ingredients: cleanIngredientsForSave((r.ingredients as any[]) || []), instructions: r.instructions,
+          ingredients: cleanedIngredients, instructions: r.instructions,
+          calories: nutritionSummary.perServing.calories,
+          nutritionSummary,
           originType: "imported",
           originalCreatorUserId: userId,
           originalCreatorDisplayName: currentDisplayName,
