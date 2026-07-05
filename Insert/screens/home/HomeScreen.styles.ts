@@ -58,6 +58,146 @@ export default StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
+  nutritionCard: {
+    borderWidth: 1,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
+    gap: 10,
+  },
+  nutritionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  nutritionHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  nutritionEyebrow: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  nutritionTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  nutritionTargetButton: {
+    borderWidth: 1,
+    borderRadius: 999,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  nutritionTargetButtonText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  calorieHeroRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  calorieHeroBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  calorieHeroPrimaryBlock: {
+    flex: 1.18,
+  },
+  calorieHeroSecondaryBlock: {
+    flex: 0.82,
+    alignItems: "flex-end",
+    paddingRight: 4,
+  },
+  calorieHeroValue: {
+    fontSize: 28,
+    fontWeight: "700",
+    lineHeight: 34,
+  },
+  calorieHeroLabel: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  progressTrack: {
+    height: 10,
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 999,
+  },
+  progressCaption: {
+    fontSize: 12,
+  },
+  macroStack: {
+    gap: 8,
+    marginTop: 2,
+  },
+  macroRow: {
+    gap: 5,
+  },
+  macroLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  macroLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  macroValue: {
+    fontSize: 12,
+  },
+  macroTrack: {
+    height: 8,
+  },
+  nutritionMealSection: {
+    marginTop: 4,
+    gap: 8,
+  },
+  nutritionSectionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  nutritionMealRow: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  nutritionMealBody: {
+    flex: 1,
+  },
+  nutritionMealTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  nutritionMealMeta: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  nutritionMealCalories: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
   todayCard: {
     borderWidth: 1,
     borderRadius: 22,
@@ -333,6 +473,13 @@ export default StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 16,
   },
+  modalBackdrop: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
   modalCard: {
     borderWidth: 1,
     borderRadius: 18,
@@ -351,6 +498,188 @@ export default StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     flex: 1,
+  },
+  modalTitleWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  foodModalCard: {
+    maxHeight: "86%",
+    minHeight: "70%",
+  },
+  foodModalScroll: {
+    flexGrow: 0,
+  },
+  foodModalContent: {
+    paddingBottom: 14,
+    gap: 12,
+  },
+  discoveryPanel: {
+    minHeight: 170,
+    justifyContent: "flex-start",
+  },
+  targetFieldWrap: {
+    marginBottom: 10,
+    gap: 6,
+  },
+  targetFieldLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  targetFieldInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  targetActionRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 8,
+  },
+  targetActionButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+  },
+  targetActionText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  targetPrimaryActionText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  manualFoodRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  manualFoodAmountWrap: {
+    flex: 1,
+  },
+  manualFoodUnitWrap: {
+    width: 92,
+  },
+  unitChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 10,
+  },
+  unitChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  unitChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  quickSection: {
+    gap: 8,
+  },
+  quickSectionTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  quickChipWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  quickChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  quickChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  suggestionRow: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  suggestionBody: {
+    flex: 1,
+  },
+  suggestionTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  suggestionMeta: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  pantryTrackingCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 8,
+    minHeight: 152,
+  },
+  pantryTrackingHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  pantryTrackingStatus: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  pantryTrackingMeta: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  previewCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  previewEyebrow: {
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  previewCalories: {
+    fontSize: 22,
+    fontWeight: "700",
+  },
+  previewMacros: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  foodModalFooter: {
+    borderTopWidth: 1,
+    marginTop: 10,
+    paddingTop: 12,
+  },
+  manualFoodHint: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: 4,
   },
   searchWrap: {
     flexDirection: "row",
