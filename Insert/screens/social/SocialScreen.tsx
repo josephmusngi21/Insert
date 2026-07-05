@@ -7,6 +7,7 @@ import { onSnapshot, orderBy, query, limit, updateDoc, arrayUnion, arrayRemove, 
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { pantryCol, socialPostsCol, socialPostDoc, friendsCol, friendRequestsCol, outgoingFriendRequestsCol, recipeSharesCol, recipesCol, recipesDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getSourceHost } from "@/screens/utils/urlUtils";
+import { estimateRecipeMacros } from "@/screens/utils/nutritionUtils";
 import styles from "./SocialScreen.styles";
 
 type ThemeColors = {
@@ -367,6 +368,7 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
       const instructions = Array.isArray(post.recipeInstructions)
         ? post.recipeInstructions.filter((step) => typeof step === "string" && step.trim().length > 0)
         : [];
+      const nutritionSummary = await estimateRecipeMacros(ingredients, "1");
 
       await addDoc(recipesCol(userId), {
         userId,
@@ -380,6 +382,8 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
         visibility: "private",
         ingredients,
         instructions,
+        calories: nutritionSummary.perServing.calories,
+        nutritionSummary,
         originType: post.originType || (resolvedSourceUrl ? "imported" : "created"),
         originalCreatorUserId: post.originalCreatorUserId || post.recipeOwnerId || post.userId || "",
         originalCreatorDisplayName: post.originalCreatorDisplayName || post.userDisplayName || "Unknown",
@@ -679,6 +683,13 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
     if (!userId || !selectedUserProfile) return;
 
     try {
+      const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients.map((ingredient, index) => ({
+        id: index + 1,
+        name: ingredient.name || "",
+        quantity: String(ingredient.quantity ?? ""),
+        unit: String(ingredient.unit ?? ""),
+      })) : [];
+      const nutritionSummary = await estimateRecipeMacros(ingredients, "1");
       await addDoc(recipesCol(userId), {
         userId,
         name: recipe.name || "Public Recipe",
@@ -689,13 +700,10 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
         cookTime: recipe.cookTime || "",
         difficulty: recipe.difficulty || "easy",
         visibility: "private",
-        ingredients: Array.isArray(recipe.ingredients) ? recipe.ingredients.map((ingredient, index) => ({
-          id: index + 1,
-          name: ingredient.name || "",
-          quantity: String(ingredient.quantity ?? ""),
-          unit: String(ingredient.unit ?? ""),
-        })) : [],
+        ingredients,
         instructions: Array.isArray(recipe.instructions) ? recipe.instructions : [],
+        calories: nutritionSummary.perServing.calories,
+        nutritionSummary,
         originType: recipe.sourceUrl ? "imported" : "created",
         originalCreatorUserId: selectedUserProfile.userId,
         originalCreatorDisplayName: selectedUserProfile.displayName,
