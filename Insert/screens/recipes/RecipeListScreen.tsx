@@ -17,6 +17,7 @@ import { RECIPE_CATEGORY_OPTIONS, RecipeBrowseCategory, getRecipeBrowseCategory,
 import { getDietaryConflicts } from "@/screens/utils/dietaryConflicts";
 import { getAllergyMatches, isAllergySafe } from "@/screens/utils/allergyMatching";
 import { getSourceHost } from "@/screens/utils/urlUtils";
+import { estimateRecipeMacros, RecipeMacroSummary } from "@/screens/utils/nutritionUtils";
 import { DIETARY_RESTRICTIONS } from "./recipeSchematics";
 import styles from "./RecipeListScreen.styles";
 import RecipeFormScreen from "./RecipeFormScreen";
@@ -37,6 +38,8 @@ type Recipe = {
   servings: string | number;
   cookTime: string | number;
   difficulty: string;
+  calories?: number | string;
+  nutritionSummary?: RecipeMacroSummary;
   visibility?: "private" | "public";
   ingredients: Array<{ id?: number; name: string; quantity: string; unit: string }>;
   instructions: string[];
@@ -183,6 +186,8 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
         servings: doc.data().servings,
         cookTime: doc.data().cookTime,
         difficulty: doc.data().difficulty,
+        calories: doc.data().calories,
+        nutritionSummary: doc.data().nutritionSummary,
         visibility: doc.data().visibility || "private",
         ingredients: doc.data().ingredients,
         instructions: doc.data().instructions,
@@ -449,6 +454,7 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
       const currentDisplayName = auth.currentUser?.displayName || auth.currentUser?.email?.split("@")[0] || "Insert Chef";
       const sourceUrl = newRecipe.sourceUrl || "";
       const originType: "created" | "imported" = sourceUrl ? "imported" : "created";
+      const nutritionSummary = await estimateRecipeMacros(newRecipe.ingredients || [], newRecipe.servings);
       const recipeDocRef = await addDoc(recipesCol(userId), {
         userId,
         name: newRecipe.name,
@@ -461,6 +467,8 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
         visibility: newRecipe.visibility || "private",
         ingredients: newRecipe.ingredients,
         instructions: newRecipe.instructions,
+        calories: nutritionSummary.perServing.calories,
+        nutritionSummary,
         originType,
         originalCreatorUserId: newRecipe.originalCreatorUserId || userId,
         originalCreatorDisplayName: newRecipe.originalCreatorDisplayName || currentDisplayName,
@@ -486,6 +494,8 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
           visibility: "public",
           ingredients: newRecipe.ingredients,
           instructions: newRecipe.instructions,
+          calories: nutritionSummary.perServing.calories,
+          nutritionSummary,
           originType,
           originalCreatorUserId: newRecipe.originalCreatorUserId || userId,
           originalCreatorDisplayName: newRecipe.originalCreatorDisplayName || currentDisplayName,
@@ -508,6 +518,7 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
       const currentDisplayName = auth.currentUser?.displayName || auth.currentUser?.email?.split("@")[0] || "Insert Chef";
       const sourceUrl = recipeData.sourceUrl || "";
       const originType: "created" | "imported" = recipeData.originType || (sourceUrl ? "imported" : "created");
+      const nutritionSummary = await estimateRecipeMacros(recipeData.ingredients || [], recipeData.servings);
       await setDoc(publicRecipeDoc(recipeId), {
         recipeId,
         ownerId: userId,
@@ -523,6 +534,8 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
         visibility: "public",
         ingredients: recipeData.ingredients,
         instructions: recipeData.instructions,
+        calories: nutritionSummary.perServing.calories,
+        nutritionSummary,
         originType,
         originalCreatorUserId: recipeData.originalCreatorUserId || userId,
         originalCreatorDisplayName: recipeData.originalCreatorDisplayName || currentDisplayName,
@@ -622,6 +635,7 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
       const originalImporterDisplayName = originType === "imported"
         ? (share.originalImporterDisplayName || share.fromDisplayName || "Insert Chef")
         : "";
+      const nutritionSummary = await estimateRecipeMacros(ingredients, servings);
 
       await addDoc(recipesCol(userId), {
         userId,
@@ -635,6 +649,8 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
         visibility: "private",
         ingredients,
         instructions,
+        calories: nutritionSummary.perServing.calories,
+        nutritionSummary,
         originType,
         originalCreatorUserId,
         originalCreatorDisplayName,
@@ -1074,12 +1090,24 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
                   {RECIPE_CATEGORY_OPTIONS.find((option) => option.key === getRecipeBrowseCategory({ name: recipe.name, description: recipe.description, ingredients: recipe.ingredients }))?.label ?? "Dinner"}
                 </Text>
               </View>
+              {!!recipe.nutritionSummary?.perServing?.calories && (
+                <View style={[styles.recipeMetaChip, { backgroundColor: themeColors.mode === "dark" ? "#372d23" : "#fff5e8" }]}> 
+                  <Text style={[styles.recipeMetaChipText, { color: themeColors.mode === "dark" ? "#ffd18c" : "#9a5b00" }]}> 
+                    {recipe.nutritionSummary.perServing.calories} cal/serv
+                  </Text>
+                </View>
+              )}
             </View>
             <View style={styles.recipeInfo}>
               <Text style={[styles.infoText, { color: themeColors.textColor }]}>Cook: {recipe.cookTime ? `${recipe.cookTime} min` : "--"}</Text>
               <Text style={[styles.infoText, { color: themeColors.textColor }]}>Servings: {recipe.servings || "--"}</Text>
               <Text style={[styles.infoText, { color: themeColors.textColor }]}>Difficulty: {recipe.difficulty}</Text>
             </View>
+            {!!recipe.nutritionSummary?.perServing && (
+              <Text style={[styles.infoText, { color: themeColors.mode === "dark" ? "#b7b7b7" : "#666" }]}>
+                Macros/serving: P {recipe.nutritionSummary.perServing.protein}g • C {recipe.nutritionSummary.perServing.carbs}g • F {recipe.nutritionSummary.perServing.fat}g
+              </Text>
+            )}
             <Text style={[styles.ingredients, { color: themeColors.textColor }]}>
               Ingredients: {recipe.ingredients.length} items
             </Text>
