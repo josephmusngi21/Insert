@@ -24,6 +24,7 @@ const TAB_SPRING = {
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 import PantryItemDetailScreen from "@/screens/pantry/PantryItemDetailScreen";
+import HomeScreen from "@/screens/home/HomeScreen";
 import RecipeListScreen from "@/screens/recipes/RecipeListScreen";
 import RecipeDetailScreen from "@/screens/recipes/RecipeDetailScreen";
 import MoreScreen from "@/screens/more/MoreScreen";
@@ -40,24 +41,23 @@ type QuickSwitchAccount = {
   password?: string;
 };
 
-type Screen = 'recipes' | 'pantry' | 'social' | 'shopping' | 'more' | 'recipeDetail';
-const SWIPEABLE_TABS: Screen[] = ['recipes', 'pantry', 'social', 'shopping', 'more'];
+type Screen = 'home' | 'recipes' | 'pantry' | 'social' | 'shopping' | 'more' | 'recipeDetail';
+const SWIPEABLE_TABS: Screen[] = ['home', 'recipes', 'pantry', 'social', 'shopping', 'more'];
 const TABS_LEN = SWIPEABLE_TABS.length;
-const RECIPES_TAB_INDEX = 0;
-const PANTRY_TAB_INDEX = 1;
+const RECIPES_TAB_INDEX = 1;
+const PANTRY_TAB_INDEX = 2;
 
 type TabDef = {
-  name: 'kitchen' | 'social' | 'add' | 'shopping' | 'more';
+  name: 'home' | 'kitchen' | 'social' | 'shopping' | 'more';
   icon: IoniconsName;
   activeIcon: IoniconsName;
   label: string;
-  isCenter?: boolean;
 };
 
 const TABS: TabDef[] = [
+  { name: 'home', icon: 'home-outline', activeIcon: 'home', label: 'Home' },
   { name: 'kitchen', icon: 'restaurant-outline', activeIcon: 'restaurant', label: 'Kitchen' },
   { name: 'social', icon: 'people-outline', activeIcon: 'people', label: 'Social' },
-  { name: 'add', icon: 'add', activeIcon: 'add', label: '', isCenter: true },
   { name: 'shopping', icon: 'cart-outline', activeIcon: 'cart', label: 'Shopping' },
   { name: 'more', icon: 'grid-outline', activeIcon: 'grid', label: 'More' },
 ];
@@ -99,8 +99,8 @@ export default function Index() {
   const [isLoginLoading, setIsLoginLoading] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   // currentScreen is committed after transitions; tabBarScreen drives instant tab icon feedback.
-  const [currentScreen, setCurrentScreen] = useState<Screen>('recipes');
-  const [tabBarScreen, setTabBarScreen] = useState<Screen>('recipes');
+  const [currentScreen, setCurrentScreen] = useState<Screen>('home');
+  const [tabBarScreen, setTabBarScreen] = useState<Screen>('home');
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | undefined>(undefined);
   const [showRecipeForm, setShowRecipeForm] = useState(false);
   const [theme, setTheme] = useState<ThemeColors>({
@@ -349,6 +349,8 @@ export default function Index() {
 
   const getTabAccent = useCallback((tabName: TabDef['name']) => {
     switch (tabName) {
+      case 'home':
+        return '#F08A4B';
       case 'social':
         return '#3A7BDE';
       case 'shopping':
@@ -440,7 +442,7 @@ export default function Index() {
               try {
                 await signOut(auth);
                 setIsLoggedIn(false);
-                syncScreenState('recipes');
+                syncScreenState('home');
                 setDetailVisible(false);
                 setSelectedRecipeId(undefined);
                 translateX.value = 0;
@@ -564,7 +566,7 @@ export default function Index() {
       let targetIdx = startIdx;
       if ((dx < -THRESHOLD || fastLeft) && startIdx < TABS_LEN - 1) targetIdx = startIdx + 1;
       else if ((dx > THRESHOLD || fastRight) && startIdx > 0)        targetIdx = startIdx - 1;
-      const nextScreen = targetIdx === 0 && detailVisible ? 'recipeDetail' : SWIPEABLE_TABS[targetIdx];
+      const nextScreen = targetIdx === RECIPES_TAB_INDEX && detailVisible ? 'recipeDetail' : SWIPEABLE_TABS[targetIdx];
       const isKitchenPairSwipe =
         (startIdx === RECIPES_TAB_INDEX && targetIdx === PANTRY_TAB_INDEX) ||
         (startIdx === PANTRY_TAB_INDEX && targetIdx === RECIPES_TAB_INDEX);
@@ -588,7 +590,7 @@ export default function Index() {
     });
 
   const switchToTab = useCallback((idx: number) => {
-    const nextScreen = idx === 0 && detailVisible ? 'recipeDetail' : SWIPEABLE_TABS[idx];
+    const nextScreen = idx === RECIPES_TAB_INDEX && detailVisible ? 'recipeDetail' : SWIPEABLE_TABS[idx];
     setTabBarScreen(nextScreen);
     animateToTabIndex(idx, nextScreen);
   }, [animateToTabIndex, detailVisible]);
@@ -629,6 +631,30 @@ export default function Index() {
       }}
     />
   ), [currentScreen, goToPantryFromKitchen, goToRecipesFromKitchen, handleRecipeSelect, returnToAddChoiceFromRecipe, showRecipeForm, theme, userAllergies, userDietaryRestrictions]);
+
+  const homeScreen = useMemo(() => (
+    <HomeScreen
+      theme={theme}
+      userId={userId}
+      userDisplayName={userDisplayName}
+      onOpenShopping={() => {
+        const shoppingIdx = getSwipeTabIndex('shopping');
+        setTabBarScreen('shopping');
+        animateToTabIndex(shoppingIdx, 'shopping', { useSpring: false, duration: TAB_TIMING_MS });
+      }}
+      onOpenSocial={() => {
+        const socialIdx = getSwipeTabIndex('social');
+        setTabBarScreen('social');
+        animateToTabIndex(socialIdx, 'social', { useSpring: false, duration: TAB_TIMING_MS });
+      }}
+      onOpenRecipe={(recipeId) => {
+        const recipesIdx = getSwipeTabIndex('recipes');
+        setTabBarScreen('recipes');
+        animateToTabIndex(recipesIdx, 'recipes', { useSpring: false, duration: TAB_TIMING_MS });
+        requestAnimationFrame(() => handleRecipeSelect(recipeId));
+      }}
+    />
+  ), [animateToTabIndex, handleRecipeSelect, theme, userDisplayName, userId]);
 
   const pantryDetailScreen = useMemo(() => (
     <PantryItemDetailScreen
@@ -735,8 +761,11 @@ export default function Index() {
         <GestureDetector gesture={swipeGesture}>
           <View style={{ flex: 1, overflow: 'hidden' }}>
 
-        {/* Permanent row — all 4 tabs always mounted, positions never change */}
+        {/* Permanent row — all tabs stay mounted, positions never change */}
         <Animated.View style={[{ flex: 1, flexDirection: 'row', width: SCREEN_WIDTH * TABS_LEN }, rowStyle]}>
+          <View style={{ width: SCREEN_WIDTH }}>
+            {homeScreen}
+          </View>
           <View style={{ width: SCREEN_WIDTH }}>
             {recipeListScreen}
           </View>
@@ -837,72 +866,99 @@ export default function Index() {
         </GestureDetector>
 
         {!moreSubScreenActive && (
-          <View style={[styles.bottomTabContainer, { backgroundColor: theme.mode === "dark" ? "#222" : "#fff", borderTopColor: theme.mode === "dark" ? "#444" : "#eee" }]}>
-            {TABS.map((tab) => {
-              const isKitchen = tab.name === 'kitchen';
-              const tabScreenName = isKitchen ? 'recipes' : (tab.name as Exclude<Screen, 'recipeDetail'>);
-              const tabInRowIdx = getSwipeTabIndex(tabScreenName);
-              const isFocused = isKitchen
-                ? tabBarScreen === 'recipes' || tabBarScreen === 'pantry' || tabBarScreen === 'recipeDetail'
-                : tabBarScreen === tabScreenName;
-              const kitchenIsPantry = tabBarScreen === 'pantry';
-              const isCenterButton = tab.isCenter;
+          <>
+            <View
+              pointerEvents="none"
+              style={[
+                {
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  zIndex: 39,
+                  borderTopWidth: 1,
+                },
+                {
+                  height: insets.bottom + 12,
+                  backgroundColor: theme.backgroundColor,
+                  borderTopColor: theme.mode === "dark" ? "#2f2f2f" : "#ececec",
+                },
+              ]}
+            />
+            <View style={[styles.bottomTabContainer, {
+              bottom: Math.max(insets.bottom - 4, 4),
+              backgroundColor: theme.mode === "dark" ? "#222" : "#fff",
+              borderColor: theme.mode === "dark" ? "#444" : "#e6e6e6",
+            }]}>
+              {TABS.map((tab) => {
+                const isKitchen = tab.name === 'kitchen';
+                const tabScreenName = isKitchen ? 'recipes' : (tab.name as Exclude<Screen, 'recipeDetail'>);
+                const tabInRowIdx = getSwipeTabIndex(tabScreenName);
+                const isFocused = isKitchen
+                  ? tabBarScreen === 'recipes' || tabBarScreen === 'pantry' || tabBarScreen === 'recipeDetail'
+                  : tabBarScreen === tabScreenName;
+                const kitchenIsPantry = tabBarScreen === 'pantry';
 
-              if (isCenterButton) {
                 return (
                   <TouchableOpacity
                     key={tab.name}
-                    onPress={openAddChoice}
-                    style={[styles.centerButton, { backgroundColor: "transparent", borderColor: theme.accentColor }]}
+                    delayPressIn={0}
+                    onPressIn={() => {
+                      if (isKitchen) {
+                        kitchenLongPressTriggeredRef.current = false;
+                        setTabBarScreen('recipes');
+                        return;
+                      }
+                      if (tabInRowIdx !== -1) {
+                        switchToTab(tabInRowIdx);
+                      }
+                    }}
+                    onPress={() => {
+                      if (!isKitchen) return;
+                      if (kitchenLongPressTriggeredRef.current) {
+                        kitchenLongPressTriggeredRef.current = false;
+                        return;
+                      }
+                      goToRecipesFromKitchen();
+                    }}
+                    onLongPress={isKitchen ? () => {
+                      kitchenLongPressTriggeredRef.current = true;
+                      setTabBarScreen('pantry');
+                      goToPantryFromKitchen();
+                    } : undefined}
+                    delayLongPress={160}
+                    style={styles.tabButton}
                   >
-                    <Ionicons name="add" size={32} color={theme.accentColor} />
+                    <TabIcon
+                      icon={isKitchen ? (kitchenIsPantry ? 'basket-outline' : 'restaurant-outline') : tab.icon}
+                      activeIcon={isKitchen ? (kitchenIsPantry ? 'basket' : 'restaurant') : tab.activeIcon}
+                      label={isKitchen ? 'Kitchen' : tab.label}
+                      isActive={isFocused}
+                      accentColor={getTabAccent(tab.name)}
+                      accentBgColor={getTabAccentBg(tab.name)}
+                      isDark={theme.mode === "dark"}
+                    />
                   </TouchableOpacity>
                 );
-              }
+              })}
+            </View>
+          </>
+        )}
 
-              return (
-                <TouchableOpacity
-                  key={tab.name}
-                  delayPressIn={0}
-                  onPressIn={() => {
-                    if (isKitchen) {
-                      kitchenLongPressTriggeredRef.current = false;
-                      setTabBarScreen('recipes');
-                      return;
-                    }
-                    if (tabInRowIdx !== -1) {
-                      switchToTab(tabInRowIdx);
-                    }
-                  }}
-                  onPress={() => {
-                    if (!isKitchen) return;
-                    if (kitchenLongPressTriggeredRef.current) {
-                      kitchenLongPressTriggeredRef.current = false;
-                      return;
-                    }
-                    goToRecipesFromKitchen();
-                  }}
-                  onLongPress={isKitchen ? () => {
-                    kitchenLongPressTriggeredRef.current = true;
-                    setTabBarScreen('pantry');
-                    goToPantryFromKitchen();
-                  } : undefined}
-                  delayLongPress={160}
-                  style={styles.tabButton}
-                >
-                  <TabIcon
-                    icon={isKitchen ? (kitchenIsPantry ? 'basket-outline' : 'restaurant-outline') : tab.icon}
-                    activeIcon={isKitchen ? (kitchenIsPantry ? 'basket' : 'restaurant') : tab.activeIcon}
-                    label={isKitchen ? 'Kitchen' : tab.label}
-                    isActive={isFocused}
-                    accentColor={getTabAccent(tab.name)}
-                    accentBgColor={getTabAccentBg(tab.name)}
-                    isDark={theme.mode === "dark"}
-                  />
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+        {!moreSubScreenActive && (
+          <TouchableOpacity
+            onPress={openAddChoice}
+            style={[
+              styles.floatingAddButton,
+              {
+                bottom: Math.max(insets.bottom - 4, 4) + 72,
+                backgroundColor: theme.accentColor,
+                borderColor: theme.mode === "dark" ? "#1f1f1f" : "#ffffff",
+              },
+            ]}
+          >
+            <Ionicons name="add" size={26} color="#fff" />
+          </TouchableOpacity>
         )}
 
         {/* Add Choice Sheet */}

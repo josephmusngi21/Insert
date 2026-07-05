@@ -166,13 +166,25 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
     };
   }, [userId]);
 
+  const visiblePosts = useMemo(() => {
+    if (!userId) return [] as SocialPostItem[];
+
+    return posts.filter((post) => {
+      if (post.userId === userId) return true;
+      if (friendIds.has(post.userId)) return true;
+      if (post.recipeOwnerId && friendIds.has(post.recipeOwnerId)) return true;
+      if (post.originalCreatorUserId && friendIds.has(post.originalCreatorUserId)) return true;
+      return false;
+    });
+  }, [friendIds, posts, userId]);
+
   useEffect(() => {
-    if (posts.length === 0) {
+    if (visiblePosts.length === 0) {
       setCommentCounts({});
       return;
     }
 
-    const unsubscribes = posts.map((post) => {
+    const unsubscribes = visiblePosts.map((post) => {
       return onSnapshot(collection(db, "socialPosts", post.id, "comments"), (snapshot) => {
         setCommentCounts((prev) => ({ ...prev, [post.id]: snapshot.size }));
       });
@@ -181,7 +193,7 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
     return () => {
       unsubscribes.forEach((unsubscribe) => unsubscribe());
     };
-  }, [posts]);
+  }, [visiblePosts]);
 
   const pantryTokens = useMemo(() => {
     return pantryItems
@@ -840,19 +852,19 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
           </View>
 
           <View style={[styles.tag, { backgroundColor: blueSoftBg, borderColor: blueSoftBorder, borderWidth: 1 }]}>
-            <Text style={[styles.tagText, { color: socialBlue }]}>{posts.length} posts</Text>
+            <Text style={[styles.tagText, { color: socialBlue }]}>{visiblePosts.length} posts</Text>
           </View>
         </View>
       </View>
 
-      {posts.length === 0 ? (
+      {visiblePosts.length === 0 ? (
         <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor: border }]}>
           <Ionicons name="sparkles-outline" size={22} color={theme.accentColor} />
-          <Text style={[styles.emptyTitle, { color: theme.textColor }]}>No posts yet</Text>
-          <Text style={[styles.emptySub, { color: muted }]}>Cook a recipe with step photos and post your result to kick off the feed.</Text>
+          <Text style={[styles.emptyTitle, { color: theme.textColor }]}>No friend posts yet</Text>
+          <Text style={[styles.emptySub, { color: muted }]}>Add friends to see their recipes here, or post one yourself.</Text>
         </View>
       ) : (
-        posts.map((post) => {
+        visiblePosts.map((post) => {
           const cookability = getCookability(post.ingredients || []);
           const liked = !!post.likes?.includes(userId);
           const likeCount = post.likes?.length || 0;
