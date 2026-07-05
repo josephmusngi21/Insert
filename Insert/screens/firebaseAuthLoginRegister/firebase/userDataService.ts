@@ -159,6 +159,10 @@ export const settingsDoc = (uid: string, key: string): DocumentReference =>
 export const cookHistoryCol = (uid: string): CollectionReference =>
   collection(db, "users", uid, "cookHistory");
 
+/** Collection of manual nutrition entries for a user */
+export const nutritionEntriesCol = (uid: string): CollectionReference =>
+  collection(db, "users", uid, "nutritionEntries");
+
 export interface CookHistoryEntry {
   recipeId: string;
   recipeName: string;
