@@ -3,8 +3,12 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
+<<<<<<< HEAD
     "start": "node node_modules/expo/bin/cli start --host lan",
     "start:offline": "cross-env EXPO_OFFLINE=1 node node_modules/expo/bin/cli start --host lan",
+=======
+    "start": "set EXPO_NO_DEPENDENCY_VALIDATION=1&& expo start --offline",
+>>>>>>> shoppingList
     "reset-project": "node ./scripts/reset-project.js",
     "android": "node node_modules/expo/bin/cli start --android --host lan",
     "ios": "node node_modules/expo/bin/cli start --ios --host lan",
