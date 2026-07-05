@@ -1,6 +1,7 @@
 import { useState, useCallback, useLayoutEffect, useEffect, useMemo, memo, useRef } from "react";
 import { Text, View, TouchableOpacity, Dimensions, Modal, Platform, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Notifications from "expo-notifications";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring, runOnJS, cancelAnimation } from "react-native-reanimated";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
@@ -34,6 +35,7 @@ import { type ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import SplashScreen from "@/screens/misc/SplashScreen";
 import MainLogin from '../screens/firebaseAuthLoginRegister/MainLogin';
 import { ensureUserProfile, updateUserProfile, userDoc, settingsDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
+import { consumePendingShoppingOpen, startGroceryGeofenceTracking, stopGroceryGeofenceTracking } from "@/screens/utils/groceryGeofenceTracker";
 
 type QuickSwitchAccount = {
   label: string;
@@ -61,6 +63,23 @@ const TABS: TabDef[] = [
   { name: 'shopping', icon: 'cart-outline', activeIcon: 'cart', label: 'Shopping' },
   { name: 'more', icon: 'grid-outline', activeIcon: 'grid', label: 'More' },
 ];
+
+const isDarkBackground = (backgroundColor: string): boolean => {
+  const normalized = backgroundColor.replace("#", "").trim();
+  const hex = normalized.length === 3
+    ? normalized.split("").map((char) => `${char}${char}`).join("")
+    : normalized;
+
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) {
+    return false;
+  }
+
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance < 0.56;
+};
 
 interface TabIconProps {
   icon: IoniconsName;
@@ -137,7 +156,10 @@ export default function Index() {
     if (typeof textColor !== "string" || typeof accentColor !== "string" || typeof backgroundColor !== "string") {
       return null;
     }
-    return { mode, textColor, accentColor, backgroundColor };
+    const normalizedMode = mode === "custom"
+      ? (isDarkBackground(backgroundColor) ? "dark" : "light")
+      : mode;
+    return { mode: normalizedMode, textColor, accentColor, backgroundColor };
   }, []);
 
   // Row position: translateX = -tabIdx * SCREEN_WIDTH
@@ -595,6 +617,12 @@ export default function Index() {
     animateToTabIndex(idx, nextScreen);
   }, [animateToTabIndex, detailVisible]);
 
+  const openShoppingTab = useCallback(() => {
+    const shoppingIdx = getSwipeTabIndex('shopping');
+    setTabBarScreen('shopping');
+    animateToTabIndex(shoppingIdx, 'shopping', { useSpring: false, duration: TAB_TIMING_MS });
+  }, [animateToTabIndex]);
+
   const goToPantryFromKitchen = useCallback(() => {
     const pantryIdx = getSwipeTabIndex('pantry');
     setTabBarScreen('pantry');
@@ -610,6 +638,52 @@ export default function Index() {
     setSelectedRecipeId(undefined);
     animateToTabIndex(recipesIdx, 'recipes');
   }, [animateToTabIndex, detailOffset, isDetailSV]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !userId) return;
+
+    void startGroceryGeofenceTracking(userId).catch((error) => {
+      console.error("Failed to start grocery geofence tracking:", error);
+    });
+
+    return () => {
+      void stopGroceryGeofenceTracking().catch(() => undefined);
+    };
+  }, [isLoggedIn, userId]);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    let active = true;
+    const maybeOpenFromReminder = async () => {
+      const pendingOpen = await consumePendingShoppingOpen();
+      if (active && pendingOpen) {
+        openShoppingTab();
+      }
+    };
+
+    void maybeOpenFromReminder();
+
+    const notificationResponseSub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const destination = response.notification.request.content.data?.destination;
+      if (destination === "shopping") {
+        openShoppingTab();
+      }
+    });
+
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (!active || !response) return;
+      const destination = response.notification.request.content.data?.destination;
+      if (destination === "shopping") {
+        openShoppingTab();
+      }
+    });
+
+    return () => {
+      active = false;
+      notificationResponseSub.remove();
+    };
+  }, [isLoggedIn, openShoppingTab]);
 
   const recipeListScreen = useMemo(() => (
     <RecipeListScreen
@@ -637,11 +711,7 @@ export default function Index() {
       theme={theme}
       userId={userId}
       userDisplayName={userDisplayName}
-      onOpenShopping={() => {
-        const shoppingIdx = getSwipeTabIndex('shopping');
-        setTabBarScreen('shopping');
-        animateToTabIndex(shoppingIdx, 'shopping', { useSpring: false, duration: TAB_TIMING_MS });
-      }}
+      onOpenShopping={openShoppingTab}
       onOpenSocial={() => {
         const socialIdx = getSwipeTabIndex('social');
         setTabBarScreen('social');
@@ -654,7 +724,7 @@ export default function Index() {
         requestAnimationFrame(() => handleRecipeSelect(recipeId));
       }}
     />
-  ), [animateToTabIndex, handleRecipeSelect, theme, userDisplayName, userId]);
+  ), [animateToTabIndex, handleRecipeSelect, openShoppingTab, theme, userDisplayName, userId]);
 
   const pantryDetailScreen = useMemo(() => (
     <PantryItemDetailScreen
