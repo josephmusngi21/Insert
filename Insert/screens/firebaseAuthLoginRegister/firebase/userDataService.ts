@@ -91,6 +91,12 @@ export interface ShoppingItem {
   source?: string;
 }
 
+export interface MealPlanDay {
+  date: string; // YYYY-MM-DD
+  recipeIds: string[];
+  updatedAt?: number;
+}
+
 // ── Path helpers ────────────────────────────────────────────────────────────
 
 /** Reference to the user's profile document */
@@ -136,6 +142,14 @@ export const shoppingCol = (uid: string): CollectionReference =>
 /** Reference to a specific shopping list item */
 export const shoppingDoc = (uid: string, id: string): DocumentReference =>
   doc(db, "users", uid, "shoppingList", id);
+
+/** Collection of meal plans for a user (one doc per date key) */
+export const mealPlansCol = (uid: string): CollectionReference =>
+  collection(db, "users", uid, "mealPlans");
+
+/** Reference to a specific meal plan day document (id: YYYY-MM-DD) */
+export const mealPlanDoc = (uid: string, dateKey: string): DocumentReference =>
+  doc(db, "users", uid, "mealPlans", dateKey);
 
 /** Reference to a settings document (e.g. "preferences", "locations") */
 export const settingsDoc = (uid: string, key: string): DocumentReference =>
