@@ -795,7 +795,6 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
-
       {pendingShares.length > 0 && (
         <View style={[styles.shareInboxCard, { borderColor: themeColors.accentColor + "55", backgroundColor: themeColors.mode === "dark" ? "#243024" : "#edf8ef" }]}>
           <View style={styles.shareInboxHeaderRow}>
@@ -883,7 +882,7 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
         </View>
       )}
 
-      <View style={[styles.searchSection, { borderBottomColor: themeColors.mode === "dark" ? "#333" : "#ececec" }]}>
+      <View style={[styles.searchSection, { borderColor: themeColors.mode === "dark" ? "#343434" : "#e9ecef", backgroundColor: themeColors.mode === "dark" ? "#252525" : "#fff" }]}>
         <View style={[styles.searchInputWrap, { backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#fff", borderColor: themeColors.mode === "dark" ? "#444" : "#e3e3e3" }]}>
           <Ionicons
             name="search"
