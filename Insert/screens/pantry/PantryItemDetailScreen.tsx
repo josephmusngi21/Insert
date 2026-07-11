@@ -34,6 +34,23 @@ type PendingItem = {
   userId: string;
 };
 
+const isDarkBackground = (backgroundColor: string): boolean => {
+  const normalized = backgroundColor.replace("#", "").trim();
+  const hex = normalized.length === 3
+    ? normalized.split("").map((char) => `${char}${char}`).join("")
+    : normalized;
+
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) {
+    return false;
+  }
+
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance < 0.56;
+};
+
 // Helper function to calculate days until expiration
 const calculateExpirationDays = (expirationDate: string): number => {
   const today = new Date();
@@ -203,6 +220,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
     accentColor: "#4CAF50",
     backgroundColor: "#f5f5f5",
   };
+  const isDarkTheme = themeColors.mode === "dark" || isDarkBackground(themeColors.backgroundColor);
   const [items, setItems] = useState<PantryItem[]>([]);
   const [hasUserAddedItems, setHasUserAddedItems] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | number | null>(null);
@@ -835,8 +853,8 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
               borderRadius: 999,
               padding: 2,
               borderWidth: 1,
-              borderColor: themeColors.mode === "dark" ? "#3c3c3c" : "#e6e6e6",
-              backgroundColor: themeColors.mode === "dark" ? "#252525" : "#fff",
+              borderColor: isDarkTheme ? "#3c3c3c" : "#e6e6e6",
+              backgroundColor: isDarkTheme ? "#252525" : "#fff",
               overflow: "hidden",
             }}
           >
@@ -884,7 +902,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
   };
 
   const EditItemModal = () => {
-    const isDark = themeColors.mode === "dark";
+    const isDark = isDarkTheme;
     const surfaceBg = isDark ? "#1e1e1e" : "#fff";
     const inputBg = isDark ? "#2a2a2a" : "#fafafa";
     const mutedBorder = isDark ? "#444" : "#e0e0e0";
@@ -1390,7 +1408,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
     const expirationPreview = newItem.customExpiry
       ? (isNaN(new Date(newItem.customExpiry).getTime()) ? "Invalid date" : new Date(newItem.customExpiry).toLocaleDateString())
       : new Date(Date.now() + expirationDays * 86400000).toLocaleDateString();
-    const isDark = themeColors.mode === "dark";
+    const isDark = isDarkTheme;
     const surfaceBg = isDark ? "#1e1e1e" : "#fff";
     const inputBg = isDark ? "#2a2a2a" : "#fafafa";
     const mutedBorder = isDark ? "#444" : "#e0e0e0";
@@ -1813,7 +1831,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
             style={[
               styles.itemDetails,
               {
-                backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff",
+                backgroundColor: isDarkTheme ? "#333" : "#fff",
                 borderBottomColor: themeColors.accentColor,
                 borderLeftColor: themeColors.accentColor,
                 marginHorizontal: 0,
@@ -1860,7 +1878,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                 <View style={styles.addMoreConfirmRow}>
                   <TouchableOpacity
                     onPress={() => setConfirmShoppingItemId(null)}
-                    style={[styles.addMoreCancelButton, { borderColor: themeColors.mode === "dark" ? "#666" : "#bbb", backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5" }]}
+                    style={[styles.addMoreCancelButton, { borderColor: isDarkTheme ? "#666" : "#bbb", backgroundColor: isDarkTheme ? "#2a2a2a" : "#f5f5f5" }]}
                   >
                     <Text style={[styles.addMoreCancelButtonText, { color: themeColors.textColor }]}>Cancel</Text>
                   </TouchableOpacity>
@@ -1878,7 +1896,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
               ) : (
                 <TouchableOpacity
                   onPress={() => handleAddMoreToShopping(item)}
-                  style={[styles.addMoreButton, { borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#1f2b1f" : "#f0faf0" }]}
+                  style={[styles.addMoreButton, { borderColor: themeColors.accentColor, backgroundColor: isDarkTheme ? "#1f2b1f" : "#f0faf0" }]}
                 >
                   <Ionicons name="cart-outline" size={15} color={themeColors.accentColor} />
                   <Text style={[styles.addMoreButtonText, { color: themeColors.accentColor }]}>Add More to Shopping</Text>
@@ -1889,7 +1907,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                 <View style={styles.addMoreConfirmRow}>
                   <TouchableOpacity
                     onPress={() => setConfirmRecipeItemId(null)}
-                    style={[styles.addMoreCancelButton, { borderColor: themeColors.mode === "dark" ? "#666" : "#bbb", backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5" }]}
+                    style={[styles.addMoreCancelButton, { borderColor: isDarkTheme ? "#666" : "#bbb", backgroundColor: isDarkTheme ? "#2a2a2a" : "#f5f5f5" }]}
                   >
                     <Text style={[styles.addMoreCancelButtonText, { color: themeColors.textColor }]}>Cancel</Text>
                   </TouchableOpacity>
@@ -1907,7 +1925,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
               ) : (
                 <TouchableOpacity
                   onPress={() => setConfirmRecipeItemId(itemKey)}
-                  style={[styles.addMoreButton, { borderColor: themeColors.accentColor, backgroundColor: themeColors.mode === "dark" ? "#2a2317" : "#fff7ee" }]}
+                  style={[styles.addMoreButton, { borderColor: themeColors.accentColor, backgroundColor: isDarkTheme ? "#2a2317" : "#fff7ee" }]}
                 >
                   <Ionicons name="restaurant-outline" size={15} color={themeColors.accentColor} />
                   <Text style={[styles.addMoreButtonText, { color: themeColors.accentColor }]}>Send to Recipes</Text>
@@ -1916,7 +1934,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
             </View>
           </View>
 
-            <Text style={[styles.deleteHint, { color: themeColors.mode === "dark" ? "#999" : "#999" }]}>Long press to edit • Swipe to delete</Text>
+            <Text style={[styles.deleteHint, { color: isDarkTheme ? "#999" : "#999" }]}>Long press to edit • Swipe to delete</Text>
           </TouchableOpacity>
         </Swipeable>
       </View>
@@ -1994,23 +2012,23 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                 paddingHorizontal: 10,
                 paddingVertical: 9,
                 borderRadius: 9,
-                backgroundColor: themeColors.mode === "dark" ? "#242424" : "#fff",
+                backgroundColor: isDarkTheme ? "#242424" : "#fff",
                 borderWidth: 1,
-                borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#e3e8e5",
+                borderColor: isDarkTheme ? "#3a3a3a" : "#e3e8e5",
               }]}
             >
               <View style={{ flex: 1, paddingRight: 8 }}>
                 <Text style={[{ fontSize: 17, fontWeight: "bold", color: themeColors.accentColor }]}>
                   Pending Confirmation ({pendingItems.length})
                 </Text>
-                <Text style={{ marginTop: 1, fontSize: 11, color: themeColors.mode === "dark" ? "#aaa" : "#777" }}>
+                <Text style={{ marginTop: 1, fontSize: 11, color: isDarkTheme ? "#aaa" : "#777" }}>
                   {showPendingItems ? "Tap to collapse" : "Tap to expand"}
                 </Text>
               </View>
               <Ionicons
                 name={showPendingItems ? "chevron-up" : "chevron-down"}
                 size={18}
-                color={themeColors.mode === "dark" ? "#ddd" : "#666"}
+                color={isDarkTheme ? "#ddd" : "#666"}
               />
             </TouchableOpacity>
 
@@ -2054,8 +2072,8 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                       setExpandedPendingId(prev => (prev === item.id ? null : item.id));
                     }}
                     style={{
-                      backgroundColor: themeColors.mode === "dark" ? "#242424" : "#fff",
-                      borderLeftColor: isExpanded ? themeColors.accentColor : (themeColors.mode === "dark" ? "#555" : "#ddd"),
+                      backgroundColor: isDarkTheme ? "#242424" : "#fff",
+                      borderLeftColor: isExpanded ? themeColors.accentColor : (isDarkTheme ? "#555" : "#ddd"),
                       borderLeftWidth: isExpanded ? 5 : 3,
                       borderRadius: 9,
                       paddingVertical: 8,
@@ -2079,7 +2097,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                           <Text style={{ fontSize: 10, fontWeight: "700", color: expiryColor }}>{expiresIn}d</Text>
                         </View>
                       </View>
-                      <Text style={{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#666", marginTop: 2 }}>
+                      <Text style={{ fontSize: 12, color: isDarkTheme ? "#aaa" : "#666", marginTop: 2 }}>
                         {currentQuantity} {currentUnit} • {currentLocation}
                       </Text>
                     </View>
@@ -2087,7 +2105,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                     <Ionicons
                       name={isExpanded ? "chevron-up" : "create-outline"}
                       size={18}
-                      color={isExpanded ? themeColors.accentColor : (themeColors.mode === "dark" ? "#9a9a9a" : "#8a8a8a")}
+                      color={isExpanded ? themeColors.accentColor : (isDarkTheme ? "#9a9a9a" : "#8a8a8a")}
                       style={{ marginLeft: 8 }}
                     />
                   </TouchableOpacity>
@@ -2095,19 +2113,19 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                   {isExpanded && (
                     <View
                       style={{
-                        backgroundColor: themeColors.mode === "dark" ? "#1a1a1a" : "#f7f9f8",
+                        backgroundColor: isDarkTheme ? "#1a1a1a" : "#f7f9f8",
                         borderRadius: 9,
                         borderWidth: 1,
-                        borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#e4ece7",
+                        borderColor: isDarkTheme ? "#3a3a3a" : "#e4ece7",
                         marginTop: 5,
                         padding: 8,
                       }}
                     >
                       <TextInput
                         style={{
-                          backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#fff",
+                          backgroundColor: isDarkTheme ? "#2a2a2a" : "#fff",
                           color: themeColors.textColor,
-                          borderColor: themeColors.mode === "dark" ? "#4a4a4a" : "#d8e4db",
+                          borderColor: isDarkTheme ? "#4a4a4a" : "#d8e4db",
                           borderWidth: 1,
                           borderRadius: 7,
                           paddingHorizontal: 10,
@@ -2119,7 +2137,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                         value={currentName}
                         onChangeText={(text) => setEditingPending(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || {}), name: text } }))}
                         placeholder="Item name"
-                        placeholderTextColor={themeColors.mode === "dark" ? "#666" : "#aaa"}
+                        placeholderTextColor={isDarkTheme ? "#666" : "#aaa"}
                         blurOnSubmit={false}
                         autoCorrect={false}
                       />
@@ -2128,9 +2146,9 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                         <TextInput
                           style={{
                             flex: 1,
-                            backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#fff",
+                            backgroundColor: isDarkTheme ? "#2a2a2a" : "#fff",
                             color: themeColors.textColor,
-                            borderColor: themeColors.mode === "dark" ? "#4a4a4a" : "#d8e4db",
+                            borderColor: isDarkTheme ? "#4a4a4a" : "#d8e4db",
                             borderWidth: 1,
                             borderRadius: 7,
                             paddingHorizontal: 10,
@@ -2138,7 +2156,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                             fontSize: 13,
                           }}
                           placeholder="Qty"
-                          placeholderTextColor={themeColors.mode === "dark" ? "#666" : "#aaa"}
+                          placeholderTextColor={isDarkTheme ? "#666" : "#aaa"}
                           value={currentQuantity}
                           onChangeText={(text) => setEditingPending(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || {}), quantity: text } }))}
                           keyboardType="decimal-pad"
@@ -2150,8 +2168,8 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                           onPress={() => setPendingUnitPickerItemId(item.id)}
                           style={{
                             flex: 0.72,
-                            backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#fff",
-                            borderColor: themeColors.mode === "dark" ? "#4a4a4a" : "#d8e4db",
+                            backgroundColor: isDarkTheme ? "#2a2a2a" : "#fff",
+                            borderColor: isDarkTheme ? "#4a4a4a" : "#d8e4db",
                             borderWidth: 1,
                             borderRadius: 7,
                             paddingHorizontal: 10,
@@ -2164,7 +2182,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                           <Text style={{ color: themeColors.textColor, fontSize: 13, fontWeight: "600" }} numberOfLines={1}>
                             {currentUnit || "Unit"}
                           </Text>
-                          <Ionicons name="chevron-down" size={14} color={themeColors.mode === "dark" ? "#aaa" : "#666"} />
+                          <Ionicons name="chevron-down" size={14} color={isDarkTheme ? "#aaa" : "#666"} />
                         </TouchableOpacity>
                       </View>
 
@@ -2184,7 +2202,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                                 paddingHorizontal: 9,
                                 paddingVertical: 5,
                                 borderRadius: 14,
-                                backgroundColor: selected ? themeColors.accentColor : (themeColors.mode === "dark" ? "#333" : "#e9ecea"),
+                                backgroundColor: selected ? themeColors.accentColor : (isDarkTheme ? "#333" : "#e9ecea"),
                               }}
                             >
                               <Text style={{ color: selected ? "#fff" : themeColors.textColor, fontSize: 11, fontWeight: selected ? "700" : "500" }}>{loc}</Text>
@@ -2250,7 +2268,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                   activeOpacity={1}
                   onPress={() => {}}
                   style={{
-                    backgroundColor: themeColors.mode === "dark" ? "#252525" : "#fff",
+                    backgroundColor: isDarkTheme ? "#252525" : "#fff",
                     borderRadius: 14,
                     padding: 14,
                     maxHeight: 420,
@@ -2280,7 +2298,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                           paddingHorizontal: 10,
                           borderRadius: 8,
                           marginBottom: 6,
-                          backgroundColor: themeColors.mode === "dark" ? "#333" : "#f3f3f3",
+                          backgroundColor: isDarkTheme ? "#333" : "#f3f3f3",
                         }}
                       >
                         <Text style={{ color: themeColors.textColor, fontSize: 14, fontWeight: "600" }}>{unitOpt}</Text>
@@ -2298,13 +2316,13 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
           <View>
             <TouchableOpacity
               onPress={() => setShowExpiredItems(!showExpiredItems)}
-              style={[{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginHorizontal: 16, marginTop: 16, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 12, backgroundColor: themeColors.mode === "dark" ? "#444" : "#FFE6E6", borderRadius: 8, borderLeftColor: "#F44336", borderLeftWidth: 4 }]}
+              style={[{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginHorizontal: 16, marginTop: 16, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 12, backgroundColor: isDarkTheme ? "#444" : "#FFE6E6", borderRadius: 8, borderLeftColor: "#F44336", borderLeftWidth: 4 }]}
             >
               <View style={{ flex: 1 }}>
                 <Text style={[{ fontSize: 18, fontWeight: "bold", color: "#F44336" }]}>
                   Expired Items ({expiredItems.length})
                 </Text>
-                <Text style={[{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#999", marginTop: 4 }]}>
+                <Text style={[{ fontSize: 12, color: isDarkTheme ? "#aaa" : "#999", marginTop: 4 }]}>
                   Tap to review and remove
                 </Text>
               </View>
@@ -2323,7 +2341,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                   return (
                     <View 
                       key={`${item.name}-${item.id}`}
-                      style={[{ backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff", borderLeftColor: "#F44336", borderLeftWidth: 4, borderRadius: 8, marginHorizontal: 16, marginBottom: 10, padding: 12 }]}
+                      style={[{ backgroundColor: isDarkTheme ? "#333" : "#fff", borderLeftColor: "#F44336", borderLeftWidth: 4, borderRadius: 8, marginHorizontal: 16, marginBottom: 10, padding: 12 }]}
                     >
                       <View style={{ marginBottom: 8 }}>
                         <Text style={[{ fontSize: 16, fontWeight: "600", color: themeColors.textColor }]}>
@@ -2336,10 +2354,10 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                       
                       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                         <View>
-                          <Text style={[{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#666" }]}>
+                          <Text style={[{ fontSize: 12, color: isDarkTheme ? "#aaa" : "#666" }]}>
                             {expiredConverted.quantityText} {expiredConverted.unitText}
                           </Text>
-                          <Text style={[{ fontSize: 12, color: themeColors.mode === "dark" ? "#aaa" : "#666", marginTop: 2 }]}>
+                          <Text style={[{ fontSize: 12, color: isDarkTheme ? "#aaa" : "#666", marginTop: 2 }]}>
                             {item.location}
                           </Text>
                         </View>
@@ -2380,20 +2398,20 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
           >
             <View style={[{ marginHorizontal: 12, marginTop: 0, marginBottom: 0 }]}>
               {/* Search Bar */}
-              <View style={[{ backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#fff", borderRadius: 9, paddingHorizontal: 10, paddingVertical: 8, marginBottom: 8, flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: themeColors.mode === "dark" ? "#444" : "#e3e3e3" }]}>
-                <Text style={[{ color: themeColors.mode === "dark" ? "#888" : "#999", marginRight: 6 }]}>⌕</Text>
+              <View style={[{ backgroundColor: isDarkTheme ? "#2a2a2a" : "#fff", borderRadius: 9, paddingHorizontal: 10, paddingVertical: 8, marginBottom: 8, flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: isDarkTheme ? "#444" : "#e3e3e3" }]}>
+                <Text style={[{ color: isDarkTheme ? "#888" : "#999", marginRight: 6 }]}>⌕</Text>
                 <TextInput
                   ref={pantrySearchInputRef}
                   style={[{ flex: 1, color: themeColors.textColor }]}
                   placeholder="Search pantry items..."
-                  placeholderTextColor={themeColors.mode === "dark" ? "#777" : "#aaa"}
+                  placeholderTextColor={isDarkTheme ? "#777" : "#aaa"}
                   value={pantrySearchQuery}
                   onChangeText={handlePantrySearchChange}
                   blurOnSubmit={false}
                 />
                 {pantrySearchQuery ? (
                   <TouchableOpacity onPress={() => setPantrySearchQuery("")} style={{ paddingHorizontal: 6 }}>
-                    <Text style={[{ color: themeColors.mode === "dark" ? "#bbb" : "#888" }]}>Clear</Text>
+                    <Text style={[{ color: isDarkTheme ? "#bbb" : "#888" }]}>Clear</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -2407,9 +2425,9 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                   paddingVertical: 8,
                   borderRadius: 9,
                   alignItems: "center",
-                  backgroundColor: activeFilterPanel === "food" ? themeColors.accentColor : (themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5"),
+                  backgroundColor: activeFilterPanel === "food" ? themeColors.accentColor : (isDarkTheme ? "#2a2a2a" : "#f5f5f5"),
                   borderWidth: activeFilterPanel === "food" ? 0 : 1,
-                  borderColor: activeFilterPanel === "food" ? "transparent" : (themeColors.mode === "dark" ? "#444" : "#e0e0e0"),
+                  borderColor: activeFilterPanel === "food" ? "transparent" : (isDarkTheme ? "#444" : "#e0e0e0"),
                 }}
               >
                 <Text style={{ color: activeFilterPanel === "food" ? "#fff" : themeColors.textColor, fontWeight: "700", fontSize: 13 }}>
@@ -2424,9 +2442,9 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                   paddingVertical: 8,
                   borderRadius: 9,
                   alignItems: "center",
-                  backgroundColor: activeFilterPanel === "location" ? themeColors.accentColor : (themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5"),
+                  backgroundColor: activeFilterPanel === "location" ? themeColors.accentColor : (isDarkTheme ? "#2a2a2a" : "#f5f5f5"),
                   borderWidth: activeFilterPanel === "location" ? 0 : 1,
-                  borderColor: activeFilterPanel === "location" ? "transparent" : (themeColors.mode === "dark" ? "#444" : "#e0e0e0"),
+                  borderColor: activeFilterPanel === "location" ? "transparent" : (isDarkTheme ? "#444" : "#e0e0e0"),
                 }}
               >
                 <Text style={{ color: activeFilterPanel === "location" ? "#fff" : themeColors.textColor, fontWeight: "700", fontSize: 13 }}>
@@ -2437,7 +2455,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
 
             {activeFilterPanel === "food" && (
               <>
-                <Text style={[{ fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4, color: themeColors.mode === "dark" ? "#bbb" : "#666", marginBottom: 6 }]}>Food Type</Text>
+                <Text style={[{ fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4, color: isDarkTheme ? "#bbb" : "#666", marginBottom: 6 }]}>Food Type</Text>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -2452,7 +2470,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                         key={category.key}
                         onPress={() => setSelectedPantryCategory(category.key)}
                         style={[
-                          { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 7, backgroundColor: isSelected ? themeColors.accentColor : (themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5"), borderWidth: isSelected ? 0 : 1, borderColor: isSelected ? "transparent" : (themeColors.mode === "dark" ? "#444" : "#e0e0e0") }
+                          { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 7, backgroundColor: isSelected ? themeColors.accentColor : (isDarkTheme ? "#2a2a2a" : "#f5f5f5"), borderWidth: isSelected ? 0 : 1, borderColor: isSelected ? "transparent" : (isDarkTheme ? "#444" : "#e0e0e0") }
                         ]}
                       >
                         <Text style={[{ color: isSelected ? "#fff" : themeColors.textColor, fontWeight: isSelected ? "700" : "500", fontSize: 13 }]}>{category.label}</Text>
@@ -2465,7 +2483,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
 
             {activeFilterPanel === "location" && (
               <>
-                <Text style={[{ fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4, color: themeColors.mode === "dark" ? "#bbb" : "#666", marginBottom: 6 }]}>Storage Location</Text>
+                <Text style={[{ fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4, color: isDarkTheme ? "#bbb" : "#666", marginBottom: 6 }]}>Storage Location</Text>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -2486,9 +2504,9 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                           paddingHorizontal: 10,
                           paddingVertical: 7,
                           borderRadius: 7,
-                          backgroundColor: isSelected ? themeColors.accentColor : (themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5"),
+                          backgroundColor: isSelected ? themeColors.accentColor : (isDarkTheme ? "#2a2a2a" : "#f5f5f5"),
                           borderWidth: isSelected ? 0 : 1,
-                          borderColor: isSelected ? "transparent" : (themeColors.mode === "dark" ? "#444" : "#e0e0e0"),
+                          borderColor: isSelected ? "transparent" : (isDarkTheme ? "#444" : "#e0e0e0"),
                         }}
                       >
                         <Text style={{ color: isSelected ? "#fff" : themeColors.textColor, fontWeight: isSelected ? "700" : "500", fontSize: 13 }}>{label}</Text>
@@ -2514,17 +2532,17 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
               width: 72,
               height: 72,
               borderRadius: 36,
-              backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#fff4ed",
+              backgroundColor: isDarkTheme ? "#2a2a2a" : "#fff4ed",
               alignItems: "center",
               justifyContent: "center",
               marginBottom: 20,
               borderWidth: 1,
-              borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#ffe0c7",
+              borderColor: isDarkTheme ? "#3a3a3a" : "#ffe0c7",
             }}>
               <Ionicons name="basket-outline" size={34} color={themeColors.accentColor} />
             </View>
             <Text style={{ fontSize: 20, fontWeight: "800", color: themeColors.textColor, textAlign: "center", marginBottom: 8 }}>Your pantry is empty</Text>
-            <Text style={{ fontSize: 14, color: themeColors.mode === "dark" ? "#888" : "#999", textAlign: "center", lineHeight: 21, marginBottom: 28 }}>
+            <Text style={{ fontSize: 14, color: isDarkTheme ? "#888" : "#999", textAlign: "center", lineHeight: 21, marginBottom: 28 }}>
               Add items you have at home so Insert can help you plan meals and track what{"'s"} fresh.
             </Text>
             <TouchableOpacity
@@ -2551,9 +2569,9 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
           />
         ))}
         {items.length > 0 && filteredItems.length === 0 && (
-          <View style={[{ marginHorizontal: 16, marginTop: 20, padding: 16, backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#f5f5f5", borderRadius: 10, alignItems: "center" }]}>
+          <View style={[{ marginHorizontal: 16, marginTop: 20, padding: 16, backgroundColor: isDarkTheme ? "#2a2a2a" : "#f5f5f5", borderRadius: 10, alignItems: "center" }]}>
             <Text style={[{ color: themeColors.textColor, fontSize: 15, fontWeight: "600" }]}>No items found</Text>
-            <Text style={[{ color: themeColors.mode === "dark" ? "#aaa" : "#666", fontSize: 13, marginTop: 4 }]}>Try adjusting your search or filters</Text>
+            <Text style={[{ color: isDarkTheme ? "#aaa" : "#666", fontSize: 13, marginTop: 4 }]}>Try adjusting your search or filters</Text>
           </View>
         )}
       </ScrollView>
@@ -2571,3 +2589,4 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
     </View>
   );
 }
+
