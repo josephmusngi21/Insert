@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert } from "react-native";
+import * as Location from "expo-location";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { findItemCollisions } from "@/screens/utils/locationUtils";
+import { startGroceryGeofenceTracking } from "@/screens/utils/groceryGeofenceTracker";
 import styles from "./LocationsScreen.styles";
 
 interface LocationsScreenProps {
@@ -21,12 +23,24 @@ const DEFAULT_LOCATIONS: Record<string, string[]> = {
   "Counter": ["tomato", "onion", "garlic", "bread", "fruit", "apple", "banana", "orange", "lemon"],
 };
 
+type GroceryStoreAlert = {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  radius: number;
+};
+
 export default function LocationsScreen({ onBack, theme, showInternalHeader = true }: LocationsScreenProps) {
   const [locations, setLocations] = useState<Record<string, string[]>>(DEFAULT_LOCATIONS);
   const [editingLocation, setEditingLocation] = useState<string | null>(null);
   const [newItemName, setNewItemName] = useState("");
   const [newLocationName, setNewLocationName] = useState("");
-  const [activeTab, setActiveTab] = useState<'locations' | 'collisions'>('locations');
+  const [activeTab, setActiveTab] = useState<'locations' | 'collisions' | 'stores'>('locations');
+  const [storeAlerts, setStoreAlerts] = useState<GroceryStoreAlert[]>([]);
+  const [storeNameInput, setStoreNameInput] = useState("");
+  const [storeRadiusInput, setStoreRadiusInput] = useState("140");
+  const [savingStore, setSavingStore] = useState(false);
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
 
@@ -61,6 +75,52 @@ export default function LocationsScreen({ onBack, theme, showInternalHeader = tr
       },
       (error) => {
         console.error("Error loading locations:", error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    const storesRef = doc(db, "users", userId, "settings", "groceryStores");
+    const unsubscribe = onSnapshot(
+      storesRef,
+      (docSnap) => {
+        if (!docSnap.exists()) {
+          setStoreAlerts([]);
+          return;
+        }
+
+        const rawStores = docSnap.data()?.stores;
+        if (!Array.isArray(rawStores)) {
+          setStoreAlerts([]);
+          return;
+        }
+
+        const normalized = rawStores
+          .map((entry: any): GroceryStoreAlert | null => {
+            const id = typeof entry?.id === "string" ? entry.id : "";
+            const name = typeof entry?.name === "string" ? entry.name.trim() : "";
+            const latitude = Number(entry?.latitude);
+            const longitude = Number(entry?.longitude);
+            const radius = Number(entry?.radius);
+            if (!id || !name || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+            return {
+              id,
+              name,
+              latitude,
+              longitude,
+              radius: Number.isFinite(radius) ? Math.max(80, Math.min(500, Math.round(radius))) : 140,
+            };
+          })
+          .filter((entry): entry is GroceryStoreAlert => entry !== null);
+
+        setStoreAlerts(normalized);
+      },
+      (error) => {
+        console.error("Error loading grocery stores:", error);
       }
     );
 
@@ -169,6 +229,78 @@ export default function LocationsScreen({ onBack, theme, showInternalHeader = tr
     );
   };
 
+  const addStoreFromCurrentLocation = async () => {
+    if (!userId) return;
+
+    const name = storeNameInput.trim();
+    if (!name) {
+      Alert.alert("Missing name", "Give this store alert a name like Walmart or Whole Foods.");
+      return;
+    }
+
+    const radius = Number(storeRadiusInput);
+    const safeRadius = Number.isFinite(radius) ? Math.max(80, Math.min(500, Math.round(radius))) : 140;
+
+    try {
+      setSavingStore(true);
+
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== "granted") {
+        Alert.alert("Permission needed", "Location permission is required to save a store alert.");
+        return;
+      }
+
+      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const nextStore: GroceryStoreAlert = {
+        id: `store-${Date.now()}`,
+        name,
+        latitude: current.coords.latitude,
+        longitude: current.coords.longitude,
+        radius: safeRadius,
+      };
+
+      const nextStores = [...storeAlerts, nextStore];
+      await setDoc(
+        doc(db, "users", userId, "settings", "groceryStores"),
+        {
+          stores: nextStores,
+          updatedAt: Date.now(),
+        },
+        { merge: true }
+      );
+      await startGroceryGeofenceTracking(userId);
+
+      setStoreNameInput("");
+      setStoreRadiusInput("140");
+      Alert.alert("Store saved", "Grocery reminder geofence is now active for this location.");
+    } catch (error) {
+      console.error("Error saving grocery store alert:", error);
+      Alert.alert("Error", "Could not save this store alert right now.");
+    } finally {
+      setSavingStore(false);
+    }
+  };
+
+  const removeStoreAlert = async (storeId: string) => {
+    if (!userId) return;
+
+    const nextStores = storeAlerts.filter((store) => store.id !== storeId);
+    try {
+      await setDoc(
+        doc(db, "users", userId, "settings", "groceryStores"),
+        {
+          stores: nextStores,
+          updatedAt: Date.now(),
+        },
+        { merge: true }
+      );
+      await startGroceryGeofenceTracking(userId);
+    } catch (error) {
+      console.error("Error removing grocery store alert:", error);
+      Alert.alert("Error", "Could not remove this store alert.");
+    }
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: themeColors.backgroundColor }]}>
       {/* Header */}
@@ -226,6 +358,23 @@ export default function LocationsScreen({ onBack, theme, showInternalHeader = tr
             ]}
           >
             Collisions {Object.keys(collisions).length > 0 && `(${Object.keys(collisions).length})`}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setActiveTab('stores')}
+          style={[
+            styles.tabButton,
+            activeTab === 'stores' && { borderBottomColor: themeColors.accentColor, borderBottomWidth: 3 },
+          ]}
+        >
+          <Text
+            style={[
+              styles.tabButtonText,
+              { color: activeTab === 'stores' ? themeColors.accentColor : "#999" },
+              activeTab === 'stores' && { fontWeight: "700" },
+            ]}
+          >
+            Store Alerts {storeAlerts.length > 0 && `(${storeAlerts.length})`}
           </Text>
         </TouchableOpacity>
       </View>
@@ -374,6 +523,79 @@ export default function LocationsScreen({ onBack, theme, showInternalHeader = tr
                         <Text style={{ color: "#fff", fontSize: 12, marginTop: 4 }}>Use this location</Text>
                       </TouchableOpacity>
                     ))}
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
+        {activeTab === 'stores' && (
+          <View>
+            <View style={[styles.section, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}> 
+              <Text style={[styles.sectionTitle, { color: themeColors.textColor }]}>Grocery Store Alerts</Text>
+              <Text style={{ color: themeColors.mode === "dark" ? "#aaa" : "#666", marginBottom: 10, fontSize: 13, lineHeight: 18 }}>
+                Stand inside a store and tap save. Insert will remind you about your shopping list when you return.
+              </Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    color: themeColors.textColor,
+                    borderColor: themeColors.accentColor,
+                    backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9",
+                    marginBottom: 8,
+                  },
+                ]}
+                placeholder="Store name (e.g., Walmart)"
+                placeholderTextColor={themeColors.mode === "dark" ? "#888" : "#bbb"}
+                value={storeNameInput}
+                onChangeText={setStoreNameInput}
+              />
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    color: themeColors.textColor,
+                    borderColor: themeColors.accentColor,
+                    backgroundColor: themeColors.mode === "dark" ? "#444" : "#f9f9f9",
+                    marginBottom: 10,
+                  },
+                ]}
+                placeholder="Radius meters (80-500, default 140)"
+                placeholderTextColor={themeColors.mode === "dark" ? "#888" : "#bbb"}
+                value={storeRadiusInput}
+                onChangeText={setStoreRadiusInput}
+                keyboardType="numeric"
+              />
+              <TouchableOpacity
+                onPress={addStoreFromCurrentLocation}
+                disabled={savingStore}
+                style={[styles.addButton, { backgroundColor: savingStore ? "#999" : themeColors.accentColor, alignSelf: "flex-start" }]}
+              >
+                <Text style={styles.addButtonText}>{savingStore ? "Saving..." : "Use Current Location"}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {storeAlerts.length === 0 ? (
+              <View style={[styles.section, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}> 
+                <Text style={{ color: themeColors.mode === "dark" ? "#bbb" : "#666", textAlign: "center" }}>
+                  No store alerts yet.
+                </Text>
+              </View>
+            ) : (
+              storeAlerts.map((store) => (
+                <View key={store.id} style={[styles.locationCard, { backgroundColor: themeColors.mode === "dark" ? "#333" : "#fff" }]}> 
+                  <View style={styles.locationHeader}>
+                    <View style={{ flex: 1, paddingRight: 12 }}>
+                      <Text style={[styles.locationName, { color: themeColors.accentColor }]}>{store.name}</Text>
+                      <Text style={{ color: themeColors.mode === "dark" ? "#aaa" : "#666", marginTop: 4, fontSize: 12 }}>
+                        {store.latitude.toFixed(5)}, {store.longitude.toFixed(5)} • {store.radius}m
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => removeStoreAlert(store.id)}>
+                      <Text style={{ color: "#ff6b6b", fontWeight: "700" }}>Remove</Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
               ))
