@@ -79,6 +79,10 @@ const getContrastText = (background: string): string => {
   return luminance > 0.56 ? "#111827" : "#f9fafb";
 };
 
+const getModeFromBackground = (background: string): "light" | "dark" => {
+  return getContrastText(background) === "#f9fafb" ? "dark" : "light";
+};
+
 const makeCustom = (theme: ThemeColors): ThemeColors => ({ ...theme, mode: "custom" });
 
 export default function ThemeCustomizerScreen({
@@ -121,7 +125,11 @@ export default function ThemeCustomizerScreen({
   };
 
   const handleConfirm = () => {
-    onThemeChange?.(tempTheme);
+    const normalizedTheme: ThemeColors = {
+      ...tempTheme,
+      mode: tempTheme.mode === "custom" ? getModeFromBackground(tempTheme.backgroundColor) : tempTheme.mode,
+    };
+    onThemeChange?.(normalizedTheme);
     onBack?.();
   };
 
