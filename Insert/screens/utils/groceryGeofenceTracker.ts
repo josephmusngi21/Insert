@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
-import * as Notifications from "expo-notifications";
 import * as TaskManager from "expo-task-manager";
+import Constants from "expo-constants";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { readShoppingReminderItems } from "@/screens/utils/shoppingReminderCache";
@@ -24,16 +24,33 @@ const LAST_NOTIFICATION_AT_KEY = "insert:lastGroceryNotificationAt";
 const NOTIFICATION_COOLDOWN_MS = 30 * 60 * 1000;
 const DEFAULT_RADIUS_METERS = 140;
 const MAX_REGIONS = 20;
+const isExpoGoRuntime = Constants.appOwnership === "expo";
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+type NotificationsModule = typeof import("expo-notifications");
+let notificationsModulePromise: Promise<NotificationsModule> | null = null;
+let notificationHandlerConfigured = false;
+
+const getNotificationsModule = async (): Promise<NotificationsModule> => {
+  if (!notificationsModulePromise) {
+    notificationsModulePromise = import("expo-notifications");
+  }
+  return notificationsModulePromise;
+};
+
+const ensureNotificationHandler = async () => {
+  if (notificationHandlerConfigured) return;
+  const Notifications = await getNotificationsModule();
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+  notificationHandlerConfigured = true;
+};
 
 const sanitizeRadius = (radius?: number): number => {
   if (typeof radius !== "number" || !Number.isFinite(radius)) return DEFAULT_RADIUS_METERS;
@@ -106,6 +123,7 @@ if (!TaskManager.isTaskDefined(GROCERY_GEOFENCE_TASK)) {
         JSON.stringify({ source: "geofence", store: storeName, at: Date.now() })
       );
 
+      const Notifications = await getNotificationsModule();
       await Notifications.scheduleNotificationAsync({
         content: {
           title: "You are near a grocery store",
@@ -126,6 +144,8 @@ if (!TaskManager.isTaskDefined(GROCERY_GEOFENCE_TASK)) {
 }
 
 const ensureNotificationChannel = async () => {
+  await ensureNotificationHandler();
+  const Notifications = await getNotificationsModule();
   await Notifications.setNotificationChannelAsync("shopping-reminders", {
     name: "Shopping reminders",
     importance: Notifications.AndroidImportance.DEFAULT,
@@ -134,20 +154,42 @@ const ensureNotificationChannel = async () => {
   });
 };
 
+const isLocationUsageDescriptionError = (error: unknown): boolean => {
+  const message =
+    typeof error === "string"
+      ? error
+      : (error && typeof error === "object" && "message" in error && typeof (error as any).message === "string")
+        ? (error as any).message
+        : "";
+
+  return /NSLocation.*UsageDescription|Info\.plist|geolocation/i.test(message);
+};
+
 const requestRuntimePermissions = async (): Promise<boolean> => {
-  const notificationPermission = await Notifications.getPermissionsAsync();
-  if (notificationPermission.status !== "granted") {
-    const requested = await Notifications.requestPermissionsAsync();
-    if (requested.status !== "granted") return false;
+  try {
+    const Notifications = await getNotificationsModule();
+    const notificationPermission = await Notifications.getPermissionsAsync();
+    if (notificationPermission.status !== "granted") {
+      const requested = await Notifications.requestPermissionsAsync();
+      if (requested.status !== "granted") return false;
+    }
+
+    const foreground = await Location.requestForegroundPermissionsAsync();
+    if (foreground.status !== "granted") return false;
+
+    const background = await Location.requestBackgroundPermissionsAsync();
+    if (background.status !== "granted") return false;
+
+    return true;
+  } catch (error) {
+    if (isLocationUsageDescriptionError(error)) {
+      console.warn(
+        "Geofence tracking unavailable in current runtime. Use a rebuilt dev/client app so iOS Info.plist location usage descriptions are included."
+      );
+      return false;
+    }
+    throw error;
   }
-
-  const foreground = await Location.requestForegroundPermissionsAsync();
-  if (foreground.status !== "granted") return false;
-
-  const background = await Location.requestBackgroundPermissionsAsync();
-  if (background.status !== "granted") return false;
-
-  return true;
 };
 
 const loadGroceryStores = async (userId: string): Promise<GroceryStoreRegion[]> => {
@@ -178,28 +220,39 @@ const loadGroceryStores = async (userId: string): Promise<GroceryStoreRegion[]> 
 
 export const startGroceryGeofenceTracking = async (userId: string): Promise<void> => {
   if (!userId) return;
+  if (isExpoGoRuntime) return;
 
-  const hasPermissions = await requestRuntimePermissions();
-  if (!hasPermissions) return;
+  try {
+    const hasPermissions = await requestRuntimePermissions();
+    if (!hasPermissions) return;
 
-  await ensureNotificationChannel();
+    await ensureNotificationChannel();
 
-  const stores = await loadGroceryStores(userId);
-  const regions = toTaskRegions(stores);
+    const stores = await loadGroceryStores(userId);
+    const regions = toTaskRegions(stores);
 
-  const started = await Location.hasStartedGeofencingAsync(GROCERY_GEOFENCE_TASK);
-  if (regions.length === 0) {
+    const started = await Location.hasStartedGeofencingAsync(GROCERY_GEOFENCE_TASK);
+    if (regions.length === 0) {
+      if (started) {
+        await Location.stopGeofencingAsync(GROCERY_GEOFENCE_TASK);
+      }
+      return;
+    }
+
     if (started) {
       await Location.stopGeofencingAsync(GROCERY_GEOFENCE_TASK);
     }
-    return;
-  }
 
-  if (started) {
-    await Location.stopGeofencingAsync(GROCERY_GEOFENCE_TASK);
+    await Location.startGeofencingAsync(GROCERY_GEOFENCE_TASK, regions);
+  } catch (error) {
+    if (isLocationUsageDescriptionError(error)) {
+      console.warn(
+        "Geofence tracking skipped because location usage descriptions are unavailable in this app binary."
+      );
+      return;
+    }
+    throw error;
   }
-
-  await Location.startGeofencingAsync(GROCERY_GEOFENCE_TASK, regions);
 };
 
 export const stopGroceryGeofenceTracking = async (): Promise<void> => {
