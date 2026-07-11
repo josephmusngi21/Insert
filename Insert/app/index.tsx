@@ -1,7 +1,7 @@
 import { useState, useCallback, useLayoutEffect, useEffect, useMemo, memo, useRef } from "react";
 import { Text, View, TouchableOpacity, Dimensions, Modal, Platform, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import * as Notifications from "expo-notifications";
+import Constants from "expo-constants";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring, runOnJS, cancelAnimation } from "react-native-reanimated";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
@@ -653,8 +653,10 @@ export default function Index() {
 
   useEffect(() => {
     if (!isLoggedIn) return;
+    if (Constants.appOwnership === "expo") return;
 
     let active = true;
+    let notificationResponseSub: { remove: () => void } | null = null;
     const maybeOpenFromReminder = async () => {
       const pendingOpen = await consumePendingShoppingOpen();
       if (active && pendingOpen) {
@@ -664,24 +666,28 @@ export default function Index() {
 
     void maybeOpenFromReminder();
 
-    const notificationResponseSub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const destination = response.notification.request.content.data?.destination;
-      if (destination === "shopping") {
-        openShoppingTab();
-      }
-    });
+    void (async () => {
+      const Notifications = await import("expo-notifications");
+      if (!active) return;
 
-    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      notificationResponseSub = Notifications.addNotificationResponseReceivedListener((response) => {
+        const destination = response.notification.request.content.data?.destination;
+        if (destination === "shopping") {
+          openShoppingTab();
+        }
+      });
+
+      const response = await Notifications.getLastNotificationResponseAsync();
       if (!active || !response) return;
       const destination = response.notification.request.content.data?.destination;
       if (destination === "shopping") {
         openShoppingTab();
       }
-    });
+    })();
 
     return () => {
       active = false;
-      notificationResponseSub.remove();
+      notificationResponseSub?.remove();
     };
   }, [isLoggedIn, openShoppingTab]);
 

@@ -10,7 +10,6 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "owner": "insert-app",
-    "privacy": "public",
     "platforms": [
       "ios",
       "android"
@@ -44,7 +43,6 @@
         "tabletImage": "./assets/images/splash-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "usesCloudStorage": false,
       "usesAppleSignIn": false
     },
     "android": {
@@ -63,27 +61,8 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
-        "POST_NOTIFICATIONS"
-      ],
-      "usesPermission": [
-        {
-          "name": "android.permission.INTERNET"
-        },
-        {
-          "name": "android.permission.CAMERA"
-        },
-        {
-          "name": "android.permission.ACCESS_COARSE_LOCATION"
-        },
-        {
-          "name": "android.permission.ACCESS_FINE_LOCATION"
-        },
-        {
-          "name": "android.permission.ACCESS_BACKGROUND_LOCATION"
-        },
-        {
-          "name": "android.permission.POST_NOTIFICATIONS"
-        }
+        "POST_NOTIFICATIONS",
+        "INTERNET"
       ]
     },
     "web": {
