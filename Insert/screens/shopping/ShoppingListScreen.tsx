@@ -8,6 +8,7 @@ import { shoppingCol, shoppingDoc, pendingCol } from "@/screens/firebaseAuthLogi
 import { getAuth } from "firebase/auth";
 import { type ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import { getLocationForItem } from "@/screens/utils/locationUtils";
+import { saveShoppingReminderItems } from "@/screens/utils/shoppingReminderCache";
 import styles from "./ShoppingListScreen.styles";
 
 interface ShoppingItem {
@@ -85,6 +86,14 @@ export default function ShoppingListScreen({ theme, showAddItemModal, setShowAdd
 
     return () => unsubscribe();
   }, [userId]);
+
+  useEffect(() => {
+    const pendingNames = items
+      .filter((item) => !item.completed)
+      .map((item) => item.name || "")
+      .slice(0, 8);
+    void saveShoppingReminderItems(pendingNames);
+  }, [items]);
 
   // Load locations from Firestore
   useEffect(() => {
