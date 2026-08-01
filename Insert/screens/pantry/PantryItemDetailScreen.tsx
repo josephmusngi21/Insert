@@ -1,4 +1,5 @@
 import { estimateRecipeMacros } from "@/screens/utils/nutritionUtils";
+import * as ImagePicker from "expo-image-picker";
 import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity, FlatList, StyleSheet, Modal, Platform, Dimensions, ActivityIndicator, Keyboard, TouchableWithoutFeedback, Animated } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -9,6 +10,8 @@ import { onSnapshot, addDoc, deleteDoc, doc, writeBatch, getDoc, setDoc, updateD
 import { pantryCol, pantryDoc, pendingCol, pendingDoc, settingsDoc, productDoc, ProductEntry, shoppingCol, recipesCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import { formatQuantityForPreference, PreferredWeightUnit, UnitDisplayMode } from "@/screens/utils/unitUtils";
+import { parseReceiptText, type LearnedPantryItem, type ReceiptItemCandidate, normalizeReceiptItemName } from "@/screens/utils/receiptParser";
+import { extractReceiptTextFromImage } from "@/screens/utils/receiptOcr";
 import styles from "./PantryItemDetailScreen.styles";
 
 type PantryItem = {
@@ -20,6 +23,14 @@ type PantryItem = {
   location: string;
   dateAdded: string;
   expirationDate: string;
+  netWeightGrams?: number;
+  nutritionPer100?: {
+    calories?: number;
+    protein?: number;
+    carbs?: number;
+    fat?: number;
+    fiber?: number;
+  };
   _firestoreId?: string;
 };
 
@@ -33,6 +44,8 @@ type PendingItem = {
   expirationDate: string;
   userId: string;
 };
+
+type PantryViewMode = "list" | "grid";
 
 const isDarkBackground = (backgroundColor: string): boolean => {
   const normalized = backgroundColor.replace("#", "").trim();
@@ -103,6 +116,29 @@ const detectItemCategory = (itemName: string): string => {
 
   // Default to pantry
   return "pantry";
+};
+
+const parseOptionalNumber = (value: string): number | undefined => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return undefined;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const formatNutritionPreview = (nutrition?: {
+  calories?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
+  fiber?: number;
+}): string | null => {
+  if (!nutrition) return null;
+  const parts: string[] = [];
+  if (typeof nutrition.calories === "number") parts.push(`${Math.round(nutrition.calories)} kcal`);
+  if (typeof nutrition.protein === "number") parts.push(`P ${Number(nutrition.protein).toFixed(1)}g`);
+  if (typeof nutrition.carbs === "number") parts.push(`C ${Number(nutrition.carbs).toFixed(1)}g`);
+  if (typeof nutrition.fat === "number") parts.push(`F ${Number(nutrition.fat).toFixed(1)}g`);
+  return parts.length > 0 ? `${parts.join(" • ")} / 100g` : null;
 };
 
 type ItemDetailsProps = { item: PantryItem };
@@ -237,14 +273,12 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
   const [confirmBeforeAddToShopping, setConfirmBeforeAddToShopping] = useState(true);
   const [showPendingItems, setShowPendingItems] = useState(true);
   const [pantrySearchQuery, setPantrySearchQuery] = useState("");
+  const [pantryViewMode, setPantryViewMode] = useState<PantryViewMode>("list");
   const [selectedPantryCategory, setSelectedPantryCategory] = useState<string>("all");
   const [selectedStorageLocation, setSelectedStorageLocation] = useState<string>("all");
   const [activeFilterPanel, setActiveFilterPanel] = useState<"food" | "location" | null>(null);
   const [availableStorageLocations, setAvailableStorageLocations] = useState<string[]>(STORAGE_LOCATIONS);
-  const mainScrollRef = useRef<ScrollView | null>(null);
-  const stickySectionHeightRef = useRef(0);
-  const isAutoSnapInProgressRef = useRef(false);
-  const pantrySearchInputRef = useRef<any>(null);
+  const hasLoadedViewModeRef = useRef(false);
   const kitchenToggleAnim = useRef(new Animated.Value(kitchenTab === "recipes" ? 0 : 1)).current;
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
@@ -269,21 +303,41 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
       try {
         const snap = await getDoc(settingsDoc(userId, "preferences"));
         if (snap.exists()) {
-          const pref = snap.data().preferredWeightUnit;
-          const displayMode = snap.data().unitDisplayMode;
-          const confirmPref = snap.data().confirmBeforeAddToShopping;
-          const showExpiredPref = snap.data().showExpiredByDefault;
+          const data = snap.data();
+          const pref = data.preferredWeightUnit;
+          const displayMode = data.unitDisplayMode;
+          const confirmPref = data.confirmBeforeAddToShopping;
+          const showExpiredPref = data.showExpiredByDefault;
+          const viewMode = data.pantryViewMode;
           if (pref === "g" || pref === "lb") setPreferredWeightUnit(pref);
           if (displayMode === "converted" || displayMode === "as_is") setUnitDisplayMode(displayMode);
           if (typeof confirmPref === "boolean") setConfirmBeforeAddToShopping(confirmPref);
           if (typeof showExpiredPref === "boolean") setShowExpiredItems(showExpiredPref);
+          if (viewMode === "list" || viewMode === "grid") setPantryViewMode(viewMode);
         }
       } catch (error) {
         console.error("Error loading unit preference:", error);
+      } finally {
+        hasLoadedViewModeRef.current = true;
       }
     };
     loadUnitPreference();
   }, [userId]);
+
+  useEffect(() => {
+    if (!userId || !hasLoadedViewModeRef.current) return;
+
+    void setDoc(
+      settingsDoc(userId, "preferences"),
+      {
+        pantryViewMode,
+        updatedAt: Date.now(),
+      },
+      { merge: true }
+    ).catch((error) => {
+      console.error("Error saving pantry view mode:", error);
+    });
+  }, [pantryViewMode, userId]);
 
   // Load both pending items and pantry items from Firestore
   useEffect(() => {
@@ -825,9 +879,6 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
 
   const handlePantrySearchChange = useCallback((value: string) => {
     setPantrySearchQuery(value);
-    requestAnimationFrame(() => {
-      pantrySearchInputRef.current?.focus?.();
-    });
   }, []);
 
   const PANTRY_CATEGORIES = [
@@ -1068,12 +1119,33 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
     const [newItem, setNewItem] = useState({
       name: "", type: "pantry", location: "", quantity: "1", unit: "pcs",
       brand: "", notes: "", customExpiry: "",
+      netWeightGrams: "",
+      nutritionCalories: "",
+      nutritionProtein: "",
+      nutritionCarbs: "",
+      nutritionFat: "",
+      nutritionFiber: "",
     });
     const [scannedBarcode, setScannedBarcode] = useState<string | null>(null);
     const [isNewProduct, setIsNewProduct] = useState(false);
     const [showScanner, setShowScanner] = useState(false);
     const [lookingUp, setLookingUp] = useState(false);
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [showReceiptInput, setShowReceiptInput] = useState(false);
+    const [receiptText, setReceiptText] = useState("");
+    const [isParsingReceipt, setIsParsingReceipt] = useState(false);
+    const [isOcringReceipt, setIsOcringReceipt] = useState(false);
+    const [receiptCandidates, setReceiptCandidates] = useState<ReceiptItemCandidate[]>([]);
+    const [receiptSelection, setReceiptSelection] = useState<Record<string, {
+      selected: boolean;
+      name: string;
+      quantity: string;
+      unit: string;
+      type: string;
+      location: string;
+      brand: string;
+    }>>({});
+    const [learnedReceiptItems, setLearnedReceiptItems] = useState<Record<string, LearnedPantryItem>>({});
     const [isSaving, setIsSaving] = useState(false);
     const scanLockRef = useRef(false);
     const [itemTypes, setItemTypes] = useState<AddItemTypeOption[]>(DEFAULT_ADD_ITEM_TYPES);
@@ -1088,9 +1160,15 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
         try {
           const prefsDoc = await getDoc(settingsDoc(userId, "preferences"));
           const rawTypes = prefsDoc.exists() ? prefsDoc.data().itemTypes : undefined;
+          const rawLearned = prefsDoc.exists() ? prefsDoc.data().receiptLearning : undefined;
           setItemTypes(normalizeItemTypes(rawTypes));
+          setLearnedReceiptItems(rawLearned && typeof rawLearned === "object"
+            ? (rawLearned as Record<string, LearnedPantryItem>)
+            : {}
+          );
         } catch (_error) {
           setItemTypes(DEFAULT_ADD_ITEM_TYPES);
+          setLearnedReceiptItems({});
         }
       };
 
@@ -1104,6 +1182,12 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
       if (!showAddItemModal) {
         setShowScanner(false);
         setLookingUp(false);
+        setShowReceiptInput(false);
+        setReceiptText("");
+        setIsParsingReceipt(false);
+        setIsOcringReceipt(false);
+        setReceiptCandidates([]);
+        setReceiptSelection({});
         scanLockRef.current = false;
         setIsSaving(false);
       }
@@ -1142,6 +1226,13 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
             type: product.type,
             unit: product.unit,
             quantity: "1",
+            brand: product.brand || "",
+            netWeightGrams: typeof product.netWeightGrams === "number" ? String(product.netWeightGrams) : "",
+            nutritionCalories: typeof product.nutritionPer100?.calories === "number" ? String(product.nutritionPer100.calories) : "",
+            nutritionProtein: typeof product.nutritionPer100?.protein === "number" ? String(product.nutritionPer100.protein) : "",
+            nutritionCarbs: typeof product.nutritionPer100?.carbs === "number" ? String(product.nutritionPer100.carbs) : "",
+            nutritionFat: typeof product.nutritionPer100?.fat === "number" ? String(product.nutritionPer100.fat) : "",
+            nutritionFiber: typeof product.nutritionPer100?.fiber === "number" ? String(product.nutritionPer100.fiber) : "",
             location: prev.location || found?.location || "",
           }));
           setIsNewProduct(false);
@@ -1193,6 +1284,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
             // Parse quantity/unit from API
             let parsedQty = "1";
             let parsedUnit = "pcs";
+            let parsedNetWeightGrams = "";
             if (p.product_quantity && p.product_quantity_unit) {
               parsedQty = String(p.product_quantity);
               parsedUnit = p.product_quantity_unit.toLowerCase();
@@ -1200,6 +1292,22 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
               const match = String(p.quantity).match(/^([\d.]+)\s*([a-zA-Z]+)/);
               if (match) { parsedQty = match[1]; parsedUnit = match[2].toLowerCase(); }
             }
+
+            if (p.product_quantity && p.product_quantity_unit) {
+              const q = Number(p.product_quantity);
+              const unit = String(p.product_quantity_unit).toLowerCase();
+              if (Number.isFinite(q)) {
+                if (unit === "g") parsedNetWeightGrams = String(q);
+                if (unit === "kg") parsedNetWeightGrams = String(q * 1000);
+              }
+            }
+
+            const nutriments = p.nutriments || {};
+            const caloriesPer100g = nutriments["energy-kcal_100g"] ?? nutriments["energy-kcal_100ml"];
+            const proteinPer100g = nutriments["proteins_100g"] ?? nutriments["proteins_100ml"];
+            const carbsPer100g = nutriments["carbohydrates_100g"] ?? nutriments["carbohydrates_100ml"];
+            const fatPer100g = nutriments["fat_100g"] ?? nutriments["fat_100ml"];
+            const fiberPer100g = nutriments["fiber_100g"] ?? nutriments["fiber_100ml"];
 
             if (rawName) {
               const found = itemTypes.find(t => t.value === mappedType);
@@ -1210,6 +1318,12 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                 quantity: parsedQty,
                 unit: parsedUnit,
                 brand,
+                netWeightGrams: parsedNetWeightGrams,
+                nutritionCalories: caloriesPer100g ? String(caloriesPer100g) : "",
+                nutritionProtein: proteinPer100g ? String(proteinPer100g) : "",
+                nutritionCarbs: carbsPer100g ? String(carbsPer100g) : "",
+                nutritionFat: fatPer100g ? String(fatPer100g) : "",
+                nutritionFiber: fiberPer100g ? String(fiberPer100g) : "",
                 location: prev.location || found?.location || "",
               }));
               setIsNewProduct(true);
@@ -1238,6 +1352,267 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
 
     const openScanner = async () => {
       Alert.alert("Coming Soon", "Barcode camera scanning is a future feature.");
+    };
+
+    const parseDraftNutrition = () => {
+      const calories = parseOptionalNumber(newItem.nutritionCalories);
+      const protein = parseOptionalNumber(newItem.nutritionProtein);
+      const carbs = parseOptionalNumber(newItem.nutritionCarbs);
+      const fat = parseOptionalNumber(newItem.nutritionFat);
+      const fiber = parseOptionalNumber(newItem.nutritionFiber);
+
+      const hasAny = [calories, protein, carbs, fat, fiber].some((value) => typeof value === "number");
+      if (!hasAny) return undefined;
+
+      return {
+        calories,
+        protein,
+        carbs,
+        fat,
+        fiber,
+      };
+    };
+
+    const parseReceiptIntoCandidates = (rawText: string): number => {
+      const parsed = parseReceiptText(rawText, learnedReceiptItems);
+      if (parsed.length === 0) {
+        setReceiptCandidates([]);
+        setReceiptSelection({});
+        return 0;
+      }
+
+      const initialSelection: Record<string, {
+        selected: boolean;
+        name: string;
+        quantity: string;
+        unit: string;
+        type: string;
+        location: string;
+        brand: string;
+      }> = {};
+
+      parsed.forEach((candidate) => {
+        const detectedType = detectItemCategory(candidate.name);
+        const foundType = itemTypes.find((type) => type.value === detectedType);
+        initialSelection[candidate.id] = {
+          selected: candidate.confidence >= 0.5,
+          name: candidate.name,
+          quantity: String(candidate.quantity || 1),
+          unit: candidate.unit || "pcs",
+          type: detectedType,
+          location: foundType?.location || "Pantry",
+          brand: "",
+        };
+      });
+
+      setReceiptCandidates(parsed);
+      setReceiptSelection(initialSelection);
+      return parsed.length;
+    };
+
+    const handleParseReceiptText = () => {
+      if (!receiptText.trim()) {
+        Alert.alert("Add receipt text", "Paste receipt OCR text before parsing.");
+        return;
+      }
+
+      setIsParsingReceipt(true);
+
+      try {
+        const count = parseReceiptIntoCandidates(receiptText);
+        if (count === 0) {
+          Alert.alert("No items found", "Could not detect item lines. Try cleaner OCR text.");
+        }
+      } finally {
+        setIsParsingReceipt(false);
+      }
+    };
+
+    const handleReceiptPhotoCapture = async () => {
+      if (isOcringReceipt || isParsingReceipt) return;
+
+      setIsOcringReceipt(true);
+      setShowReceiptInput(true);
+
+      try {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (!permission.granted) {
+          Alert.alert("Camera permission required", "Allow camera access to scan receipt photos.");
+          return;
+        }
+
+        const result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ["images"],
+          allowsEditing: false,
+          quality: 0.8,
+        });
+
+        if (result.canceled || !result.assets?.length) {
+          return;
+        }
+
+        const imageUri = result.assets[0].uri;
+        const ocrResult = await extractReceiptTextFromImage(imageUri);
+        setReceiptText(ocrResult.text);
+
+        const count = parseReceiptIntoCandidates(ocrResult.text);
+        if (count === 0) {
+          Alert.alert("No items found", "Text was extracted, but no item lines were detected. You can edit the text and parse again.");
+        } else {
+          Alert.alert("Receipt scanned", `Detected ${count} candidate item${count === 1 ? "" : "s"}. Review and import.`);
+        }
+      } catch (error) {
+        console.error("Receipt OCR failed:", error);
+        Alert.alert(
+          "Could not read receipt",
+          "We couldn't extract text from this photo. You can retake the photo or paste OCR text manually."
+        );
+      } finally {
+        setIsOcringReceipt(false);
+      }
+    };
+
+    const handleImportReceiptItems = async () => {
+      if (isSaving) return;
+
+      const selectedEntries = receiptCandidates
+        .map((candidate) => ({
+          candidate,
+          selection: receiptSelection[candidate.id],
+        }))
+        .filter((entry) => entry.selection?.selected);
+
+      if (selectedEntries.length === 0) {
+        Alert.alert("Nothing selected", "Pick at least one parsed receipt line to import.");
+        return;
+      }
+
+      setIsSaving(true);
+
+      const learnedUpdates: Record<string, LearnedPantryItem> = {};
+      let importedCount = 0;
+
+      try {
+        for (const { candidate, selection } of selectedEntries) {
+          if (!selection || !selection.name.trim()) continue;
+
+          const parsedQty = parseFloat(selection.quantity || "1");
+          const converted = convertToUsefulUnit(
+            Number.isFinite(parsedQty) && parsedQty > 0 ? parsedQty : 1,
+            selection.unit || "pcs"
+          );
+
+          const selectedType = itemTypes.find((type) => type.value === selection.type);
+          const effectiveLocation = selection.location || selectedType?.location || "Pantry";
+          const expirationDate = new Date(Date.now() + (selectedType?.expirationDays || 7) * 86400000).toISOString();
+          const itemName = selection.name.trim();
+          const matchKey = getPantryMatchKey(itemName, converted.unit, effectiveLocation);
+
+          if (userId) {
+            const existingPantry = items.find((entry) => {
+              if (!entry._firestoreId) return false;
+              const key = getPantryMatchKey(entry.name || "", entry.unit || "", entry.location || "");
+              return key === matchKey;
+            });
+
+            if (existingPantry?._firestoreId) {
+              await updateDoc(pantryDoc(userId, existingPantry._firestoreId), {
+                quantity: (Number(existingPantry.quantity) || 0) + converted.quantity,
+                type: selection.type,
+                brand: selection.brand || "",
+                notes: "Imported from receipt",
+                updatedAt: Date.now(),
+              });
+            } else {
+              await addDoc(pantryCol(userId), {
+                type: selection.type,
+                name: itemName,
+                brand: selection.brand || "",
+                notes: "Imported from receipt",
+                quantity: converted.quantity,
+                unit: converted.unit,
+                location: effectiveLocation,
+                dateAdded: new Date().toISOString(),
+                expirationDate,
+                userId,
+                createdAt: Date.now(),
+                source: "receipt",
+              });
+            }
+          } else {
+            const existingIndex = items.findIndex((entry) => {
+              const key = getPantryMatchKey(entry.name || "", entry.unit || "", entry.location || "");
+              return key === matchKey;
+            });
+
+            if (existingIndex >= 0) {
+              setItems((prev) => prev.map((entry, idx) => idx === existingIndex
+                ? { ...entry, quantity: (Number(entry.quantity) || 0) + converted.quantity }
+                : entry
+              ));
+            } else {
+              const localId = items.length > 0
+                ? Math.max(0, ...items.map((entry) => typeof entry.id === "string" ? (parseInt(entry.id) || 0) : entry.id)) + 1
+                : 1;
+
+              const importedItem: PantryItem = {
+                id: localId,
+                type: selection.type,
+                name: itemName,
+                quantity: converted.quantity,
+                unit: converted.unit,
+                location: effectiveLocation,
+                dateAdded: new Date().toISOString(),
+                expirationDate,
+              };
+              setItems((prev) => [...prev, importedItem]);
+            }
+          }
+
+          const learnedFromRawLine = normalizeReceiptItemName(candidate.rawLine);
+          const learnedFromName = normalizeReceiptItemName(itemName);
+          const learnedValue: LearnedPantryItem = {
+            name: itemName,
+            type: selection.type,
+            unit: selection.unit,
+            defaultQuantity: Number.isFinite(parsedQty) && parsedQty > 0 ? parsedQty : 1,
+            location: effectiveLocation,
+            brand: selection.brand || "",
+          };
+          if (learnedFromRawLine) learnedUpdates[learnedFromRawLine] = learnedValue;
+          if (learnedFromName) learnedUpdates[learnedFromName] = learnedValue;
+
+          importedCount += 1;
+        }
+
+        if (userId && importedCount > 0) {
+          const mergedLearning = {
+            ...learnedReceiptItems,
+            ...learnedUpdates,
+          };
+
+          await setDoc(
+            settingsDoc(userId, "preferences"),
+            {
+              receiptLearning: mergedLearning,
+              updatedAt: Date.now(),
+            },
+            { merge: true }
+          );
+          setLearnedReceiptItems(mergedLearning);
+        }
+
+        setReceiptCandidates([]);
+        setReceiptSelection({});
+        setReceiptText("");
+        setShowReceiptInput(false);
+        Alert.alert("Receipt imported", `Added ${importedCount} item${importedCount === 1 ? "" : "s"} to pantry.`);
+      } catch (error) {
+        console.error("Error importing receipt items:", error);
+        Alert.alert("Import failed", "Could not import all selected items. Please try again.");
+      } finally {
+        setIsSaving(false);
+      }
     };
 
     const handleAddItem = async () => {
@@ -1270,6 +1645,8 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
       const capturedIsNewProduct = isNewProduct;
       const capturedItem = { ...newItem };
       const capturedExpirationDays = selectedType?.expirationDays ?? 7;
+      const capturedNetWeightGrams = parseOptionalNumber(capturedItem.netWeightGrams);
+      const capturedNutritionPer100 = parseDraftNutrition();
       const parsedQuantity = parseFloat(capturedItem.quantity);
       const converted = convertToUsefulUnit(
         Number.isFinite(parsedQuantity) ? parsedQuantity : 1,
@@ -1317,6 +1694,9 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                 type: capturedItem.type,
                 brand: capturedItem.brand || "",
                 notes: capturedItem.notes || "",
+                netWeightGrams: capturedNetWeightGrams,
+                nutritionPer100: capturedNutritionPer100,
+                updatedAt: Date.now(),
               });
             } else {
               await addDoc(pantryCol(userId), {
@@ -1329,6 +1709,8 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                 location: effectiveLocation,
                 dateAdded: new Date().toISOString(),
                 expirationDate,
+                netWeightGrams: capturedNetWeightGrams,
+                nutritionPer100: capturedNutritionPer100,
                 userId,
                 createdAt: Date.now(),
               });
@@ -1358,6 +1740,8 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
               location: effectiveLocation,
               dateAdded: new Date().toISOString(),
               expirationDate,
+              netWeightGrams: capturedNetWeightGrams,
+              nutritionPer100: capturedNutritionPer100,
             };
             setItems((prev) => [...prev, newPantryItem]);
           }
@@ -1372,12 +1756,21 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
       // Close and reset immediately after the pantry write succeeds.
       // Do NOT await the product-DB write here — let it run in the background
       // so the modal isn't blocked by a secondary, optional write.
-      setNewItem({ name: "", type: "pantry", location: "", quantity: "1", unit: "pcs", brand: "", notes: "", customExpiry: "" });
+      setNewItem({
+        name: "", type: "pantry", location: "", quantity: "1", unit: "pcs", brand: "", notes: "", customExpiry: "",
+        netWeightGrams: "", nutritionCalories: "", nutritionProtein: "", nutritionCarbs: "", nutritionFat: "", nutritionFiber: "",
+      });
       setScannedBarcode(null);
       setIsNewProduct(false);
       setShowAdvanced(false);
       setShowScanner(false);
       setLookingUp(false);
+      setShowReceiptInput(false);
+      setReceiptText("");
+      setIsParsingReceipt(false);
+      setIsOcringReceipt(false);
+      setReceiptCandidates([]);
+      setReceiptSelection({});
       scanLockRef.current = false;
       setIsSaving(false);
       setShowAddItemModal(false);
@@ -1393,9 +1786,14 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
           name: capturedItem.name,
           type: capturedItem.type,
           unit: capturedItem.unit || "pcs",
+          brand: capturedItem.brand || "",
+          aliases: [capturedItem.name],
+          netWeightGrams: capturedNetWeightGrams,
+          nutritionPer100: capturedNutritionPer100,
           defaultExpirationDays: capturedExpirationDays,
           addedBy: userId,
           createdAt: Date.now(),
+          updatedAt: Date.now(),
         } as ProductEntry).catch((e) => console.error("Product DB write failed (non-critical):", e));
       }
     };
@@ -1420,12 +1818,21 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
     // ── end close handlers ────────────────────────────────────────────────
 
     const doCloseModal = () => {
-      setNewItem({ name: "", type: "", location: "", quantity: "1", unit: "pcs", brand: "", notes: "", customExpiry: "" });
+      setNewItem({
+        name: "", type: "", location: "", quantity: "1", unit: "pcs", brand: "", notes: "", customExpiry: "",
+        netWeightGrams: "", nutritionCalories: "", nutritionProtein: "", nutritionCarbs: "", nutritionFat: "", nutritionFiber: "",
+      });
       setScannedBarcode(null);
       setIsNewProduct(false);
       setShowAdvanced(false);
       setShowScanner(false);
       setLookingUp(false);
+      setShowReceiptInput(false);
+      setReceiptText("");
+      setIsParsingReceipt(false);
+      setIsOcringReceipt(false);
+      setReceiptCandidates([]);
+      setReceiptSelection({});
       scanLockRef.current = false;
       setIsSaving(false);
       setShowAddItemModal(false);
@@ -1532,19 +1939,239 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                 <Ionicons name="barcode-outline" size={20} color={mutedText} />
                 <Text style={{ color: mutedText, fontWeight: "600", fontSize: 14 }}>Barcode (Soon)</Text>
               </TouchableOpacity>
-              {/* Receipt (future update) */}
-              <View
+              <TouchableOpacity
+                onPress={() => setShowReceiptInput((prev) => !prev)}
                 style={{
                   flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
                   borderWidth: 1.5, borderColor: mutedBorder, borderRadius: 12,
                   paddingVertical: 12,
-                  backgroundColor: isDark ? "#222" : "#f2f2f2",
+                  backgroundColor: showReceiptInput ? themeColors.accentColor : (isDark ? "#222" : "#f2f2f2"),
                 }}
               >
-                <Ionicons name="receipt-outline" size={20} color={mutedText} />
-                <Text style={{ color: mutedText, fontWeight: "600", fontSize: 14 }}>Receipt (Soon)</Text>
-              </View>
+                <Ionicons name="receipt-outline" size={20} color={showReceiptInput ? "#fff" : mutedText} />
+                <Text style={{ color: showReceiptInput ? "#fff" : mutedText, fontWeight: "600", fontSize: 14 }}>Receipt Import</Text>
+              </TouchableOpacity>
             </View>
+
+            {showReceiptInput && (
+              <View style={{
+                borderWidth: 1,
+                borderColor: mutedBorder,
+                borderRadius: 12,
+                padding: 12,
+                backgroundColor: isDark ? "#242424" : "#f7f7f7",
+                marginBottom: 14,
+              }}>
+                <Text style={{ fontSize: 12, color: mutedText, marginBottom: 8 }}>
+                  Take a photo of your receipt or paste OCR text. We auto-filter totals, discounts, and metadata lines.
+                </Text>
+                <TouchableOpacity
+                  onPress={handleReceiptPhotoCapture}
+                  disabled={isOcringReceipt || isParsingReceipt}
+                  style={{
+                    backgroundColor: (!isOcringReceipt && !isParsingReceipt) ? themeColors.accentColor : (isDark ? "#333" : "#d0d0d0"),
+                    borderRadius: 10,
+                    paddingVertical: 10,
+                    alignItems: "center",
+                    flexDirection: "row",
+                    justifyContent: "center",
+                    gap: 8,
+                    marginBottom: 10,
+                  }}
+                >
+                  {isOcringReceipt && <ActivityIndicator size="small" color="#fff" />}
+                  <Ionicons name="camera-outline" size={16} color={(!isOcringReceipt && !isParsingReceipt) ? "#fff" : mutedText} />
+                  <Text style={{ color: (!isOcringReceipt && !isParsingReceipt) ? "#fff" : mutedText, fontWeight: "700", fontSize: 14 }}>
+                    {isOcringReceipt ? "Scanning Receipt..." : "Take Receipt Photo"}
+                  </Text>
+                </TouchableOpacity>
+                <TextInput
+                  value={receiptText}
+                  onChangeText={setReceiptText}
+                  placeholder="MILK 2L 4.99\nBANANA 1.2kg 2.10\nSUBTOTAL 19.42"
+                  placeholderTextColor={isDark ? "#666" : "#aaa"}
+                  multiline
+                  style={{
+                    borderWidth: 1,
+                    borderColor: mutedBorder,
+                    borderRadius: 10,
+                    backgroundColor: inputBg,
+                    color: themeColors.textColor,
+                    minHeight: 92,
+                    textAlignVertical: "top",
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    marginBottom: 10,
+                    fontSize: 14,
+                  }}
+                />
+                <TouchableOpacity
+                  onPress={handleParseReceiptText}
+                  disabled={isParsingReceipt || isOcringReceipt || !receiptText.trim()}
+                  style={{
+                    backgroundColor: (!isParsingReceipt && !isOcringReceipt && receiptText.trim()) ? themeColors.accentColor : (isDark ? "#333" : "#d0d0d0"),
+                    borderRadius: 10,
+                    paddingVertical: 10,
+                    alignItems: "center",
+                    flexDirection: "row",
+                    justifyContent: "center",
+                    gap: 8,
+                  }}
+                >
+                  {isParsingReceipt && <ActivityIndicator size="small" color="#fff" />}
+                  <Text style={{ color: (!isParsingReceipt && !isOcringReceipt && receiptText.trim()) ? "#fff" : mutedText, fontWeight: "700", fontSize: 14 }}>
+                    {isParsingReceipt ? "Parsing..." : "Parse Receipt"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {receiptCandidates.length > 0 && (
+              <View style={{
+                borderWidth: 1,
+                borderColor: mutedBorder,
+                borderRadius: 12,
+                padding: 12,
+                backgroundColor: isDark ? "#222" : "#f8f8f8",
+                marginBottom: 14,
+                maxHeight: 250,
+              }}>
+                <Text style={{ fontSize: 13, color: themeColors.textColor, fontWeight: "700", marginBottom: 8 }}>
+                  Review Parsed Items ({receiptCandidates.length})
+                </Text>
+                <ScrollView style={{ maxHeight: 170 }} showsVerticalScrollIndicator={false}>
+                  {receiptCandidates.map((candidate) => {
+                    const selected = receiptSelection[candidate.id]?.selected;
+                    const confidencePct = Math.round(candidate.confidence * 100);
+                    return (
+                      <View
+                        key={candidate.id}
+                        style={{
+                          borderWidth: 1,
+                          borderColor: candidate.needsReview ? "#F0A020" : mutedBorder,
+                          borderRadius: 10,
+                          padding: 10,
+                          backgroundColor: isDark ? "#2a2a2a" : "#fff",
+                          marginBottom: 8,
+                          opacity: selected ? 1 : 0.6,
+                        }}
+                      >
+                        <TouchableOpacity
+                          onPress={() => setReceiptSelection((prev) => ({
+                            ...prev,
+                            [candidate.id]: {
+                              ...(prev[candidate.id] || {
+                                selected: false,
+                                name: candidate.name,
+                                quantity: "1",
+                                unit: "pcs",
+                                type: detectItemCategory(candidate.name),
+                                location: "Pantry",
+                                brand: "",
+                              }),
+                              selected: !prev[candidate.id]?.selected,
+                            },
+                          }))}
+                          style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}
+                        >
+                          <Ionicons name={selected ? "checkbox" : "square-outline"} size={20} color={selected ? themeColors.accentColor : mutedText} />
+                          <Text style={{ marginLeft: 8, flex: 1, color: themeColors.textColor, fontWeight: "600" }}>{candidate.rawLine}</Text>
+                          <Text style={{ color: candidate.needsReview ? "#F0A020" : "#4CAF50", fontSize: 12 }}>{confidencePct}%</Text>
+                        </TouchableOpacity>
+
+                        <TextInput
+                          style={{ ...inputStyle, marginBottom: 8 }}
+                          value={receiptSelection[candidate.id]?.name || ""}
+                          onChangeText={(text) => setReceiptSelection((prev) => ({
+                            ...prev,
+                            [candidate.id]: {
+                              ...(prev[candidate.id] || {
+                                selected: false,
+                                name: candidate.name,
+                                quantity: "1",
+                                unit: "pcs",
+                                type: detectItemCategory(candidate.name),
+                                location: "Pantry",
+                                brand: "",
+                              }),
+                              name: text,
+                            },
+                          }))}
+                          placeholder="Item name"
+                          placeholderTextColor={isDark ? "#666" : "#aaa"}
+                        />
+
+                        <View style={{ flexDirection: "row", gap: 8 }}>
+                          <TextInput
+                            style={{ ...inputStyle, flex: 1, marginBottom: 0 }}
+                            value={receiptSelection[candidate.id]?.quantity || "1"}
+                            onChangeText={(text) => setReceiptSelection((prev) => ({
+                              ...prev,
+                              [candidate.id]: {
+                                ...(prev[candidate.id] || {
+                                  selected: false,
+                                  name: candidate.name,
+                                  quantity: "1",
+                                  unit: "pcs",
+                                  type: detectItemCategory(candidate.name),
+                                  location: "Pantry",
+                                  brand: "",
+                                }),
+                                quantity: text,
+                              },
+                            }))}
+                            keyboardType="decimal-pad"
+                            placeholder="Qty"
+                            placeholderTextColor={isDark ? "#666" : "#aaa"}
+                          />
+                          <TextInput
+                            style={{ ...inputStyle, flex: 1, marginBottom: 0 }}
+                            value={receiptSelection[candidate.id]?.unit || "pcs"}
+                            onChangeText={(text) => setReceiptSelection((prev) => ({
+                              ...prev,
+                              [candidate.id]: {
+                                ...(prev[candidate.id] || {
+                                  selected: false,
+                                  name: candidate.name,
+                                  quantity: "1",
+                                  unit: "pcs",
+                                  type: detectItemCategory(candidate.name),
+                                  location: "Pantry",
+                                  brand: "",
+                                }),
+                                unit: text,
+                              },
+                            }))}
+                            placeholder="Unit"
+                            placeholderTextColor={isDark ? "#666" : "#aaa"}
+                          />
+                        </View>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+
+                <TouchableOpacity
+                  onPress={handleImportReceiptItems}
+                  disabled={isSaving}
+                  style={{
+                    backgroundColor: isSaving ? (isDark ? "#333" : "#d0d0d0") : themeColors.accentColor,
+                    borderRadius: 10,
+                    paddingVertical: 11,
+                    alignItems: "center",
+                    marginTop: 8,
+                    flexDirection: "row",
+                    justifyContent: "center",
+                    gap: 8,
+                  }}
+                >
+                  {isSaving && <ActivityIndicator size="small" color="#fff" />}
+                  <Text style={{ color: isSaving ? mutedText : "#fff", fontWeight: "700", fontSize: 14 }}>
+                    {isSaving ? "Importing..." : "Import Selected"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             {scannedBarcode && !lookingUp && (
               <View style={{
@@ -1678,6 +2305,18 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                 </View>
               )}
 
+              {(() => {
+                const nutritionPreview = formatNutritionPreview(parseDraftNutrition());
+                if (!nutritionPreview) return null;
+                return (
+                  <View style={{ backgroundColor: isDark ? "#1a2236" : "#eef5ff", borderRadius: 10, padding: 12, marginBottom: 16, borderLeftWidth: 3, borderLeftColor: "#4689f5" }}>
+                    <Text style={{ color: isDark ? "#9fc1ff" : "#2c5aa0", fontWeight: "600", fontSize: 12 }}>
+                      Nutrition Snapshot: {nutritionPreview}
+                    </Text>
+                  </View>
+                );
+              })()}
+
               {/* Advanced Options */}
               <TouchableOpacity
                 onPress={() => setShowAdvanced(v => !v)}
@@ -1735,6 +2374,68 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
                       value={newItem.notes}
                       onChangeText={(text) => setNewItem({ ...newItem, notes: text })}
                       multiline
+                    />
+                  </View>
+
+                  {/* Net weight */}
+                  <View>
+                    <Text style={labelStyle}>Net Weight (g, optional)</Text>
+                    <TextInput
+                      style={inputStyle}
+                      placeholder="e.g. 454"
+                      placeholderTextColor={isDark ? "#555" : "#bbb"}
+                      value={newItem.netWeightGrams}
+                      onChangeText={(text) => setNewItem({ ...newItem, netWeightGrams: text })}
+                      keyboardType="decimal-pad"
+                    />
+                  </View>
+
+                  {/* Nutrition */}
+                  <View>
+                    <Text style={labelStyle}>Nutrition per 100g (optional)</Text>
+                    <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+                      <TextInput
+                        style={{ ...inputStyle, flex: 1, marginBottom: 0 }}
+                        placeholder="kcal"
+                        placeholderTextColor={isDark ? "#555" : "#bbb"}
+                        value={newItem.nutritionCalories}
+                        onChangeText={(text) => setNewItem({ ...newItem, nutritionCalories: text })}
+                        keyboardType="decimal-pad"
+                      />
+                      <TextInput
+                        style={{ ...inputStyle, flex: 1, marginBottom: 0 }}
+                        placeholder="protein"
+                        placeholderTextColor={isDark ? "#555" : "#bbb"}
+                        value={newItem.nutritionProtein}
+                        onChangeText={(text) => setNewItem({ ...newItem, nutritionProtein: text })}
+                        keyboardType="decimal-pad"
+                      />
+                    </View>
+                    <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+                      <TextInput
+                        style={{ ...inputStyle, flex: 1, marginBottom: 0 }}
+                        placeholder="carbs"
+                        placeholderTextColor={isDark ? "#555" : "#bbb"}
+                        value={newItem.nutritionCarbs}
+                        onChangeText={(text) => setNewItem({ ...newItem, nutritionCarbs: text })}
+                        keyboardType="decimal-pad"
+                      />
+                      <TextInput
+                        style={{ ...inputStyle, flex: 1, marginBottom: 0 }}
+                        placeholder="fat"
+                        placeholderTextColor={isDark ? "#555" : "#bbb"}
+                        value={newItem.nutritionFat}
+                        onChangeText={(text) => setNewItem({ ...newItem, nutritionFat: text })}
+                        keyboardType="decimal-pad"
+                      />
+                    </View>
+                    <TextInput
+                      style={inputStyle}
+                      placeholder="fiber"
+                      placeholderTextColor={isDark ? "#555" : "#bbb"}
+                      value={newItem.nutritionFiber}
+                      onChangeText={(text) => setNewItem({ ...newItem, nutritionFiber: text })}
+                      keyboardType="decimal-pad"
                     />
                   </View>
 
@@ -1941,6 +2642,122 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
     );
   });
 
+  const GridItemCard = memo(({ item }: ItemDetailsProps) => {
+    const convertedAmount = formatQuantityForPreference(item.quantity, item.unit, preferredWeightUnit, unitDisplayMode);
+    const expirationDays = calculateExpirationDays(item.expirationDate);
+
+    const expirationLabel = expirationDays >= 4
+      ? `${expirationDays} days left`
+      : expirationDays === 0
+        ? "Expires Today"
+        : expirationDays < 0
+          ? `Expired ${Math.abs(expirationDays)} day${Math.abs(expirationDays) !== 1 ? "s" : ""} ago`
+          : `Expiring in ${expirationDays} day${expirationDays !== 1 ? "s" : ""}`;
+
+    const expirationColor = expirationDays >= 4
+      ? "#4CAF50"
+      : expirationDays === 0
+        ? "#FF9800"
+        : expirationDays < 0
+          ? "#F44336"
+          : "#FF9800";
+
+    return (
+      <View
+        style={{
+          width: "48.5%",
+          marginBottom: 10,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: isDarkTheme ? "#444" : "#e8e8e8",
+          backgroundColor: isDarkTheme ? "#2c2c2c" : "#fff",
+          overflow: "hidden",
+        }}
+      >
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onLongPress={() => openEditModal(item)}
+          delayLongPress={350}
+          style={{ padding: 10 }}
+        >
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+            <Text style={{ color: themeColors.accentColor, fontSize: 11, fontWeight: "700", textTransform: "capitalize", flex: 1 }} numberOfLines={1}>
+              {item.type}
+            </Text>
+            <TouchableOpacity onPress={() => handleDeleteItem(item.id, item.name)} style={{ paddingLeft: 8, paddingTop: 1 }}>
+              <Ionicons name="trash-outline" size={14} color={isDarkTheme ? "#bbb" : "#888"} />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={{ color: themeColors.textColor, fontSize: 14, fontWeight: "700", marginBottom: 8 }} numberOfLines={2}>
+            {item.name}
+          </Text>
+
+          <Text style={{ color: themeColors.textColor, fontSize: 12, fontWeight: "600", marginBottom: 4 }}>
+            {convertedAmount.quantityText} {convertedAmount.unitText}
+          </Text>
+          <Text style={{ color: expirationColor, fontSize: 11, fontWeight: "600", marginBottom: 8 }} numberOfLines={1}>
+            {expirationLabel}
+          </Text>
+          <Text style={{ color: isDarkTheme ? "#b0b0b0" : "#666", fontSize: 11 }} numberOfLines={1}>
+            {item.location}
+          </Text>
+
+          <View style={{ flexDirection: "row", gap: 6, marginTop: 10 }}>
+            <TouchableOpacity
+              onPress={() => {
+                Alert.alert(
+                  "Add to Shopping",
+                  `Add more ${item.name} to shopping list?`,
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Add", onPress: () => { void executeAddToShopping(item); } },
+                  ]
+                );
+              }}
+              style={{
+                flex: 1,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: themeColors.accentColor,
+                backgroundColor: isDarkTheme ? "#1f2b1f" : "#f0faf0",
+                alignItems: "center",
+                justifyContent: "center",
+                paddingVertical: 6,
+              }}
+            >
+              <Ionicons name="cart-outline" size={13} color={themeColors.accentColor} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                Alert.alert(
+                  "Send to Recipes",
+                  `Create a draft recipe from ${item.name}?`,
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Create", onPress: () => { void executeSendToRecipe(item); } },
+                  ]
+                );
+              }}
+              style={{
+                flex: 1,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: themeColors.accentColor,
+                backgroundColor: isDarkTheme ? "#2a2317" : "#fff7ee",
+                alignItems: "center",
+                justifyContent: "center",
+                paddingVertical: 6,
+              }}
+            >
+              <Ionicons name="restaurant-outline" size={13} color={themeColors.accentColor} />
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </View>
+    );
+  });
+
   const MainContainer = () => {
     const getItemFoodType = (item: PantryItem): string => {
       const detected = detectItemCategory(item.name || "");
@@ -1971,30 +2788,11 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
       return matchesSearch && matchesCategory && matchesStorageLocation;
     });
 
-    const stickyHeaderIndex = (pendingItems.length > 0 ? 1 : 0) + (expiredItems.length > 0 ? 1 : 0);
-
-    const snapBackNearTop = (offsetY: number) => {
-      if (isAutoSnapInProgressRef.current) return;
-      const nearTopThreshold = Math.max(120, stickySectionHeightRef.current + 24);
-      if (offsetY > 0 && offsetY < nearTopThreshold) {
-        isAutoSnapInProgressRef.current = true;
-        requestAnimationFrame(() => {
-          mainScrollRef.current?.scrollTo({ y: 0, animated: true });
-          setTimeout(() => {
-            isAutoSnapInProgressRef.current = false;
-          }, 220);
-        });
-      }
-    };
-
     return (
       <ScrollView 
-      ref={mainScrollRef}
         contentContainerStyle={[styles.mainContainer, { backgroundColor: themeColors.backgroundColor }]}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="none"
-        stickyHeaderIndices={items.length > 0 ? [stickyHeaderIndex] : undefined}
-      onScrollEndDrag={(event) => snapBackNearTop(event.nativeEvent.contentOffset.y)}
+        keyboardDismissMode="on-drag"
       >
         {/* Pending Items Section */}
         {pendingItems.length > 0 && (
@@ -2390,18 +3188,12 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
         
         {/* Search and Filter Section */}
         {items.length > 0 && (
-          <View
-            style={{ backgroundColor: themeColors.backgroundColor, paddingTop: 8, paddingBottom: 6, zIndex: 20, elevation: 8 }}
-            onLayout={(event) => {
-              stickySectionHeightRef.current = event.nativeEvent.layout.height;
-            }}
-          >
+          <View style={{ backgroundColor: themeColors.backgroundColor, paddingTop: 8, paddingBottom: 6 }}>
             <View style={[{ marginHorizontal: 12, marginTop: 0, marginBottom: 0 }]}>
               {/* Search Bar */}
               <View style={[{ backgroundColor: isDarkTheme ? "#2a2a2a" : "#fff", borderRadius: 9, paddingHorizontal: 10, paddingVertical: 8, marginBottom: 8, flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: isDarkTheme ? "#444" : "#e3e3e3" }]}>
                 <Text style={[{ color: isDarkTheme ? "#888" : "#999", marginRight: 6 }]}>⌕</Text>
                 <TextInput
-                  ref={pantrySearchInputRef}
                   style={[{ flex: 1, color: themeColors.textColor }]}
                   placeholder="Search pantry items..."
                   placeholderTextColor={isDarkTheme ? "#777" : "#aaa"}
@@ -2517,10 +3309,34 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
               </>
             )}
 
-              {filteredItems.length > 0 && (
-                <Text style={[{ fontSize: 18, fontWeight: "bold", color: themeColors.accentColor, marginTop: 6, marginBottom: 4 }]}>
-                  Pantry Items
-                </Text>
+              {items.length > 0 && (
+                <View style={{ marginTop: 6, marginBottom: 4, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <Text style={{ fontSize: 18, fontWeight: "bold", color: themeColors.accentColor }}>
+                    Pantry Items
+                  </Text>
+                  <View style={{ flexDirection: "row", borderWidth: 1, borderColor: isDarkTheme ? "#444" : "#dedede", borderRadius: 8, overflow: "hidden" }}>
+                    <TouchableOpacity
+                      onPress={() => setPantryViewMode("list")}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 7,
+                        backgroundColor: pantryViewMode === "list" ? themeColors.accentColor : (isDarkTheme ? "#2a2a2a" : "#fff"),
+                      }}
+                    >
+                      <Ionicons name="list-outline" size={15} color={pantryViewMode === "list" ? "#fff" : themeColors.textColor} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => setPantryViewMode("grid")}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 7,
+                        backgroundColor: pantryViewMode === "grid" ? themeColors.accentColor : (isDarkTheme ? "#2a2a2a" : "#fff"),
+                      }}
+                    >
+                      <Ionicons name="grid-outline" size={15} color={pantryViewMode === "grid" ? "#fff" : themeColors.textColor} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
               )}
             </View>
           </View>
@@ -2562,12 +3378,20 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
             </TouchableOpacity>
           </View>
         )}
-        {filteredItems.map((item) => (
-          <ItemDetails 
-            key={item.id} 
-            item={item}
-          />
-        ))}
+        {pantryViewMode === "grid" ? (
+          <View style={{ marginHorizontal: 16, marginTop: 6, flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
+            {filteredItems.map((item) => (
+              <GridItemCard key={item.id} item={item} />
+            ))}
+          </View>
+        ) : (
+          filteredItems.map((item) => (
+            <ItemDetails
+              key={item.id}
+              item={item}
+            />
+          ))
+        )}
         {items.length > 0 && filteredItems.length === 0 && (
           <View style={[{ marginHorizontal: 16, marginTop: 20, padding: 16, backgroundColor: isDarkTheme ? "#2a2a2a" : "#f5f5f5", borderRadius: 10, alignItems: "center" }]}>
             <Text style={[{ color: themeColors.textColor, fontSize: 15, fontWeight: "600" }]}>No items found</Text>

@@ -203,8 +203,19 @@ export interface ProductEntry {
   type: string;
   unit: string;
   defaultExpirationDays: number;
+  brand?: string;
+  aliases?: string[];
+  netWeightGrams?: number;
+  nutritionPer100?: {
+    calories?: number;
+    protein?: number;
+    carbs?: number;
+    fat?: number;
+    fiber?: number;
+  };
   addedBy: string;
   createdAt: number;
+  updatedAt?: number;
 }
 
 // ── Social feed ─────────────────────────────────────────────────────────────
