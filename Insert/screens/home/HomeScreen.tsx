@@ -89,6 +89,8 @@ type NutritionTargets = {
   fat: number;
 };
 
+type HomeModuleKey = "overview" | "nutrition" | "plan" | "calendar";
+
 const DEFAULT_NUTRITION_TARGETS: NutritionTargets = {
   calories: 2000,
   protein: 140,
@@ -99,6 +101,13 @@ const DEFAULT_NUTRITION_TARGETS: NutritionTargets = {
 const MANUAL_NUTRITION_UNITS = ["g", "kg", "ml", "L", "oz", "lb", "cup", "tbsp", "tsp", "pcs"];
 
 const QUICK_ADD_FOOD_CHIPS = ["banana", "egg", "chicken breast", "rice", "oats", "greek yogurt", "apple", "milk"];
+
+const MODULE_CONFIG: Array<{ key: HomeModuleKey; label: string; icon: keyof typeof Ionicons.glyphMap; description: string }> = [
+  { key: "overview", label: "Overview", icon: "home-outline", description: "Greeting, shortcuts, and quick context" },
+  { key: "nutrition", label: "Nutrition", icon: "fitness-outline", description: "Calories, macros, and meal log" },
+  { key: "plan", label: "Today", icon: "calendar-outline", description: "Planned recipes and errands" },
+  { key: "calendar", label: "Calendar", icon: "grid-outline", description: "Month view and recipe planner" },
+];
 
 const QUICK_AMOUNT_BY_UNIT: Record<string, string[]> = {
   g: ["50", "100", "150", "200"],
@@ -274,6 +283,13 @@ export default function HomeScreen({ theme, userId, userDisplayName, onOpenRecip
   const [selectedDate, setSelectedDate] = useState(toDateKey(new Date()));
   const [showPlannerModal, setShowPlannerModal] = useState(false);
   const [recipeSearch, setRecipeSearch] = useState("");
+  const [visibleModules, setVisibleModules] = useState<Record<HomeModuleKey, boolean>>({
+    overview: true,
+    nutrition: true,
+    plan: true,
+    calendar: true,
+  });
+  const [showModuleEditor, setShowModuleEditor] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
@@ -934,9 +950,20 @@ export default function HomeScreen({ theme, userId, userDisplayName, onOpenRecip
     <View style={[styles.container, { backgroundColor: themeColors.backgroundColor, paddingTop: insets.top }]}>
       <ScrollView contentContainerStyle={styles.contentContainer}>
         <View style={[styles.welcomeCard, { backgroundColor: themeColors.mode === "dark" ? "#262626" : "#fff", borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#ececec" }]}>
-          <Text style={[styles.welcomeEyebrow, { color: themeColors.mode === "dark" ? "#9d9d9d" : "#8a8a8a" }]}>Home</Text>
-          <Text style={[styles.welcomeTitle, { color: themeColors.textColor }]}>{greeting}, {firstName}</Text>
-          <Text style={[styles.welcomeSubtitle, { color: themeColors.mode === "dark" ? "#b0b0b0" : "#666" }]}>Plan what to cook with a simple calendar and keep your week easy to follow.</Text>
+          <View style={styles.dashboardHeaderRow}>
+            <View style={styles.dashboardHeaderCopy}>
+              <Text style={[styles.welcomeEyebrow, { color: themeColors.mode === "dark" ? "#9d9d9d" : "#8a8a8a" }]}>Home dashboard</Text>
+              <Text style={[styles.welcomeTitle, { color: themeColors.textColor }]}>{greeting}, {firstName}</Text>
+              <Text style={[styles.welcomeSubtitle, { color: themeColors.mode === "dark" ? "#b0b0b0" : "#666" }]}>A modular space for planning meals, tracking nutrition, and keeping your week moving.</Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setShowModuleEditor(true)}
+              style={[styles.moduleEditorButton, { borderColor: themeColors.mode === "dark" ? "#414141" : "#e8e8e8", backgroundColor: themeColors.mode === "dark" ? "#303030" : "#fafafa" }]}
+            >
+              <Ionicons name="options-outline" size={15} color={themeColors.accentColor} />
+              <Text style={[styles.quickActionText, { color: themeColors.textColor }]}>Customize</Text>
+            </TouchableOpacity>
+          </View>
 
           <View style={styles.quickActionsRow}>
             <TouchableOpacity
@@ -955,8 +982,18 @@ export default function HomeScreen({ theme, userId, userDisplayName, onOpenRecip
               <Text style={[styles.quickActionText, { color: themeColors.textColor }]}>Social</Text>
             </TouchableOpacity>
           </View>
+
+          <View style={styles.moduleBadgeRow}>
+            {MODULE_CONFIG.filter((module) => visibleModules[module.key]).map((module) => (
+              <View key={module.key} style={[styles.moduleBadge, { borderColor: themeColors.mode === "dark" ? "#3f3f3f" : "#e7e7e7", backgroundColor: themeColors.mode === "dark" ? "#2f2f2f" : "#f7f7f7" }]}>
+                <Ionicons name={module.icon} size={12} color={themeColors.accentColor} />
+                <Text style={[styles.moduleBadgeText, { color: themeColors.textColor }]}>{module.label}</Text>
+              </View>
+            ))}
+          </View>
         </View>
 
+        {visibleModules.nutrition ? (
         <View style={[styles.nutritionCard, { backgroundColor: themeColors.mode === "dark" ? "#242424" : "#fff", borderColor: themeColors.mode === "dark" ? "#393939" : "#ececec" }]}>
           <View style={styles.nutritionHeaderRow}>
             <View>
@@ -1033,189 +1070,227 @@ export default function HomeScreen({ theme, userId, userDisplayName, onOpenRecip
             )}
           </View>
         </View>
+        ) : null}
 
-        <View style={[styles.todayCard, { backgroundColor: themeColors.mode === "dark" ? "#242424" : "#fff", borderColor: themeColors.mode === "dark" ? "#383838" : "#ececec" }]}>
-          <View style={styles.todayTopRow}>
-            <Text style={[styles.todayEyebrow, { color: themeColors.mode === "dark" ? "#9a9a9a" : "#8b8b8b" }]}>{todayDateLabel}</Text>
-            <View style={[styles.todayStatChip, { backgroundColor: themeColors.accentColor + (themeColors.mode === "dark" ? "33" : "18") }]}>
-              <Text style={[styles.todayStatText, { color: themeColors.accentColor }]}>{pendingShoppingItems.length} shopping left</Text>
+        {visibleModules.plan ? (
+          <View style={[styles.todayCard, { backgroundColor: themeColors.mode === "dark" ? "#242424" : "#fff", borderColor: themeColors.mode === "dark" ? "#383838" : "#ececec" }]}>
+            <View style={styles.todayTopRow}>
+              <Text style={[styles.todayEyebrow, { color: themeColors.mode === "dark" ? "#9a9a9a" : "#8b8b8b" }]}>{todayDateLabel}</Text>
+              <View style={[styles.todayStatChip, { backgroundColor: themeColors.accentColor + (themeColors.mode === "dark" ? "33" : "18") }]}>
+                <Text style={[styles.todayStatText, { color: themeColors.accentColor }]}>{pendingShoppingItems.length} shopping left</Text>
+              </View>
+            </View>
+
+            <Text style={[styles.todayTitle, { color: themeColors.textColor }]}>Today&apos;s Plan & Todo</Text>
+            <Text style={[styles.todaySubtitle, { color: themeColors.mode === "dark" ? "#a9a9a9" : "#666" }]}>Your planned recipes and errands for today in one place.</Text>
+
+            <View style={styles.todoSection}>
+              {todaysTodoItems.length > 0 ? (
+                todaysTodoItems.map((todo) => (
+                  <View
+                    key={todo.id}
+                    style={[
+                      styles.todoItem,
+                      {
+                        backgroundColor: themeColors.mode === "dark" ? "#2d2d2d" : "#f8f9fb",
+                        borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#eceff3",
+                      },
+                    ]}
+                  >
+                    <View style={[styles.todoItemIcon, { backgroundColor: themeColors.accentColor + (themeColors.mode === "dark" ? "2E" : "1C") }]}>
+                      <Ionicons name={todo.icon} size={14} color={themeColors.accentColor} />
+                    </View>
+                    <View style={styles.todoItemBody}>
+                      <Text style={[styles.todoItemTitle, { color: themeColors.textColor }]} numberOfLines={1}>{todo.title}</Text>
+                      <Text style={[styles.todoItemMeta, { color: themeColors.mode === "dark" ? "#8f8f8f" : "#7a7a7a" }]}>{todo.meta}</Text>
+                    </View>
+                  </View>
+                ))
+              ) : (
+                <Text style={[styles.todoEmpty, { color: themeColors.mode === "dark" ? "#9c9c9c" : "#808080" }]}>No tasks yet. Add recipes in your calendar or shopping items to build today.</Text>
+              )}
             </View>
           </View>
+        ) : null}
 
-          <Text style={[styles.todayTitle, { color: themeColors.textColor }]}>Today&apos;s Plan & Todo</Text>
-          <Text style={[styles.todaySubtitle, { color: themeColors.mode === "dark" ? "#a9a9a9" : "#666" }]}>Your planned recipes and errands for today in one place.</Text>
+        {visibleModules.calendar ? (
+          <View style={[styles.calendarCard, { backgroundColor: themeColors.mode === "dark" ? "#242424" : "#fff", borderColor: themeColors.mode === "dark" ? "#393939" : "#ececec" }]}>
+            <View style={styles.calendarHeader}>
+              <TouchableOpacity
+                style={[styles.calendarNavButton, { backgroundColor: themeColors.mode === "dark" ? "#303030" : "#f4f4f4" }]}
+                onPress={() => setVisibleMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+              >
+                <Ionicons name="chevron-back" size={16} color={themeColors.textColor} />
+              </TouchableOpacity>
 
-          <View style={styles.todoSection}>
-            {todaysTodoItems.length > 0 ? (
-              todaysTodoItems.map((todo) => (
+              <Text style={[styles.calendarMonthLabel, { color: themeColors.textColor }]}>{monthLabel}</Text>
+
+              <TouchableOpacity
+                style={[styles.calendarNavButton, { backgroundColor: themeColors.mode === "dark" ? "#303030" : "#f4f4f4" }]}
+                onPress={() => setVisibleMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+              >
+                <Ionicons name="chevron-forward" size={16} color={themeColors.textColor} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.weekdayRow}>
+              {WEEKDAY_LABELS.map((label) => (
+                <Text key={label} style={[styles.weekdayLabel, { color: themeColors.mode === "dark" ? "#9f9f9f" : "#8b8b8b" }]}>{label}</Text>
+              ))}
+            </View>
+
+            <View style={styles.calendarGrid}>
+              {calendarCells.map((cell) => {
+                if (!cell.dateKey || !cell.dayNumber) {
+                  return <View key={cell.key} style={styles.dayCellBlank} />;
+                }
+                const isSelected = cell.dateKey === selectedDate;
+                const isToday = cell.dateKey === todayKey;
+                const plannedCount = (plansByDate[cell.dateKey] || []).length;
+
+                return (
+                  <TouchableOpacity
+                    key={cell.key}
+                    style={[
+                      styles.dayCell,
+                      {
+                        backgroundColor: isSelected ? themeColors.accentColor : "transparent",
+                        borderColor: isToday ? themeColors.accentColor : (themeColors.mode === "dark" ? "#3a3a3a" : "#ededed"),
+                      },
+                    ]}
+                    onPress={() => setSelectedDate(cell.dateKey!)}
+                  >
+                    <Text style={[styles.dayCellText, { color: isSelected ? "#fff" : themeColors.textColor }]}>{cell.dayNumber}</Text>
+                    {plannedCount > 0 && (
+                      <View style={[styles.dayCountBadge, { backgroundColor: isSelected ? "rgba(255,255,255,0.28)" : themeColors.accentColor + "28" }]}>
+                        <Text style={[styles.dayCountText, { color: isSelected ? "#fff" : themeColors.accentColor }]}>{plannedCount}</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.selectedDateHeader}>
+              <Text style={[styles.selectedDateTitle, { color: themeColors.textColor }]}>
+                Plan for {parseDateKey(selectedDate).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+              </Text>
+              <TouchableOpacity
+                style={[styles.addPlanButton, { backgroundColor: themeColors.accentColor }]}
+                onPress={() => setShowPlannerModal(true)}
+              >
+                <Ionicons name="add" size={14} color="#fff" />
+                <Text style={styles.addPlanButtonText}>Add Recipe</Text>
+              </TouchableOpacity>
+            </View>
+
+            {selectedPlannedRecipes.length > 0 ? (
+              selectedPlannedRecipes.map((recipe) => (
                 <View
-                  key={todo.id}
-                  style={[
-                    styles.todoItem,
-                    {
-                      backgroundColor: themeColors.mode === "dark" ? "#2d2d2d" : "#f8f9fb",
-                      borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#eceff3",
-                    },
-                  ]}
+                  key={recipe.id}
+                  style={[styles.planItem, { backgroundColor: themeColors.mode === "dark" ? "#2d2d2d" : "#f7f8fa", borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#eceff3" }]}
                 >
-                  <View style={[styles.todoItemIcon, { backgroundColor: themeColors.accentColor + (themeColors.mode === "dark" ? "2E" : "1C") }]}>
-                    <Ionicons name={todo.icon} size={14} color={themeColors.accentColor} />
-                  </View>
-                  <View style={styles.todoItemBody}>
-                    <Text style={[styles.todoItemTitle, { color: themeColors.textColor }]} numberOfLines={1}>{todo.title}</Text>
-                    <Text style={[styles.todoItemMeta, { color: themeColors.mode === "dark" ? "#8f8f8f" : "#7a7a7a" }]}>{todo.meta}</Text>
-                  </View>
+                  <TouchableOpacity style={styles.planItemMain} onPress={() => onOpenRecipe?.(recipe.id)}>
+                    <Ionicons name="restaurant-outline" size={16} color={themeColors.accentColor} />
+                    <View style={styles.planItemBody}>
+                      <Text style={[styles.planItemTitle, { color: themeColors.textColor }]} numberOfLines={1}>{recipe.name}</Text>
+                      <Text style={[styles.planItemMeta, { color: themeColors.mode === "dark" ? "#9a9a9a" : "#7c7c7c" }]}>
+                        {recipe.cookTime ? `${recipe.cookTime} min` : "Planned"}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => void removeRecipeFromSelectedDay(recipe.id)}>
+                    <Ionicons name="close-circle" size={20} color={themeColors.mode === "dark" ? "#9d9d9d" : "#8f8f8f"} />
+                  </TouchableOpacity>
                 </View>
               ))
             ) : (
-              <Text style={[styles.todoEmpty, { color: themeColors.mode === "dark" ? "#9c9c9c" : "#808080" }]}>No tasks yet. Add recipes in your calendar or shopping items to build today.</Text>
+              <Text style={[styles.emptyPlanText, { color: themeColors.mode === "dark" ? "#a1a1a1" : "#7d7d7d" }]}>No recipes planned for this day yet.</Text>
+            )}
+
+            {selectedPlannedRecipes.length > 0 && (
+              <View style={[styles.missingCard, { borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#ececec", backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#fbfcfd" }]}>
+                <View style={styles.missingHeaderRow}>
+                  <View style={styles.missingTitleWrap}>
+                    <Ionicons name="alert-circle-outline" size={16} color={themeColors.accentColor} />
+                    <Text style={[styles.missingTitle, { color: themeColors.textColor }]}>Ingredient Check</Text>
+                  </View>
+                  {selectedDateMissingSuggestions.length > 0 && (
+                    <TouchableOpacity style={[styles.addAllMissingButton, { backgroundColor: themeColors.accentColor }]} onPress={() => void addAllMissingToShopping()}>
+                      <Text style={styles.addAllMissingText}>Add All Missing</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {selectedDateMissingSuggestions.length === 0 ? (
+                  <Text style={[styles.missingEmpty, { color: themeColors.mode === "dark" ? "#a4a4a4" : "#6e6e6e" }]}>All ingredients are available in your pantry for this day.</Text>
+                ) : (
+                  selectedDateMissingSuggestions.map((item) => {
+                    const shoppingAlreadyHasItem = shoppingNameSet.has(item.name.toLowerCase().trim());
+                    return (
+                      <View key={item.key} style={[styles.missingItemRow, { borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#e9edf2" }]}>
+                        <View style={styles.missingItemBody}>
+                          <Text style={[styles.missingItemName, { color: themeColors.textColor }]}>{item.name}</Text>
+                          <Text style={[styles.missingItemMeta, { color: themeColors.mode === "dark" ? "#9a9a9a" : "#6f6f6f" }]}>
+                            {item.quantity} {item.unit} • {item.recipes.slice(0, 2).join(", ")}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          disabled={shoppingAlreadyHasItem}
+                          onPress={() => void addMissingItemToShopping(item)}
+                          style={[
+                            styles.addMissingButton,
+                            {
+                              backgroundColor: shoppingAlreadyHasItem
+                                ? (themeColors.mode === "dark" ? "#404040" : "#dfe3e8")
+                                : themeColors.accentColor,
+                            },
+                          ]}
+                        >
+                          <Text style={styles.addMissingText}>{shoppingAlreadyHasItem ? "Added" : "Add"}</Text>
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })
+                )}
+              </View>
             )}
           </View>
-        </View>
+        ) : null}
+      </ScrollView>
 
-        <View style={[styles.calendarCard, { backgroundColor: themeColors.mode === "dark" ? "#242424" : "#fff", borderColor: themeColors.mode === "dark" ? "#393939" : "#ececec" }]}>
-          <View style={styles.calendarHeader}>
-            <TouchableOpacity
-              style={[styles.calendarNavButton, { backgroundColor: themeColors.mode === "dark" ? "#303030" : "#f4f4f4" }]}
-              onPress={() => setVisibleMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
-            >
-              <Ionicons name="chevron-back" size={16} color={themeColors.textColor} />
-            </TouchableOpacity>
-
-            <Text style={[styles.calendarMonthLabel, { color: themeColors.textColor }]}>{monthLabel}</Text>
-
-            <TouchableOpacity
-              style={[styles.calendarNavButton, { backgroundColor: themeColors.mode === "dark" ? "#303030" : "#f4f4f4" }]}
-              onPress={() => setVisibleMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
-            >
-              <Ionicons name="chevron-forward" size={16} color={themeColors.textColor} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.weekdayRow}>
-            {WEEKDAY_LABELS.map((label) => (
-              <Text key={label} style={[styles.weekdayLabel, { color: themeColors.mode === "dark" ? "#9f9f9f" : "#8b8b8b" }]}>{label}</Text>
-            ))}
-          </View>
-
-          <View style={styles.calendarGrid}>
-            {calendarCells.map((cell) => {
-              if (!cell.dateKey || !cell.dayNumber) {
-                return <View key={cell.key} style={styles.dayCellBlank} />;
-              }
-              const isSelected = cell.dateKey === selectedDate;
-              const isToday = cell.dateKey === todayKey;
-              const plannedCount = (plansByDate[cell.dateKey] || []).length;
-
+      <Modal visible={showModuleEditor} transparent animationType="fade" onRequestClose={() => setShowModuleEditor(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowModuleEditor(false)}>
+          <TouchableOpacity activeOpacity={1} onPress={() => undefined} style={[styles.modalCard, { backgroundColor: themeColors.mode === "dark" ? "#232323" : "#fff", borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#ececec" }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: themeColors.textColor }]}>Customize dashboard</Text>
+              <TouchableOpacity onPress={() => setShowModuleEditor(false)}>
+                <Ionicons name="close" size={18} color={themeColors.mode === "dark" ? "#b8b8b8" : "#7f7f7f"} />
+              </TouchableOpacity>
+            </View>
+            <Text style={[styles.modalSubtitle, { color: themeColors.mode === "dark" ? "#a0a0a0" : "#727272" }]}>Choose which panels appear on your home screen.</Text>
+            {MODULE_CONFIG.map((module) => {
+              const enabled = visibleModules[module.key];
               return (
-                <TouchableOpacity
-                  key={cell.key}
-                  style={[
-                    styles.dayCell,
-                    {
-                      backgroundColor: isSelected ? themeColors.accentColor : "transparent",
-                      borderColor: isToday ? themeColors.accentColor : (themeColors.mode === "dark" ? "#3a3a3a" : "#ededed"),
-                    },
-                  ]}
-                  onPress={() => setSelectedDate(cell.dateKey!)}
-                >
-                  <Text style={[styles.dayCellText, { color: isSelected ? "#fff" : themeColors.textColor }]}>{cell.dayNumber}</Text>
-                  {plannedCount > 0 && (
-                    <View style={[styles.dayCountBadge, { backgroundColor: isSelected ? "rgba(255,255,255,0.28)" : themeColors.accentColor + "28" }]}>
-                      <Text style={[styles.dayCountText, { color: isSelected ? "#fff" : themeColors.accentColor }]}>{plannedCount}</Text>
+                <TouchableOpacity key={module.key} onPress={() => toggleModule(module.key)} style={[styles.modulePickerRow, { borderColor: themeColors.mode === "dark" ? "#3e3e3e" : "#ececec", backgroundColor: themeColors.mode === "dark" ? "#2b2b2b" : "#fafafa" }]}>
+                  <View style={styles.modulePickerTextWrap}>
+                    <View style={styles.modulePickerIconWrap}>
+                      <Ionicons name={module.icon} size={14} color={enabled ? themeColors.accentColor : (themeColors.mode === "dark" ? "#9a9a9a" : "#8a8a8a")} />
                     </View>
-                  )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.modulePickerTitle, { color: themeColors.textColor }]}>{module.label}</Text>
+                      <Text style={[styles.modulePickerDesc, { color: themeColors.mode === "dark" ? "#9d9d9d" : "#7a7a7a" }]}>{module.description}</Text>
+                    </View>
+                  </View>
+                  <View style={[styles.modulePickerBadge, { backgroundColor: enabled ? themeColors.accentColor : (themeColors.mode === "dark" ? "#3a3a3a" : "#e6e6e6") }]}>
+                    <Text style={[styles.modulePickerBadgeText, { color: enabled ? "#fff" : (themeColors.mode === "dark" ? "#d4d4d4" : "#666") }]}>{enabled ? "Shown" : "Hidden"}</Text>
+                  </View>
                 </TouchableOpacity>
               );
             })}
-          </View>
-
-          <View style={styles.selectedDateHeader}>
-            <Text style={[styles.selectedDateTitle, { color: themeColors.textColor }]}>
-              Plan for {parseDateKey(selectedDate).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
-            </Text>
-            <TouchableOpacity
-              style={[styles.addPlanButton, { backgroundColor: themeColors.accentColor }]}
-              onPress={() => setShowPlannerModal(true)}
-            >
-              <Ionicons name="add" size={14} color="#fff" />
-              <Text style={styles.addPlanButtonText}>Add Recipe</Text>
-            </TouchableOpacity>
-          </View>
-
-          {selectedPlannedRecipes.length > 0 ? (
-            selectedPlannedRecipes.map((recipe) => (
-              <View
-                key={recipe.id}
-                style={[styles.planItem, { backgroundColor: themeColors.mode === "dark" ? "#2d2d2d" : "#f7f8fa", borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#eceff3" }]}
-              >
-                <TouchableOpacity style={styles.planItemMain} onPress={() => onOpenRecipe?.(recipe.id)}>
-                  <Ionicons name="restaurant-outline" size={16} color={themeColors.accentColor} />
-                  <View style={styles.planItemBody}>
-                    <Text style={[styles.planItemTitle, { color: themeColors.textColor }]} numberOfLines={1}>{recipe.name}</Text>
-                    <Text style={[styles.planItemMeta, { color: themeColors.mode === "dark" ? "#9a9a9a" : "#7c7c7c" }]}>
-                      {recipe.cookTime ? `${recipe.cookTime} min` : "Planned"}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => void removeRecipeFromSelectedDay(recipe.id)}>
-                  <Ionicons name="close-circle" size={20} color={themeColors.mode === "dark" ? "#9d9d9d" : "#8f8f8f"} />
-                </TouchableOpacity>
-              </View>
-            ))
-          ) : (
-            <Text style={[styles.emptyPlanText, { color: themeColors.mode === "dark" ? "#a1a1a1" : "#7d7d7d" }]}>No recipes planned for this day yet.</Text>
-          )}
-
-          {selectedPlannedRecipes.length > 0 && (
-            <View style={[styles.missingCard, { borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#ececec", backgroundColor: themeColors.mode === "dark" ? "#2a2a2a" : "#fbfcfd" }]}>
-              <View style={styles.missingHeaderRow}>
-                <View style={styles.missingTitleWrap}>
-                  <Ionicons name="alert-circle-outline" size={16} color={themeColors.accentColor} />
-                  <Text style={[styles.missingTitle, { color: themeColors.textColor }]}>Ingredient Check</Text>
-                </View>
-                {selectedDateMissingSuggestions.length > 0 && (
-                  <TouchableOpacity style={[styles.addAllMissingButton, { backgroundColor: themeColors.accentColor }]} onPress={() => void addAllMissingToShopping()}>
-                    <Text style={styles.addAllMissingText}>Add All Missing</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {selectedDateMissingSuggestions.length === 0 ? (
-                <Text style={[styles.missingEmpty, { color: themeColors.mode === "dark" ? "#a4a4a4" : "#6e6e6e" }]}>All ingredients are available in your pantry for this day.</Text>
-              ) : (
-                selectedDateMissingSuggestions.map((item) => {
-                  const shoppingAlreadyHasItem = shoppingNameSet.has(item.name.toLowerCase().trim());
-                  return (
-                    <View key={item.key} style={[styles.missingItemRow, { borderColor: themeColors.mode === "dark" ? "#3a3a3a" : "#e9edf2" }]}>
-                      <View style={styles.missingItemBody}>
-                        <Text style={[styles.missingItemName, { color: themeColors.textColor }]}>{item.name}</Text>
-                        <Text style={[styles.missingItemMeta, { color: themeColors.mode === "dark" ? "#9a9a9a" : "#6f6f6f" }]}>
-                          {item.quantity} {item.unit} • {item.recipes.slice(0, 2).join(", ")}
-                        </Text>
-                      </View>
-                      <TouchableOpacity
-                        disabled={shoppingAlreadyHasItem}
-                        onPress={() => void addMissingItemToShopping(item)}
-                        style={[
-                          styles.addMissingButton,
-                          {
-                            backgroundColor: shoppingAlreadyHasItem
-                              ? (themeColors.mode === "dark" ? "#404040" : "#dfe3e8")
-                              : themeColors.accentColor,
-                          },
-                        ]}
-                      >
-                        <Text style={styles.addMissingText}>{shoppingAlreadyHasItem ? "Added" : "Add"}</Text>
-                      </TouchableOpacity>
-                    </View>
-                  );
-                })
-              )}
-            </View>
-          )}
-        </View>
-      </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       <Modal visible={showPlannerModal} transparent animationType="fade" onRequestClose={() => setShowPlannerModal(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowPlannerModal(false)}>
