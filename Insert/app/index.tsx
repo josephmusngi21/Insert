@@ -1,9 +1,9 @@
 import { useState, useCallback, useLayoutEffect, useEffect, useMemo, memo, useRef } from "react";
-import { Text, View, TouchableOpacity, Dimensions, Modal, Platform, Alert } from "react-native";
+import { Text, View, TouchableOpacity, Dimensions, Modal, Platform, Alert, AppState } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring, runOnJS, cancelAnimation } from "react-native-reanimated";
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { onAuthStateChanged } from "firebase/auth";
 import { getDoc, onSnapshot, setDoc } from "firebase/firestore";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/screens/components/styles/colors";
@@ -33,13 +33,10 @@ import SocialScreen from "@/screens/social/SocialScreen";
 import { type ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import SplashScreen from "@/screens/misc/SplashScreen";
 import MainLogin from '../screens/firebaseAuthLoginRegister/MainLogin';
+import { auth } from "@/screens/firebaseAuthLoginRegister/firebase/config";
+import { UserDataProvider } from "@/screens/firebaseAuthLoginRegister/firebase/UserDataProvider";
+import { logout, revalidateSession } from "@/screens/firebaseAuthLoginRegister/firebase/authService";
 import { ensureUserProfile, updateUserProfile, userDoc, settingsDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
-
-type QuickSwitchAccount = {
-  label: string;
-  email: string;
-  password?: string;
-};
 
 type Screen = 'home' | 'recipes' | 'pantry' | 'social' | 'shopping' | 'more' | 'recipeDetail';
 const SWIPEABLE_TABS: Screen[] = ['home', 'recipes', 'pantry', 'social', 'shopping', 'more'];
@@ -92,12 +89,21 @@ const TabIcon: React.FC<TabIconProps> = memo(({ icon, activeIcon, label, isActiv
 ));
 
 export default function Index() {
+  return (
+    <UserDataProvider>
+      <IndexShell />
+    </UserDataProvider>
+  );
+}
+
+function IndexShell() {
   const insets = useSafeAreaInsets();
-  const auth = getAuth();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAuthBooting, setIsAuthBooting] = useState(true);
   const [isLoginLoading, setIsLoginLoading] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  // Only Home mounts at first; other tabs mount staggered after first paint (or immediately when visited)
+  const [mountedTabs, setMountedTabs] = useState<Set<Screen>>(() => new Set<Screen>(['home']));
   // currentScreen is committed after transitions; tabBarScreen drives instant tab icon feedback.
   const [currentScreen, setCurrentScreen] = useState<Screen>('home');
   const [tabBarScreen, setTabBarScreen] = useState<Screen>('home');
@@ -114,9 +120,6 @@ export default function Index() {
   const [userEmail, setUserEmail] = useState("user@example.com");
   const [userDisplayName, setUserDisplayName] = useState("Insert User");
   const [userId, setUserId] = useState<string | null>(null);
-  const [isAdminUser, setIsAdminUser] = useState(false);
-  const [quickSwitchAccounts, setQuickSwitchAccounts] = useState<QuickSwitchAccount[]>([]);
-  const [isSwitchingUser, setIsSwitchingUser] = useState(false);
   const [showPantryAdd, setShowPantryAdd] = useState(false);
   const [showShoppingAdd, setShowShoppingAdd] = useState(false);
   const [showAddChoice, setShowAddChoice] = useState(false);
@@ -224,11 +227,12 @@ export default function Index() {
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (nextUser) => {
+      // First callback means the persisted session has been restored (or confirmed absent)
+      setIsAuthBooting(false);
+
       if (!nextUser) {
         setIsLoggedIn(false);
         setUserId(null);
-        setIsAdminUser(false);
-        setQuickSwitchAccounts([]);
         setUserEmail("user@example.com");
         setUserDisplayName("Insert User");
         setUserAllergies([]);
@@ -240,17 +244,53 @@ export default function Index() {
       setUserId(nextUser.uid);
       setUserEmail(nextUser.email || "user@example.com");
       setUserDisplayName(nextUser.displayName || nextUser.email?.split("@")[0] || "Insert User");
-      await ensureUserProfile(nextUser.uid, nextUser.email, nextUser.displayName);
+      try {
+        await ensureUserProfile(nextUser.uid, nextUser.email, nextUser.displayName);
+      } catch (error) {
+        // Offline or rules not ready: the profile is re-ensured on the next launch/sign-in
+        console.warn("Profile init failed (non-fatal):", (error as { code?: string })?.code);
+      }
     });
 
-    return () => unsubscribeAuth();
-  }, [auth]);
+    // Safety net so a stalled storage read can never leave the splash screen up forever
+    const bootFallback = setTimeout(() => setIsAuthBooting(false), 5000);
+
+    return () => {
+      unsubscribeAuth();
+      clearTimeout(bootFallback);
+    };
+  }, []);
+
+  // Re-validate the session whenever the app returns to the foreground
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    void revalidateSession();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void revalidateSession();
+    });
+    return () => subscription.remove();
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setMountedTabs(new Set<Screen>(['home']));
+      return;
+    }
+    const timers = SWIPEABLE_TABS.slice(1).map((tab, index) =>
+      setTimeout(() => setMountedTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab))), 500 + index * 250)
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    const tab: Screen = tabBarScreen === 'recipeDetail' ? 'recipes' : tabBarScreen;
+    setMountedTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)));
+  }, [tabBarScreen]);
 
   useEffect(() => {
     if (!userId) return;
 
     const unsubscribeProfile = onSnapshot(userDoc(userId), (snap) => {
-      setIsAdminUser(Boolean(snap.data()?.isAdmin));
       const allergies = Array.isArray(snap.data()?.allergies)
         ? snap.data()?.allergies.filter((value: unknown): value is string => typeof value === "string")
         : [];
@@ -268,25 +308,6 @@ export default function Index() {
     });
 
     return () => unsubscribeProfile();
-  }, [userId]);
-
-  useEffect(() => {
-    if (!userId) return;
-
-    const unsubscribeSwitchConfig = onSnapshot(settingsDoc(userId, "adminQuickSwitch"), (snap) => {
-      const targets = Array.isArray(snap.data()?.targets)
-        ? snap.data()?.targets
-            .map((target: any) => ({
-              label: typeof target?.label === "string" ? target.label : "Test User",
-              email: typeof target?.email === "string" ? target.email : "",
-              password: typeof target?.password === "string" ? target.password : undefined,
-            }))
-            .filter((target: QuickSwitchAccount) => target.email.length > 0)
-        : [];
-      setQuickSwitchAccounts(targets);
-    });
-
-    return () => unsubscribeSwitchConfig();
   }, [userId]);
 
   useEffect(() => {
@@ -324,14 +345,6 @@ export default function Index() {
       void updateUserProfile(userId, { dietaryRestrictions: nextDietaryRestrictions });
     }
   }, [userId]);
-
-  useEffect(() => {
-    const bootTimer = setTimeout(() => {
-      setIsAuthBooting(false);
-    }, 1650);
-
-    return () => clearTimeout(bootTimer);
-  }, []);
 
   const syncScreenState = useCallback((screen: Screen) => {
     setCurrentScreen(screen);
@@ -440,7 +453,7 @@ export default function Index() {
             setIsSigningOut(true);
             void (async () => {
               try {
-                await signOut(auth);
+                await logout();
                 setIsLoggedIn(false);
                 syncScreenState('home');
                 setDetailVisible(false);
@@ -456,51 +469,7 @@ export default function Index() {
         },
       ]
     );
-  }, [auth, syncScreenState, tabIndexSV, translateX]);
-
-  const handleQuickSwitchUser = useCallback((targetEmail: string) => {
-    if (!isAdminUser) {
-      Alert.alert("Admin only", "Quick switch is only available for configured admin test accounts.");
-      return;
-    }
-
-    const target = quickSwitchAccounts.find((account) => account.email.toLowerCase() === targetEmail.toLowerCase());
-    if (!target) {
-      Alert.alert("Unknown target", "This quick-switch account is not configured.");
-      return;
-    }
-
-    if (!target.password) {
-      Alert.alert(
-        "Password required",
-        "This target account does not have a stored quick-switch password yet. Please log in once manually from the login screen, then I can wire it for one-tap switching."
-      );
-      return;
-    }
-    const targetEmailValue = target.email;
-    const targetPassword = target.password;
-
-    setIsSwitchingUser(true);
-    void (async () => {
-      try {
-        await signOut(auth).catch(() => undefined);
-        await signInWithEmailAndPassword(auth, targetEmailValue, targetPassword);
-        Alert.alert("Switched", `You are now signed in as ${targetEmailValue}.`);
-      } catch (error: any) {
-        const message = typeof error?.message === "string" ? error.message : "Unable to switch accounts.";
-        Alert.alert("Switch failed", message);
-      } finally {
-        setIsSwitchingUser(false);
-      }
-    })();
-  }, [auth, isAdminUser, quickSwitchAccounts]);
-
-  const quickSwitchTargetsForCurrentUser = useMemo(
-    () => quickSwitchAccounts
-      .filter((account) => account.email.toLowerCase() !== userEmail.trim().toLowerCase())
-      .map((account) => ({ label: account.label, email: account.email })),
-    [quickSwitchAccounts, userEmail]
-  );
+  }, [syncScreenState, tabIndexSV, translateX]);
 
   const handleRecipeSelect = useCallback((recipeId: string) => {
     const token = ++tabTransitionTokenRef.current;
@@ -703,12 +672,8 @@ export default function Index() {
       onDietaryRestrictionsChange={handleDietaryRestrictionsChange}
       onThemeChange={handleThemeChange}
       onSubScreenChange={setMoreSubScreenActive}
-      isAdminUser={isAdminUser}
-      isSwitchingUser={isSwitchingUser}
-      quickSwitchTargets={quickSwitchTargetsForCurrentUser}
-      onQuickSwitchUser={handleQuickSwitchUser}
     />
-  ), [handleAllergiesChange, handleDietaryRestrictionsChange, handleLogout, handleQuickSwitchUser, handleThemeChange, isAdminUser, isSwitchingUser, quickSwitchTargetsForCurrentUser, theme, userAllergies, userDietaryRestrictions, userDisplayName, userEmail]);
+  ), [handleAllergiesChange, handleDietaryRestrictionsChange, handleLogout, handleThemeChange, theme, userAllergies, userDietaryRestrictions, userDisplayName, userEmail]);
 
   const recipeDetailScreen = useMemo(() => (
     <RecipeDetailScreen
@@ -761,25 +726,25 @@ export default function Index() {
         <GestureDetector gesture={swipeGesture}>
           <View style={{ flex: 1, overflow: 'hidden' }}>
 
-        {/* Permanent row — all tabs stay mounted, positions never change */}
+        {/* Permanent row — positions never change; non-home tabs mount shortly after first paint */}
         <Animated.View style={[{ flex: 1, flexDirection: 'row', width: SCREEN_WIDTH * TABS_LEN }, rowStyle]}>
           <View style={{ width: SCREEN_WIDTH }}>
             {homeScreen}
           </View>
           <View style={{ width: SCREEN_WIDTH }}>
-            {recipeListScreen}
+            {mountedTabs.has('recipes') ? recipeListScreen : null}
           </View>
           <View style={{ width: SCREEN_WIDTH }}>
-            {pantryDetailScreen}
+            {mountedTabs.has('pantry') ? pantryDetailScreen : null}
           </View>
           <View style={{ width: SCREEN_WIDTH }}>
-            {socialScreen}
+            {mountedTabs.has('social') ? socialScreen : null}
           </View>
           <View style={{ width: SCREEN_WIDTH }}>
-            {shoppingScreen}
+            {mountedTabs.has('shopping') ? shoppingScreen : null}
           </View>
           <View style={{ width: SCREEN_WIDTH }}>
-            {moreScreen}
+            {mountedTabs.has('more') ? moreScreen : null}
           </View>
         </Animated.View>
 
