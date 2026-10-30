@@ -3,13 +3,14 @@
  * Displays which ingredients user has in pantry and which are missing
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, RefreshControl, Modal, Platform, Dimensions, Pressable, Share, Linking } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { onSnapshot, doc, getDoc, addDoc, deleteDoc, writeBatch, getDocs, collection, query, orderBy, limit, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { useUserData } from "@/screens/firebaseAuthLoginRegister/firebase/UserDataProvider";
 import { shoppingCol, pantryCol, recipesDoc, cookHistoryCol, settingsDoc, socialPostsCol, friendsCol, recipeSharesCol, friendRequestsCol, outgoingFriendRequestsCol, userDoc, publicRecipeDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import { formatQuantityForPreference, PreferredWeightUnit, UnitDisplayMode } from "@/screens/utils/unitUtils";
@@ -276,7 +277,6 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [addingIngredient, setAddingIngredient] = useState<string | null>(null);
   const [shoppingListItems, setShoppingListItems] = useState<ShoppingListItem[]>([]);
-  const [pantryItems, setPantryItems] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   // Cook mode
   const [cookMode, setCookMode] = useState(false);
@@ -452,27 +452,21 @@ export default function RecipeDetailScreen({ recipeId, onBack, theme }: RecipeDe
     loadUnitPreference();
   }, [userId]);
 
-  // Load pantry items from Firestore with real-time listener
-  useEffect(() => {
-    if (!userId) return;
-    
-    const unsubscribe = onSnapshot(pantryCol(userId), (snapshot) => {
-      const items = snapshot.docs.map(doc => ({
-        id: `fs_${doc.id}`,
-        name: doc.data().name || "",
-        type: doc.data().type || "",
-        quantity: doc.data().quantity || 0,
-        unit: doc.data().unit || "",
-        location: doc.data().location || "",
-        expirationDate: doc.data().expirationDate || "",
-      }));
-      setPantryItems(items);
-    }, (error) => {
-      console.error("Error loading pantry items:", error);
-    });
-    
-    return () => unsubscribe();
-  }, [userId]);
+  // Pantry items come from the shared provider
+  const { pantryDocs } = useUserData();
+  const pantryItems = useMemo(
+    () =>
+      pantryDocs.map(({ id, data }) => ({
+        id: `fs_${id}`,
+        name: data.name || "",
+        type: data.type || "",
+        quantity: data.quantity || 0,
+        unit: data.unit || "",
+        location: data.location || "",
+        expirationDate: data.expirationDate || "",
+      })),
+    [pantryDocs]
+  );
 
   // Timer tick
   useEffect(() => {
