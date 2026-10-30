@@ -5,7 +5,8 @@ import { Image } from "expo-image";
 import { getAuth } from "firebase/auth";
 import { onSnapshot, orderBy, query, limit, updateDoc, arrayUnion, arrayRemove, collection, getDocs, where, setDoc, doc, serverTimestamp, addDoc, getDoc, deleteDoc } from "firebase/firestore";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
-import { pantryCol, socialPostsCol, socialPostDoc, friendsCol, friendRequestsCol, outgoingFriendRequestsCol, recipeSharesCol, recipesCol, recipesDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
+import { useUserData } from "@/screens/firebaseAuthLoginRegister/firebase/UserDataProvider";
+import { socialPostsCol, socialPostDoc, friendsCol, friendRequestsCol, outgoingFriendRequestsCol, recipeSharesCol, recipesCol, recipesDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getSourceHost } from "@/screens/utils/urlUtils";
 import { estimateRecipeMacros } from "@/screens/utils/nutritionUtils";
 import styles from "./SocialScreen.styles";
@@ -109,9 +110,8 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
   const [posts, setPosts] = useState<SocialPostItem[]>([]);
-  const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
-  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
-  const [outgoingIds, setOutgoingIds] = useState<Set<string>>(new Set());
+  const { pantryDocs, friendIds, outgoingIds } = useUserData();
+  const pantryItems = useMemo(() => pantryDocs.map((d) => d.data as PantryItem), [pantryDocs]);
   const [showAddFriendModal, setShowAddFriendModal] = useState(false);
   const [friendInput, setFriendInput] = useState("");
   const [sendingFriendRequest, setSendingFriendRequest] = useState(false);
@@ -147,24 +147,7 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
       return () => unsubPosts();
     }
 
-    const unsubPantry = onSnapshot(pantryCol(userId), (snapshot) => {
-      setPantryItems(snapshot.docs.map((d) => d.data() as PantryItem));
-    });
-
-    const unsubFriends = onSnapshot(friendsCol(userId), (snapshot) => {
-      setFriendIds(new Set(snapshot.docs.map((d) => d.id)));
-    });
-
-    const unsubOutgoing = onSnapshot(outgoingFriendRequestsCol(userId), (snapshot) => {
-      setOutgoingIds(new Set(snapshot.docs.map((d) => d.id)));
-    });
-
-    return () => {
-      unsubPosts();
-      unsubPantry();
-      unsubFriends();
-      unsubOutgoing();
-    };
+    return () => unsubPosts();
   }, [userId]);
 
   const visiblePosts = useMemo(() => {
@@ -179,22 +162,24 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
     });
   }, [friendIds, posts, userId]);
 
+  const postIdsKey = useMemo(() => visiblePosts.map((post) => post.id).join("|"), [visiblePosts]);
+
   useEffect(() => {
-    if (visiblePosts.length === 0) {
+    if (!postIdsKey) {
       setCommentCounts({});
       return;
     }
 
-    const unsubscribes = visiblePosts.map((post) => {
-      return onSnapshot(collection(db, "socialPosts", post.id, "comments"), (snapshot) => {
-        setCommentCounts((prev) => ({ ...prev, [post.id]: snapshot.size }));
+    const unsubscribes = postIdsKey.split("|").map((postId) => {
+      return onSnapshot(collection(db, "socialPosts", postId, "comments"), (snapshot) => {
+        setCommentCounts((prev) => (prev[postId] === snapshot.size ? prev : { ...prev, [postId]: snapshot.size }));
       });
     });
 
     return () => {
       unsubscribes.forEach((unsubscribe) => unsubscribe());
     };
-  }, [visiblePosts]);
+  }, [postIdsKey]);
 
   const pantryTokens = useMemo(() => {
     return pantryItems
