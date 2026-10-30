@@ -9,6 +9,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { onSnapshot, addDoc, deleteDoc, setDoc, serverTimestamp, updateDoc, doc, query, orderBy, limit, getDoc, collection, getDocs, where } from "firebase/firestore";
+import { useUserData } from "@/screens/firebaseAuthLoginRegister/firebase/UserDataProvider";
 import { friendRequestsCol, friendsCol, outgoingFriendRequestsCol, recipeSharesCol, recipesCol, recipesDoc, publicRecipeDoc, userDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { getAuth } from "firebase/auth";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -119,8 +120,7 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
   const [pendingShares, setPendingShares] = useState<SharedRecipeInvite[]>([]);
   const [selectedShare, setSelectedShare] = useState<SharedRecipeInvite | null>(null);
   const [shareActionBusyId, setShareActionBusyId] = useState<string | null>(null);
-  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
-  const [outgoingIds, setOutgoingIds] = useState<Set<string>>(new Set());
+  const { friendIds, outgoingIds } = useUserData();
   const [showImporterProfileModal, setShowImporterProfileModal] = useState(false);
   const [loadingImporterProfile, setLoadingImporterProfile] = useState(false);
   const [selectedImporterProfile, setSelectedImporterProfile] = useState<ImporterProfilePreview | null>(null);
@@ -199,23 +199,6 @@ export default function RecipeListScreen({ onRecipeSelect, theme, userAllergies 
     });
 
     return () => unsubscribe();
-  }, [userId]);
-
-  useEffect(() => {
-    if (!userId) return;
-
-    const unsubFriends = onSnapshot(friendsCol(userId), (snapshot) => {
-      setFriendIds(new Set(snapshot.docs.map((docSnap) => docSnap.id)));
-    });
-
-    const unsubOutgoing = onSnapshot(outgoingFriendRequestsCol(userId), (snapshot) => {
-      setOutgoingIds(new Set(snapshot.docs.map((docSnap) => docSnap.id)));
-    });
-
-    return () => {
-      unsubFriends();
-      unsubOutgoing();
-    };
   }, [userId]);
 
   useEffect(() => {
