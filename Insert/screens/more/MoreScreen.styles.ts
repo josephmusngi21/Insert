@@ -143,34 +143,7 @@ export default StyleSheet.create({
     fontSize: 11,
     lineHeight: 16,
   },
-  adminSwitcherWrap: {
-    marginTop: 12,
-  },
-  adminSwitcherTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  adminSwitcherHint: {
-    fontSize: 11,
-    marginTop: 2,
-    marginBottom: 8,
-  },
-  adminSwitcherButtons: {
-    flexDirection: "row",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  adminSwitchButton: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  adminSwitchButtonText: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
-
+  
   /* Section */
   section: {
     marginBottom: 22,

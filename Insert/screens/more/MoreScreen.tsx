@@ -39,10 +39,6 @@ interface MoreScreenProps {
   onDietaryRestrictionsChange?: (dietaryRestrictions: string[]) => void;
   onThemeChange?: (theme: ThemeColors) => void;
   onSubScreenChange?: (active: boolean) => void;
-  isAdminUser?: boolean;
-  isSwitchingUser?: boolean;
-  quickSwitchTargets?: Array<{ label: string; email: string }>;
-  onQuickSwitchUser?: (email: string) => void;
 }
 
 interface MenuItem {
@@ -70,10 +66,6 @@ export default function MoreScreen({
   onDietaryRestrictionsChange,
   onThemeChange,
   onSubScreenChange,
-  isAdminUser = false,
-  isSwitchingUser = false,
-  quickSwitchTargets = [],
-  onQuickSwitchUser,
 }: MoreScreenProps) {
   const [subScreen, setSubScreen] = useState<SubScreen>(null);
   const [incomingRequestCount, setIncomingRequestCount] = useState(0);
@@ -358,32 +350,6 @@ export default function MoreScreen({
                 </Text>
               ))
             )}
-            </View>
-          )}
-          {isUserCardExpanded && isAdminUser && quickSwitchTargets.length > 0 && (
-            <View style={styles.adminSwitcherWrap}>
-              <Text style={[styles.adminSwitcherTitle, { color: themeColors.textColor }]}>Admin Quick Switch</Text>
-              <Text style={[styles.adminSwitcherHint, { color: isDark ? "#9a9a9a" : "#7a7a7a" }]}>
-                Testing only. Tap a user to switch account instantly.
-              </Text>
-              <View style={styles.adminSwitcherButtons}>
-                {quickSwitchTargets.map((target) => (
-                  <TouchableOpacity
-                    key={target.email}
-                    disabled={isSwitchingUser}
-                    onPress={() => onQuickSwitchUser?.(target.email)}
-                    style={[
-                      styles.adminSwitchButton,
-                      { borderColor: themeColors.accentColor, backgroundColor: themeColors.accentColor + "20" },
-                      isSwitchingUser && { opacity: 0.6 },
-                    ]}
-                  >
-                    <Text style={[styles.adminSwitchButtonText, { color: themeColors.accentColor }]}>
-                      {isSwitchingUser ? "Switching..." : target.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
             </View>
           )}
         </View>
