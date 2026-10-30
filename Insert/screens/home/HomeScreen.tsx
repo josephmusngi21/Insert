@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { useUserData } from "@/screens/firebaseAuthLoginRegister/firebase/UserDataProvider";
 import { Modal, ScrollView, Text, TextInput, TouchableOpacity, View, Alert } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { addDoc, deleteDoc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
+import { addDoc, deleteDoc, limit, onSnapshot, orderBy, query, setDoc, updateDoc } from "firebase/firestore";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import { cookHistoryCol, mealPlanDoc, mealPlansCol, nutritionEntriesCol, pantryCol, pantryDoc, recipesCol, settingsDoc, shoppingCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
 import { estimateRecipeMacros, getNutritionFoodSuggestions, RecipeMacroSummary } from "@/screens/utils/nutritionUtils";
@@ -246,7 +247,23 @@ export default function HomeScreen({ theme, userId, userDisplayName, onOpenRecip
 
   const [recipes, setRecipes] = useState<RecipeLite[]>([]);
   const [shoppingItems, setShoppingItems] = useState<ShoppingTodoItem[]>([]);
-  const [pantryItems, setPantryItems] = useState<PantryLiteItem[]>([]);
+  const { pantryDocs } = useUserData();
+  const pantryItems = useMemo<PantryLiteItem[]>(
+    () =>
+      pantryDocs
+        .map(({ id, data }) => ({
+          id,
+          name: String(data.name || "").trim(),
+          quantity: Number(data.quantity) || 0,
+          unit: String(data.unit || "qty"),
+          location: String(data.location || "Pantry"),
+          type: typeof data.type === "string" ? data.type : undefined,
+          dateAdded: typeof data.dateAdded === "string" ? data.dateAdded : undefined,
+          expirationDate: typeof data.expirationDate === "string" ? data.expirationDate : undefined,
+        }))
+        .filter((item) => item.name.length > 0),
+    [pantryDocs]
+  );
   const [cookEntries, setCookEntries] = useState<CookHistoryLite[]>([]);
   const [manualNutritionEntries, setManualNutritionEntries] = useState<ManualNutritionEntry[]>([]);
   const [nutritionTargets, setNutritionTargets] = useState<NutritionTargets>(DEFAULT_NUTRITION_TARGETS);
@@ -314,21 +331,8 @@ export default function HomeScreen({ theme, userId, userDisplayName, onOpenRecip
       setShoppingItems(nextItems);
     });
 
-    const unsubscribePantry = onSnapshot(pantryCol(userId), (snapshot) => {
-      const nextPantry = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        name: String(docSnap.data().name || "").trim(),
-        quantity: Number(docSnap.data().quantity) || 0,
-        unit: String(docSnap.data().unit || "qty"),
-        location: String(docSnap.data().location || "Pantry"),
-        type: typeof docSnap.data().type === "string" ? docSnap.data().type : undefined,
-        dateAdded: typeof docSnap.data().dateAdded === "string" ? docSnap.data().dateAdded : undefined,
-        expirationDate: typeof docSnap.data().expirationDate === "string" ? docSnap.data().expirationDate : undefined,
-      })).filter((item) => item.name.length > 0);
-      setPantryItems(nextPantry);
-    });
-
-    const unsubscribeCookHistory = onSnapshot(cookHistoryCol(userId), (snapshot) => {
+    // Home only shows today's entries; the newest 50 always include them
+    const unsubscribeCookHistory = onSnapshot(query(cookHistoryCol(userId), orderBy("cookedAt", "desc"), limit(50)), (snapshot) => {
       const nextEntries = snapshot.docs.map((docSnap) => {
         const data = docSnap.data() as any;
         return {
@@ -344,7 +348,8 @@ export default function HomeScreen({ theme, userId, userDisplayName, onOpenRecip
       setCookEntries(nextEntries);
     });
 
-    const unsubscribeNutritionEntries = onSnapshot(nutritionEntriesCol(userId), (snapshot) => {
+    // Today's entries plus recent-food suggestions only need the newest 100
+    const unsubscribeNutritionEntries = onSnapshot(query(nutritionEntriesCol(userId), orderBy("createdAt", "desc"), limit(100)), (snapshot) => {
       const nextEntries = snapshot.docs.map((docSnap) => {
         const data = docSnap.data() as any;
         return {
@@ -385,7 +390,6 @@ export default function HomeScreen({ theme, userId, userDisplayName, onOpenRecip
       unsubscribeRecipes();
       unsubscribePlans();
       unsubscribeShopping();
-      unsubscribePantry();
       unsubscribeCookHistory();
       unsubscribeNutritionEntries();
       unsubscribeNutritionSettings();
