@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity, FlatList, StyleSheet, Modal, Platform, Dimensions, ActivityIndicator, Keyboard, TouchableWithoutFeedback, Animated } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import Swipeable from "react-native-gesture-handler/Swipeable";
+import Swipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { db } from "@/screens/firebaseAuthLoginRegister/firebase/config";
 import { onSnapshot, addDoc, deleteDoc, doc, writeBatch, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { pantryCol, pantryDoc, pendingCol, pendingDoc, settingsDoc, productDoc, ProductEntry, shoppingCol, recipesCol } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
