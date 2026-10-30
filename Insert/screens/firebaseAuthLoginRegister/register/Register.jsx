@@ -32,9 +32,8 @@ import {
     ScrollView, 
     Platform 
 } from "react-native";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../firebase/config";
 import { ensureUserProfile } from "../firebase/userDataService";
+import { MIN_PASSWORD_LENGTH, getAuthErrorMessage, isValidEmail, register } from "../firebase/authService";
 import styles from "./styles";
 
 /**
@@ -77,15 +76,15 @@ export default function Register({ compact = false, onRegistered }) {
      * @function
      */
     const handleRegister = async () => {
+        if (loading) return;
+
         // Input validation
-        if (!email || !password || !confirmPassword) {
+        if (!email.trim() || !password || !confirmPassword) {
             Alert.alert("Error", "Please fill in all fields");
             return;
         }
 
-        // Email format validation
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
+        if (!isValidEmail(email)) {
             Alert.alert("Error", "Please enter a valid email address");
             return;
         }
@@ -95,59 +94,34 @@ export default function Register({ compact = false, onRegistered }) {
             return;
         }
 
-        if (password.length < 6) {
-            Alert.alert("Error", "Password must be at least 6 characters long");
+        if (password.length < MIN_PASSWORD_LENGTH) {
+            Alert.alert("Error", `Password must be at least ${MIN_PASSWORD_LENGTH} characters long`);
             return;
         }
 
         setLoading(true);
 
         try {
-            // Step 1: Create Firebase Auth user for authentication
-            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-            const user = userCredential.user;
-            console.log("Firebase user created:", user.uid);
-            
-            // Save user profile to Firestore (non-blocking — rules may not be deployed yet)
+            // Creates the account, signs the user in and sends a verification email
+            const user = await register(email, password);
+
+            // Non-blocking: retried by the auth listener on next launch if offline
             ensureUserProfile(user.uid, user.email, user.displayName).catch(e =>
-              console.warn("Profile init failed (non-fatal):", e)
+              console.warn("Profile init failed (non-fatal):", e?.code)
             );
-            
-            Alert.alert(
-                "Success",
-                "Account created successfully! You can log in now.",
-                [
-                    {
-                        text: "Go to Login",
-                        onPress: () => onRegistered?.(),
-                    },
-                ]
-            );
-            
+
             // Clear form
             setEmail("");
             setPassword("");
             setConfirmPassword("");
+
+            Alert.alert(
+                "Account created",
+                "We sent a verification link to your email. You can start using the app now.",
+                [{ text: "Continue", onPress: () => onRegistered?.() }]
+            );
         } catch (error) {
-            console.error("Registration error:", error);
-            console.error("Error code:", error.code);
-            console.error("Full error:", JSON.stringify(error));
-            
-            // Handle specific Firebase errors
-            let errorMessage = "An error occurred during registration";
-            if (error.code === 'auth/email-already-in-use') {
-                errorMessage = "This email is already registered";
-            } else if (error.code === 'auth/invalid-email') {
-                errorMessage = "Please enter a valid email address";
-            } else if (error.code === 'auth/weak-password') {
-                errorMessage = "Password is too weak. Use at least 6 characters";
-            } else if (error.code === 'auth/invalid-credential') {
-                errorMessage = "Invalid email or password format";
-            } else if (error.message) {
-                errorMessage = error.message;
-            }
-            
-            Alert.alert("Registration Error", errorMessage);
+            Alert.alert("Registration Error", getAuthErrorMessage(error, "register"));
         } finally {
             setLoading(false);
         }
@@ -210,7 +184,7 @@ export default function Register({ compact = false, onRegistered }) {
                                 secureTextEntry
                                 autoCapitalize="none"
                                 autoCorrect={false}
-                                placeholder="At least 6 characters"
+                                placeholder="At least 8 characters"
                                 placeholderTextColor="#8ba58d"
                             />
                         </View>

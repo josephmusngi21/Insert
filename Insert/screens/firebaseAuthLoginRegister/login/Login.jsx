@@ -31,9 +31,8 @@ import {
     ScrollView, 
     Platform 
 } from "react-native";
-import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
-import { auth } from "../firebase/config";
 import { ensureUserProfile } from "../firebase/userDataService";
+import { getAuthErrorMessage, isValidEmail, requestPasswordReset, signIn } from "../firebase/authService";
 import styles from "./styles";
 
 /**
@@ -49,11 +48,11 @@ export default function Login({ onLoginSuccess, compact = false }) {
   // STATE MANAGEMENT
   // ============================================================
   
-  /** User's email input - pre-filled with test credentials for development */
-  const [email, setEmail] = useState("test@gmail.com");
-  
-  /** User's password input - pre-filled with test credentials for development */
-  const [password, setPassword] = useState("test@0321");
+  /** User's email input. Only prefilled in dev builds from a local env var; never prefill a password. */
+  const [email, setEmail] = useState(__DEV__ ? process.env.EXPO_PUBLIC_DEV_EMAIL ?? "" : "");
+
+  /** User's password input */
+  const [password, setPassword] = useState("");
   
   /** Loading state to prevent multiple submissions and show loading UI */
   const [loading, setLoading] = useState(false);
@@ -67,21 +66,24 @@ export default function Login({ onLoginSuccess, compact = false }) {
    * Validates inputs, authenticates user via Firebase, and handles success/error states
    */
   const handleSubmit = async () => {
-    if (!email || !password) {
+    if (loading) return;
+    if (!email.trim() || !password) {
       Alert.alert("Error", "Please fill in all fields");
+      return;
+    }
+    if (!isValidEmail(email)) {
+      Alert.alert("Error", "Please enter a valid email address");
       return;
     }
 
     setLoading(true);
 
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-      console.log("User logged in successfully:", user);
+      const user = await signIn(email, password);
 
-      // Ensure user profile exists in Firestore (non-blocking — rules may not be deployed yet)
+      // Non-blocking: profile init is retried by the auth listener on next launch if offline
       ensureUserProfile(user.uid, user.email, user.displayName).catch(e =>
-        console.warn("Profile init failed (non-fatal):", e)
+        console.warn("Profile init failed (non-fatal):", e?.code)
       );
 
       // Clear form
@@ -93,25 +95,7 @@ export default function Login({ onLoginSuccess, compact = false }) {
         onLoginSuccess();
       }
     } catch (error) {
-      console.error("Login error:", error);
-
-      // Handle specific Firebase errors
-      let errorMessage = "An error occurred during login";
-      if (error.code === 'auth/user-not-found') {
-        errorMessage = "No account found with this email";
-      } else if (error.code === 'auth/wrong-password') {
-        errorMessage = "Incorrect password";
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = "Please enter a valid email address";
-      } else if (error.code === 'auth/user-disabled') {
-        errorMessage = "This account has been disabled";
-      } else if (error.code === 'auth/too-many-requests') {
-        errorMessage = "Too many failed attempts. Please try again later";
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-
-      Alert.alert("Login Error", errorMessage);
+      Alert.alert("Login Error", getAuthErrorMessage(error, "login"));
     } finally {
       setLoading(false);
     }
@@ -119,28 +103,19 @@ export default function Login({ onLoginSuccess, compact = false }) {
 
   /**
    * Handles password reset functionality
-   * Sends a password reset email to the user's registered email address
+   * Always shows the same confirmation so account existence is never revealed
    */
   const handleForgotPassword = async () => {
-    if (!email) {
+    if (!email.trim() || !isValidEmail(email)) {
       Alert.alert("Error", "Please enter your email address first");
       return;
     }
 
     try {
-      await sendPasswordResetEmail(auth, email);
-      Alert.alert("Success", "Password reset email sent! Check your inbox.");
+      await requestPasswordReset(email);
+      Alert.alert("Check your email", "If an account exists for that address, a password reset link is on its way.");
     } catch (error) {
-      console.error("Password reset error:", error);
-      
-      let errorMessage = "An error occurred while sending reset email";
-      if (error.code === 'auth/user-not-found') {
-        errorMessage = "No account found with this email";
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = "Please enter a valid email address";
-      }
-      
-      Alert.alert("Error", errorMessage);
+      Alert.alert("Error", getAuthErrorMessage(error, "reset"));
     }
   };
 
