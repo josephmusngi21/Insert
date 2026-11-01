@@ -110,7 +110,7 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
   const auth = getAuth();
   const userId = auth.currentUser?.uid || "";
   const [posts, setPosts] = useState<SocialPostItem[]>([]);
-  const { pantryDocs, friendIds, outgoingIds } = useUserData();
+  const { pantryDocs, friendIds, outgoingIds, loaded } = useUserData();
   const pantryItems = useMemo(() => pantryDocs.map((d) => d.data as PantryItem), [pantryDocs]);
   const [showAddFriendModal, setShowAddFriendModal] = useState(false);
   const [friendInput, setFriendInput] = useState("");
@@ -711,6 +711,10 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
 
   const sendFriendRequest = async (targetUserId: string, targetDisplayName?: string) => {
     if (!userId || !targetUserId || targetUserId === userId) return;
+    if (!loaded.friends || !loaded.outgoing) {
+      Alert.alert("Please wait", "Your friends list is still loading. Try again in a moment.");
+      return;
+    }
     if (friendIds.has(targetUserId)) {
       Alert.alert("Already friends", `You are already connected with ${targetDisplayName || "this user"}.`);
       return;
@@ -977,11 +981,11 @@ export default function SocialScreen({ theme, currentUserDisplayName, currentUse
                 {post.userId !== userId && (
                   <TouchableOpacity
                     onPress={() => sendFriendRequest(post.userId, post.userDisplayName)}
-                    disabled={friendIds.has(post.userId) || outgoingIds.has(post.userId)}
+                    disabled={!loaded.friends || !loaded.outgoing || friendIds.has(post.userId) || outgoingIds.has(post.userId)}
                     style={[
                       styles.actionButton,
                       { borderColor: sageSoftBorder, backgroundColor: sageSoftBg },
-                      (friendIds.has(post.userId) || outgoingIds.has(post.userId)) && { opacity: 0.6 },
+                      (!loaded.friends || !loaded.outgoing || friendIds.has(post.userId) || outgoingIds.has(post.userId)) && { opacity: 0.6 },
                     ]}
                   >
                     <Ionicons name="person-add-outline" size={15} color={socialSage} />
