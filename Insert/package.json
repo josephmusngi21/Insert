@@ -9,7 +9,8 @@
     "android": "node node_modules/expo/bin/cli start --android --host lan",
     "ios": "node node_modules/expo/bin/cli start --ios --host lan",
     "web": "node node_modules/expo/bin/cli start --web",
-    "lint": "node node_modules/expo/bin/cli lint"
+    "lint": "node node_modules/expo/bin/cli lint",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-insert \"node --test tests/*.test.js\""
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -45,6 +46,7 @@
     "react-native-worklets": "0.13.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@types/react": "~19.1.0",
     "cross-env": "^10.1.0",
     "eslint": "^9.25.0",
