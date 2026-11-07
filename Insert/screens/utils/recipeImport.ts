@@ -179,7 +179,7 @@ export function parseIngredient(raw: string): ParsedIngredient {
   const firstWordLower = words[0]?.toLowerCase() ?? "";
 
   if (ALL_UNITS.map(u => u.toLowerCase()).includes(firstWordLower)) {
-    const parsedUnit = UNIT_NORMALIZE[words[0]] ?? UNIT_NORMALIZE[firstWordLower] ?? firstWordLower;
+    let parsedUnit = UNIT_NORMALIZE[words[0]] ?? UNIT_NORMALIZE[firstWordLower] ?? firstWordLower;
     let parsedQuantity = quantity;
 
     // The parenthetical value often contains normalized metric quantity, e.g. "4 ounces (113g)".
