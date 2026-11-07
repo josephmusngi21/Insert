@@ -3,7 +3,7 @@
  * Allows theme selection, notification settings, logout, etc.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentRef } from "react";
 import { Alert, KeyboardAvoidingView, LayoutAnimation, Platform, ScrollView, Text, TextInput, TouchableOpacity, UIManager, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { deleteUser, getAuth, signOut, updateProfile, User } from "firebase/auth";
@@ -48,7 +48,7 @@ export default function SettingsScreen({ userEmail, userAllergies = [], onAllerg
   const [defaultRecipeVisibility, setDefaultRecipeVisibility] = useState<"private" | "public">("private");
   const [lastProfileSyncLabel, setLastProfileSyncLabel] = useState("-");
   const [isBottomInputFocused, setIsBottomInputFocused] = useState(false);
-  const settingsScrollRef = useRef<ScrollView | null>(null);
+  const settingsScrollRef = useRef<ComponentRef<typeof ScrollView> | null>(null);
 
   useEffect(() => {
     if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
