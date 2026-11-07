@@ -87,6 +87,7 @@ const TabIcon: React.FC<TabIconProps> = memo(({ icon, activeIcon, label, isActiv
     </Text>
   </View>
 ));
+TabIcon.displayName = "TabIcon";
 
 export default function Index() {
   return (
