@@ -88,7 +88,7 @@ export default function MainLogin({ onLoginSuccess }: MainLoginProps) {
 
         <View style={styles.formContainer}>
           {isLogin ? (
-            <Login onLoginSuccess={handleLoginSuccess} compact />
+            <Login {...{ onLoginSuccess: handleLoginSuccess, compact: true }} />
           ) : (
             <Register compact onRegistered={() => setActiveScreen('login')} />
           )}
