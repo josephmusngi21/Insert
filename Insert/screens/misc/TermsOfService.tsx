@@ -27,7 +27,7 @@ export default function TermsOfService({ onClose, theme }: TermsOfServiceProps) 
         <Text style={[styles.sectionTitle, { color: themeColors.textColor }]}>1. Acceptance of Terms</Text>
 
         <Text style={[styles.sectionText, { color: isDark ? "#c8c8c8" : "#444" }]}> 
-          By downloading, installing, and using the Insert mobile application ("Service"), you agree to these Terms of Service. If you do not agree, do not use the Service. Insert ("Company," "we," "our," or "us") may update these terms from time to time.
+          By downloading, installing, and using the Insert mobile application (&quot;Service&quot;), you agree to these Terms of Service. If you do not agree, do not use the Service. Insert (&quot;Company,&quot; &quot;we,&quot; &quot;our,&quot; or &quot;us&quot;) may update these terms from time to time.
         </Text>
 
         <Text style={[styles.sectionTitle, { color: themeColors.textColor }]}>2. License and Use</Text>
@@ -67,7 +67,7 @@ export default function TermsOfService({ onClose, theme }: TermsOfServiceProps) 
           • Transmit malicious code or harmful content{"\n"}
           • Violate any laws or regulations{"\n"}
           • Infringe on intellectual property rights{"\n"}
-          • Interfere with the Service's operation or functionality{"\n"}
+          • Interfere with the Service&apos;s operation or functionality{"\n"}
           • Collect data without permission or authorization
         </Text>
 
@@ -80,7 +80,7 @@ export default function TermsOfService({ onClose, theme }: TermsOfServiceProps) 
         <Text style={[styles.sectionTitle, { color: themeColors.textColor }]}>7. Disclaimer of Warranties</Text>
 
         <Text style={[styles.sectionText, { color: isDark ? "#c8c8c8" : "#444" }]}> 
-          The Service is provided "AS IS" and "AS AVAILABLE" without warranty of any kind. We disclaim all representations and warranties, whether express or implied, including fitness for a particular purpose, merchantability, and non-infringement. We do not guarantee error-free operation or uninterrupted availability.
+          The Service is provided &quot;AS IS&quot; and &quot;AS AVAILABLE&quot; without warranty of any kind. We disclaim all representations and warranties, whether express or implied, including fitness for a particular purpose, merchantability, and non-infringement. We do not guarantee error-free operation or uninterrupted availability.
         </Text>
 
         <Text style={[styles.sectionTitle, { color: themeColors.textColor }]}>8. Limitation of Liability</Text>
@@ -108,7 +108,7 @@ export default function TermsOfService({ onClose, theme }: TermsOfServiceProps) 
         <Text style={[styles.sectionTitle, { color: themeColors.textColor }]}>10. Data and Content Deletion</Text>
 
         <Text style={[styles.sectionText, { color: isDark ? "#c8c8c8" : "#444" }]}> 
-          You may delete your account and associated data directly in the app at any time using: More -> Account Settings -> Delete Account. Once deletion completes, data recovery may not be possible. We may retain limited data where legally required or needed for security and fraud prevention.
+          You may delete your account and associated data directly in the app at any time using: More -&gt; Account Settings -&gt; Delete Account. Once deletion completes, data recovery may not be possible. We may retain limited data where legally required or needed for security and fraud prevention.
         </Text>
 
         <Text style={[styles.sectionTitle, { color: themeColors.textColor }]}>11. Intellectual Property Rights</Text>
