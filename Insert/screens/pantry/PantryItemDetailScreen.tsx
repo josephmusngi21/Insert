@@ -1,4 +1,5 @@
 import { estimateRecipeMacros } from "@/screens/utils/nutritionUtils";
+import type { ComponentRef } from "react";
 import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { View, Text, Button, ScrollView, TextInput, Alert, TouchableOpacity, FlatList, StyleSheet, Modal, Platform, Dimensions, ActivityIndicator, Keyboard, TouchableWithoutFeedback, Animated } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -223,7 +224,7 @@ export default function PantryItemDetailScreen({ onLogout, theme, showAddItemMod
   const [selectedStorageLocation, setSelectedStorageLocation] = useState<string>("all");
   const [activeFilterPanel, setActiveFilterPanel] = useState<"food" | "location" | null>(null);
   const [availableStorageLocations, setAvailableStorageLocations] = useState<string[]>(STORAGE_LOCATIONS);
-  const mainScrollRef = useRef<ScrollView | null>(null);
+  const mainScrollRef = useRef<ComponentRef<typeof ScrollView> | null>(null);
   const stickySectionHeightRef = useRef(0);
   const isAutoSnapInProgressRef = useRef(false);
   const pantrySearchInputRef = useRef<any>(null);
