@@ -26,7 +26,7 @@ export default function PrivacyPolicy({ onClose, theme }: PrivacyPolicyProps) {
 
         <Text style={[styles.sectionTitle, { color: themeColors.textColor }]}>1. Introduction</Text>
         <Text style={[styles.sectionText, { color: isDark ? "#c8c8c8" : "#444" }]}> 
-          Insert ("Company," "we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and related services (the "Service").
+          Insert (&quot;Company,&quot; &quot;we,&quot; &quot;our,&quot; or &quot;us&quot;) is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and related services (the &quot;Service&quot;).
         </Text>
 
         <Text style={[styles.sectionTitle, { color: themeColors.textColor }]}>2. Information We Collect</Text>
@@ -86,10 +86,10 @@ export default function PrivacyPolicy({ onClose, theme }: PrivacyPolicyProps) {
 
         <Text style={[styles.sectionTitle, { color: themeColors.textColor }]}>8. Account Deletion in the App</Text>
         <Text style={[styles.sectionText, { color: isDark ? "#c8c8c8" : "#444" }]}> 
-          You can delete your account directly in the app at any time using: More -> Account Settings -> Delete Account. This action removes your account and associated in-app data, subject to limited legal and security retention requirements.
+          You can delete your account directly in the app at any time using: More -&gt; Account Settings -&gt; Delete Account. This action removes your account and associated in-app data, subject to limited legal and security retention requirements.
         </Text>
 
-        <Text style={[styles.sectionTitle, { color: themeColors.textColor }]}>9. Children's Privacy</Text>
+        <Text style={[styles.sectionTitle, { color: themeColors.textColor }]}>9. Children&apos;s Privacy</Text>
         <Text style={[styles.sectionText, { color: isDark ? "#c8c8c8" : "#444" }]}> 
           Insert is not intended for children under 13 years of age. We do not knowingly collect personal information from children under 13. If we learn that we have collected such information, we will promptly delete it.
         </Text>
