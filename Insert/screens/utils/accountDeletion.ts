@@ -15,7 +15,7 @@ const USER_SUBCOLLECTIONS = [
   "notifications",
 ] as const;
 
-const deleteCollectionByPath = async (pathSegments: string[]) => {
+const deleteCollectionByPath = async (pathSegments: [string, ...string[]]) => {
   while (true) {
     const colRef = collection(db, ...pathSegments);
     const snap = await getDocs(query(colRef, limit(300)));
