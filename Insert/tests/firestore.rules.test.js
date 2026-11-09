@@ -86,6 +86,22 @@ test("owner can delete the profile (account deletion)", async () => {
   await assertSucceeds(deleteDoc(doc(as(ALICE), "users", ALICE)));
 });
 
+test("deletion-pending accounts cannot write user-owned or shared data", async () => {
+  await seed(async (db) => {
+    await setDoc(doc(db, "accountDeletionRequests", ALICE), { status: "in_progress" });
+    await setDoc(doc(db, "users", ALICE), { displayName: "Alice" });
+    await setDoc(doc(db, "socialPosts", "s1"), { userId: BOB, likes: [] });
+  });
+
+  const alice = as(ALICE);
+  await assertFails(getDoc(doc(alice, "accountDeletionRequests", ALICE)));
+  await assertFails(setDoc(doc(alice, "users", ALICE, "pantry", "p1"), { name: "Rice" }));
+  await assertFails(updateDoc(doc(alice, "users", ALICE), { displayName: "Changed" }));
+  await assertFails(setDoc(doc(alice, "socialPosts", "s2"), { userId: ALICE }));
+  await assertFails(updateDoc(doc(alice, "socialPosts", "s1"), { likes: [ALICE] }));
+  await assertFails(setDoc(doc(alice, "products", "123"), { name: "Product" }));
+});
+
 test("profiles are readable by signed-in users but not writable by others", async () => {
   await seed((db) => setDoc(doc(db, "users", ALICE), { displayName: "A" }));
   await assertSucceeds(getDoc(doc(as(BOB), "users", ALICE)));
