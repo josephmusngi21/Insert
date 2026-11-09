@@ -2,54 +2,65 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    function canWriteForCurrentUser() {
+      return request.auth != null
+        && !exists(/databases/$(database)/documents/accountDeletionRequests/$(request.auth.uid));
+    }
+
+    match /accountDeletionRequests/{uid} {
+      allow read, write: if false;
+    }
+
     // User profile doc
     match /users/{uid} {
-      // Authenticated users can read public profile basics for friend lookup.
       allow read: if request.auth != null;
-      // Owner writes are split by operation; privileged fields (isAdmin) can never be set or changed from a client.
-      allow create: if request.auth != null && request.auth.uid == uid
+      allow create: if canWriteForCurrentUser() && request.auth.uid == uid
         && !('isAdmin' in request.resource.data);
-      allow update: if request.auth != null && request.auth.uid == uid
+      allow update: if canWriteForCurrentUser() && request.auth.uid == uid
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isAdmin']);
-      allow delete: if request.auth != null && request.auth.uid == uid;
+      allow delete: if canWriteForCurrentUser() && request.auth.uid == uid;
     }
 
-    // Owner data in subcollections. Rules are additive, so "settings" is excluded here and handled below.
+    // Owner data in subcollections. Settings is handled separately below.
     match /users/{uid}/{sub}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid && sub != 'settings';
+      allow read: if request.auth != null && request.auth.uid == uid && sub != 'settings';
+      allow write: if canWriteForCurrentUser() && request.auth.uid == uid && sub != 'settings';
     }
 
-    // Settings documents. The retired adminQuickSwitch doc (stored plaintext passwords) can only be read or deleted, never written.
+    // The retired adminQuickSwitch doc can only be read or deleted, never written.
     match /users/{uid}/settings/{docId} {
-      allow read, delete: if request.auth != null && request.auth.uid == uid;
-      allow create, update: if request.auth != null && request.auth.uid == uid
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow delete: if canWriteForCurrentUser() && request.auth.uid == uid;
+      allow create, update: if canWriteForCurrentUser() && request.auth.uid == uid
         && docId != 'adminQuickSwitch';
     }
 
-    // Incoming friend requests: sender can create request into recipient inbox.
+    // Incoming friend requests: sender can create a request in the recipient inbox.
     match /users/{uid}/friendRequests/{requesterUid} {
-      allow read, update, delete: if request.auth != null && request.auth.uid == uid;
-      allow create: if request.auth != null
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow update, delete: if canWriteForCurrentUser() && request.auth.uid == uid;
+      allow create: if canWriteForCurrentUser()
         && request.auth.uid == requesterUid
         && request.auth.uid != uid
         && request.resource.data.fromUserId == request.auth.uid
         && request.resource.data.status == "pending";
     }
 
-    // Notifications inbox: owner reads/updates/deletes, authenticated users may create limited notifications.
+    // Notifications inbox: owner manages notifications; signed-in users may create limited notifications.
     match /users/{uid}/notifications/{notificationId} {
-      allow read, update, delete: if request.auth != null && request.auth.uid == uid;
-      allow create: if request.auth != null
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow update, delete: if canWriteForCurrentUser() && request.auth.uid == uid;
+      allow create: if canWriteForCurrentUser()
         && request.auth.uid != uid
         && request.resource.data.type in ["recipe_saved"]
         && request.resource.data.actorUserId == request.auth.uid
         && request.resource.data.read == false;
     }
 
-    // Friend relationships: owner can manage, and reciprocal friend can create/delete counterpart doc.
+    // Friend relationships: owner manages their row; counterpart can create/delete theirs.
     match /users/{uid}/friends/{friendUid} {
       allow read: if request.auth != null && request.auth.uid == uid;
-      allow create, update: if request.auth != null
+      allow create, update: if canWriteForCurrentUser()
         && (
           request.auth.uid == uid
           || (
@@ -60,14 +71,15 @@ service cloud.firestore {
             )
           )
         );
-      allow delete: if request.auth != null
+      allow delete: if canWriteForCurrentUser()
         && (request.auth.uid == uid || request.auth.uid == friendUid);
     }
 
-    // Recipe share inbox: sender can create share for recipient.
+    // Recipe share inbox: sender can create a share for a recipient.
     match /users/{uid}/recipeShares/{shareId} {
-      allow read, update, delete: if request.auth != null && request.auth.uid == uid;
-      allow create: if request.auth != null
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow update, delete: if canWriteForCurrentUser() && request.auth.uid == uid;
+      allow create: if canWriteForCurrentUser()
         && request.resource.data.fromUserId == request.auth.uid
         && request.resource.data.toUserId == uid;
     }
@@ -75,42 +87,41 @@ service cloud.firestore {
     // Global social feed.
     match /socialPosts/{postId} {
       allow read: if request.auth != null;
-      allow create: if request.auth != null
+      allow create: if canWriteForCurrentUser()
         && request.resource.data.userId == request.auth.uid;
 
-      // Any signed-in user can update likes; owner can update/delete own post.
-      allow update: if request.auth != null
+      // Any active signed-in user can update likes; only the owner can update/delete the post.
+      allow update: if canWriteForCurrentUser()
         && (
           request.auth.uid == resource.data.userId
           || request.resource.data.diff(resource.data).changedKeys().hasOnly(["likes"])
         );
-      allow delete: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow delete: if canWriteForCurrentUser() && request.auth.uid == resource.data.userId;
 
-      // Comments on social posts.
       match /comments/{commentId} {
         allow read: if request.auth != null;
-        allow create: if request.auth != null
+        allow create: if canWriteForCurrentUser()
           && request.resource.data.userId == request.auth.uid;
-        allow update, delete: if request.auth != null
+        allow update, delete: if canWriteForCurrentUser()
           && request.auth.uid == resource.data.userId;
       }
     }
 
-    // Shared product database — any authenticated user can read; authenticated users can create/update
+    // Shared product database.
     match /products/{barcode} {
       allow read: if request.auth != null;
-      allow create, update: if request.auth != null;
+      allow create, update: if canWriteForCurrentUser();
     }
 
-    // Public recipe index used for friend and public browsing.
+    // Public recipe index.
     match /publicRecipes/{recipeId} {
       allow read: if request.auth != null;
-      allow create: if request.auth != null
+      allow create: if canWriteForCurrentUser()
         && request.resource.data.ownerId == request.auth.uid;
-      allow update: if request.auth != null
+      allow update: if canWriteForCurrentUser()
         && resource.data.ownerId == request.auth.uid
         && request.resource.data.ownerId == request.auth.uid;
-      allow delete: if request.auth != null
+      allow delete: if canWriteForCurrentUser()
         && resource.data.ownerId == request.auth.uid;
     }
 
