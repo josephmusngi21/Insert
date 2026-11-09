@@ -3,14 +3,14 @@
  * Allows theme selection, notification settings, logout, etc.
  */
 
-import { useEffect, useMemo, useRef, useState, type ComponentRef } from "react";
-import { Alert, KeyboardAvoidingView, LayoutAnimation, Platform, ScrollView, Text, TextInput, TouchableOpacity, UIManager, View } from "react-native";
+import { useEffect, useRef, useState, type ComponentRef } from "react";
+import { Alert, KeyboardAvoidingView, LayoutAnimation, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, UIManager, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { deleteUser, getAuth, signOut, updateProfile, User } from "firebase/auth";
+import { EmailAuthProvider, getAuth, reauthenticateWithCredential, signOut, updateProfile, User } from "firebase/auth";
 import { onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
 import { ThemeColors } from "@/screens/settings/ThemeCustomizerScreen";
 import { ensureUserProfile, userDoc } from "@/screens/firebaseAuthLoginRegister/firebase/userDataService";
-import { deleteUserAccountFirestoreData } from "@/screens/utils/accountDeletion";
+import { requestAccountDeletion as submitAccountDeletion } from "@/screens/utils/accountDeletion";
 
 const COMMON_ALLERGENS = ["Peanuts", "Tree Nuts", "Milk", "Eggs", "Fish", "Shellfish", "Soy", "Wheat", "Sesame", "Gluten"];
 const COMMON_DIETARY_RESTRICTIONS = ["Vegan", "Vegetarian", "Pescatarian", "Gluten-Free", "Dairy-Free", "Halal", "Kosher", "Low-Carb", "Keto"];
@@ -44,6 +44,8 @@ export default function SettingsScreen({ userEmail, userAllergies = [], onAllerg
   const [isEditingDisplayName, setIsEditingDisplayName] = useState(false);
   const [displayNameDirty, setDisplayNameDirty] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [showDeletionReauthentication, setShowDeletionReauthentication] = useState(false);
+  const [deletionPassword, setDeletionPassword] = useState("");
   const [profileDiscoverable, setProfileDiscoverable] = useState(true);
   const [defaultRecipeVisibility, setDefaultRecipeVisibility] = useState<"private" | "public">("private");
   const [lastProfileSyncLabel, setLastProfileSyncLabel] = useState("-");
@@ -131,7 +133,7 @@ export default function SettingsScreen({ userEmail, userAllergies = [], onAllerg
       }
       setDisplayNameDirty(false);
       Alert.alert("Saved", "Your account settings were updated.");
-    } catch (error) {
+    } catch {
       Alert.alert("Save failed", "We could not update your settings right now.");
     } finally {
       setSaving(false);
@@ -264,26 +266,57 @@ export default function SettingsScreen({ userEmail, userAllergies = [], onAllerg
   };
 
   const executeAccountDeletion = async () => {
-    const uid = currentUser?.uid;
-    if (!uid || !currentUser) {
+    const user = auth.currentUser;
+    if (!user) {
       Alert.alert("Sign in required", "You need to be signed in to delete your account.");
       return;
     }
 
     setDeletingAccount(true);
     try {
-      await deleteUserAccountFirestoreData(uid);
-      await deleteUser(currentUser);
-      await signOut(auth).catch(() => undefined);
-      Alert.alert("Account deleted", "Your account and in-app data were deleted successfully.");
-    } catch (error: any) {
-      if (error?.code === "auth/requires-recent-login") {
+      const emailProvider = user.providerData.some(({ providerId }) => providerId === "password");
+      if (!user.email || !emailProvider) {
         Alert.alert(
-          "Recent login required",
-          "For security, please log out, log back in, and then try deleting your account again."
+          "Reauthentication unavailable",
+          "This account cannot be reauthenticated with a password. Sign in again before deleting your account."
         );
+        return;
+      }
+
+      await reauthenticateWithCredential(
+        user,
+        EmailAuthProvider.credential(user.email, deletionPassword)
+      );
+      await user.getIdToken(true);
+      await submitAccountDeletion();
+      setShowDeletionReauthentication(false);
+      setDeletionPassword("");
+      try {
+        await signOut(auth);
+      } catch (signOutError) {
+        const code = (signOutError as { code?: string } | null)?.code;
+        console.error("Could not clear the local session after account deletion:", code ?? "unknown-error");
+        Alert.alert(
+          "Account deleted",
+          "Your account was deleted, but this device could not clear its local session. Please restart the app."
+        );
+        return;
+      }
+      Alert.alert(
+        "Account deleted",
+        "Your account and personal Firestore data were deleted. Uploaded photos and references in other users' data are not removed in this phase."
+      );
+    } catch (error: unknown) {
+      const code = (error as { code?: string } | null)?.code;
+      if (code === "auth/invalid-credential" || code === "auth/wrong-password") {
+        Alert.alert("Reauthentication failed", "The password was not accepted. Please try again.");
+      } else if (code === "functions/failed-precondition" || code === "auth/requires-recent-login") {
+        Alert.alert("Recent login required", "Please sign in again, then retry account deletion.");
+      } else if (code === "functions/already-exists") {
+        Alert.alert("Deletion in progress", "Your account deletion is already being processed.");
       } else {
-        Alert.alert("Delete failed", "We could not delete your account right now. Please try again.");
+        console.error("Account deletion failed:", code ?? "unknown-error");
+        Alert.alert("Delete failed", "Account deletion did not complete. Please try again.");
       }
     } finally {
       setDeletingAccount(false);
@@ -305,7 +338,13 @@ export default function SettingsScreen({ userEmail, userAllergies = [], onAllerg
               "Are you sure you want to permanently delete your account?",
               [
                 { text: "Keep account", style: "cancel" },
-                { text: "Delete permanently", style: "destructive", onPress: () => void executeAccountDeletion() },
+                {
+                  text: "Continue",
+                  onPress: () => {
+                    setDeletionPassword("");
+                    setShowDeletionReauthentication(true);
+                  },
+                },
               ]
             );
           },
@@ -320,6 +359,7 @@ export default function SettingsScreen({ userEmail, userAllergies = [], onAllerg
   const profileInitial = (displayName.trim() || email || "U").slice(0, 1).toUpperCase();
 
   return (
+    <>
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: themeColors.backgroundColor }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -587,7 +627,7 @@ export default function SettingsScreen({ userEmail, userAllergies = [], onAllerg
       <View style={{ backgroundColor: cardBg, borderRadius: 20, padding: 16, borderWidth: 1, borderColor, marginBottom: 16 }}>
         <Text style={{ color: themeColors.textColor, fontSize: 15, fontWeight: "700", marginBottom: 8 }}>Account Deletion</Text>
         <Text style={{ color: isDark ? "#aaa" : "#777", marginBottom: 12, lineHeight: 20 }}>
-          You can permanently delete your account and in-app data directly from this screen.
+          You can permanently delete your account and personal Firestore data directly from this screen. Uploaded photos and references in other users&apos; data are not yet included.
         </Text>
         <TouchableOpacity
           onPress={clearAllergyAndDietaryData}
@@ -623,5 +663,71 @@ export default function SettingsScreen({ userEmail, userAllergies = [], onAllerg
       </View>
     </ScrollView>
     </KeyboardAvoidingView>
+    <Modal
+      visible={showDeletionReauthentication}
+      transparent
+      animationType="fade"
+      onRequestClose={() => {
+        if (!deletingAccount) setShowDeletionReauthentication(false);
+      }}
+    >
+      <View style={{ flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#0008" }}>
+        <View style={{ padding: 20, borderRadius: 16, backgroundColor: cardBg }}>
+          <Text style={{ color: themeColors.textColor, fontSize: 18, fontWeight: "700" }}>
+            Confirm your password
+          </Text>
+          <Text style={{ color: isDark ? "#aaa" : "#777", marginTop: 8, lineHeight: 20 }}>
+            Verify your identity before permanently deleting your account.
+          </Text>
+          <TextInput
+            value={deletionPassword}
+            onChangeText={setDeletionPassword}
+            placeholder="Password"
+            placeholderTextColor={isDark ? "#666" : "#aaa"}
+            secureTextEntry
+            autoComplete="current-password"
+            textContentType="password"
+            editable={!deletingAccount}
+            returnKeyType="done"
+            onSubmitEditing={() => void executeAccountDeletion()}
+            style={{
+              backgroundColor: inputBg,
+              borderColor,
+              borderWidth: 1,
+              borderRadius: 12,
+              paddingHorizontal: 14,
+              paddingVertical: 12,
+              color: themeColors.textColor,
+              marginTop: 16,
+            }}
+          />
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 16 }}>
+            <TouchableOpacity
+              disabled={deletingAccount}
+              onPress={() => setShowDeletionReauthentication(false)}
+              style={{ paddingVertical: 10, paddingHorizontal: 12 }}
+            >
+              <Text style={{ color: themeColors.textColor }}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              disabled={deletingAccount || !deletionPassword}
+              onPress={() => void executeAccountDeletion()}
+              style={{
+                backgroundColor: "#c62828",
+                borderRadius: 10,
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                opacity: deletingAccount || !deletionPassword ? 0.6 : 1,
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "700" }}>
+                {deletingAccount ? "Deleting..." : "Delete account"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+    </>
   );
 }
