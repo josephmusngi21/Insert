@@ -89,22 +89,31 @@ Then update Firebase config in:
 
 Replace the existing `firebaseConfig` values with your own project values.
 
-## 3) Firestore and Storage rules
+## 3) Firebase rules and Cloud Functions
 
 This repo includes:
 
 - firestore.rules
 - firebase.json
+- functions/ (including the callable account-deletion endpoint)
 
-You can deploy rules with Firebase CLI after login:
+Deploy Firestore rules and the callable function with Firebase CLI after login and selecting the correct Firebase project:
 
 ```bash
 firebase login
 firebase use --add
-firebase deploy --only firestore:rules
+firebase deploy --only firestore:rules,functions
 ```
 
 If your app uploads images/files, also ensure Storage rules are set appropriately in Firebase Console.
+
+Account deletion removes user-owned Firestore data, identified cross-account references, Storage objects under `recipePhotos/{uid}/` and `social/{uid}/` in the configured default bucket and its legacy `.appspot.com` / `.firebasestorage.app` alias when that bucket exists, and the Firebase Authentication account. Verify the app’s production bucket inventory before release.
+
+Run the end-to-end account-deletion test against the Firebase Auth, Firestore, and Storage emulators with:
+
+```bash
+npm run test:deletion
+```
 
 ## 4) Run the app
 
