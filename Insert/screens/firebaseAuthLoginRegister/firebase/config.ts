@@ -4,6 +4,7 @@ import { getApp, getApps, initializeApp } from "firebase/app";
 import { getAuth, getReactNativePersistence, initializeAuth, type Auth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { getFunctions } from "firebase/functions";
 // Note: getAnalytics removed because it requires 'window' object which doesn't exist in React Native
 
 // Optionally import the services that you want to use
@@ -31,3 +32,4 @@ function createAuth(): Auth {
 export const auth = createAuth();
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+export const functions = getFunctions(app, "us-central1");
