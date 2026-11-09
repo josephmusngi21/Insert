@@ -10,7 +10,8 @@
     "ios": "node node_modules/expo/bin/cli start --ios --host lan",
     "web": "node node_modules/expo/bin/cli start --web",
     "lint": "node node_modules/expo/bin/cli lint",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-insert \"node --test tests/*.test.js\""
+    "test:rules": "firebase emulators:exec --only firestore --project demo-insert \"node --test tests/*.test.js\"",
+    "test:deletion": "firebase emulators:exec --only auth,firestore,storage --project demo-insert \"node --test functions/tests/*.test.js\""
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
